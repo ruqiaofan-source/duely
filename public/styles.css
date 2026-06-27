@@ -255,7 +255,8 @@ button.ghost {
 /* animated logo (header + intro) */
 .logo { position: relative; overflow: hidden; }
 .logo .ball, .intro-logo .ball { display: block; width: 76%; height: 76%; filter: drop-shadow(0 2px 4px rgba(0,0,0,.25)); }
-.ball-spin { transform-box: fill-box; transform-origin: center; animation: ballSpin 9s linear infinite; }
+.ball-spin { transform-box: fill-box; transform-origin: 50% 50%; animation: ballSpin 9s linear infinite; }
+.intro-logo .ball-spin { animation-duration: 2.2s; } /* visibly spins during the short intro */
 @keyframes ballSpin { to { transform: rotate(360deg); } }
 .logo::after {
   content: ''; position: absolute; inset: 0;
@@ -409,6 +410,10 @@ body.has-tabbar .wrap { padding-bottom: 96px; }
 /* responsible-design net line */
 .resp { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-top: 12px; justify-content: center; }
 .resp b { color: var(--text); font-variant-numeric: tabular-nums; }
-.checkrow { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; }
-.checkrow input { width: 20px; height: 20px; flex: 0 0 auto; margin-top: 1px; accent-color: var(--teal); }
-.checkrow label { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.checkrow { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 13px 14px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--surface-2); cursor: pointer; transition: border-color .2s, background .2s, box-shadow .2s; }
+.checkrow:has(input:checked) { border-color: var(--teal); background: rgba(20,224,200,.10); box-shadow: 0 0 22px rgba(20,224,200,.14); }
+.checkrow input { appearance: none; -webkit-appearance: none; width: 26px; height: 26px; flex: 0 0 auto; border: 2px solid var(--teal); border-radius: 8px; background: transparent; cursor: pointer; position: relative; transition: all .18s ease; }
+.checkrow input:checked { background: var(--teal); box-shadow: 0 0 0 4px rgba(20,224,200,.22), 0 0 16px rgba(20,224,200,.55); }
+.checkrow input:checked::after { content: ''; position: absolute; left: 8px; top: 3.5px; width: 6px; height: 12px; border: solid #06140f; border-width: 0 3px 3px 0; transform: rotate(45deg); }
+.checkrow label { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; cursor: pointer; }
+.checkrow:has(input:checked) label { color: var(--text); }

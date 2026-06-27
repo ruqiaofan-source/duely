@@ -24,6 +24,17 @@ const path = require('path');
 const crypto = require('crypto');
 const cards = require('./cards');
 
+// minimal .env loader (zero-dep) so secrets like FOOTBALL_DATA_TOKEN stay out of git
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  }
+} catch {}
+
 const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
@@ -111,10 +122,14 @@ async function fetchLiveResult(externalId) {
   const w = json.score?.winner;
   return w === 'HOME_TEAM' ? 'HOME' : w === 'AWAY_TEAM' ? 'AWAY' : w === 'DRAW' ? 'DRAW' : null;
 }
+let _matchCache = { t: 0, data: null };
 async function getMatches() {
   if (FOOTBALL_TOKEN) {
-    try { const live = await fetchLiveMatches(); if (live.length) return live; }
-    catch (e) { console.warn('live fetch failed, using demo:', e.message); }
+    if (_matchCache.data && Date.now() - _matchCache.t < 60000) return _matchCache.data; // respect rate limits
+    try {
+      const live = await fetchLiveMatches();
+      if (live.length) { _matchCache = { t: Date.now(), data: live }; return live; }
+    } catch (e) { console.warn('live fetch failed, using demo:', e.message); }
   }
   return demoMatches();
 }
@@ -464,7 +479,11 @@ async function handleApi(req, res, url) {
     const s = db.stats || {};
     const created = s.bet_created || 0, opened = s.link_opened || 0, accepted = s.bet_accepted || 0, resolved = s.bet_resolved || 0;
     const rematch = (db.events || []).filter((e) => e.type === 'bet_created' && e.rematch).length;
+    const names = new Set();
+    Object.values(db.bets).forEach((b) => { if (b.proposerName) names.add(norm(b.proposerName)); if (b.opponentName) names.add(norm(b.opponentName)); });
+    Object.values(db.leagues).forEach((l) => l.members.forEach((mm) => names.add(norm(mm))));
     return sendJson(res, 200, {
+      totals: { players: names.size, bets: Object.keys(db.bets).length, leagues: Object.keys(db.leagues).length },
       funnel: {
         created, opened, accepted, resolved, rematch,
         acceptRate: created ? +(accepted / created).toFixed(2) : 0,

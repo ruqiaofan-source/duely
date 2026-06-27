@@ -4,3 +4,4 @@ data.json
 *.tmp
 *.output
 .DS_Store
+.env
