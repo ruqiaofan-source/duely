@@ -255,9 +255,11 @@ button.ghost {
 /* animated logo (header + intro) */
 .logo { position: relative; overflow: hidden; }
 .logo .ball, .intro-logo .ball { display: block; width: 76%; height: 76%; filter: drop-shadow(0 2px 4px rgba(0,0,0,.25)); }
-.ball-spin { transform-box: fill-box; transform-origin: 50% 50%; animation: ballSpin 9s linear infinite; }
-.intro-logo .ball-spin { animation-duration: 2.2s; } /* visibly spins during the short intro */
+.ball-spin { transform-box: fill-box; transform-origin: 50% 50%; animation: ballSpin 6s linear infinite; }
+/* dramatic spin-in on the entry page (2 full rotations as it scales in), then a quick continuous spin */
+.intro-logo .ball-spin { animation: ballKick 1.4s cubic-bezier(.15,.85,.25,1) .15s both, ballSpin 1.6s linear 1.55s infinite; }
 @keyframes ballSpin { to { transform: rotate(360deg); } }
+@keyframes ballKick { 0% { transform: rotate(0deg) scale(.2); } 70% { transform: rotate(560deg) scale(1.12); } 100% { transform: rotate(720deg) scale(1); } }
 .logo::after {
   content: ''; position: absolute; inset: 0;
   background: linear-gradient(115deg, transparent 42%, rgba(255,255,255,.42) 50%, transparent 58%);
@@ -307,8 +309,7 @@ button.cta.commit { animation: commitPulse 3s ease-in-out infinite; }
 @keyframes commitPulse { 0%,100% { box-shadow: 0 8px 22px rgba(255,71,87,.30); } 50% { box-shadow: 0 10px 34px rgba(255,71,87,.52); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .amb-aurora, .ball-spin, .logo::after,
-  button.cta::after, button.cta.commit, .intro, .intro-beam, .intro-core { animation: none !important; }
+  .amb-aurora, .logo::after, button.cta::after, button.cta.commit { animation: none !important; }
 }
 
 /* =========================================================
