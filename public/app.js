@@ -20,6 +20,7 @@ const initials = (n) => String(n || '?').trim().slice(0, 2).toUpperCase();
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1900); }
 // haptics — progressive enhancement (Android Chrome; iOS Safari no-ops). Respects reduced-motion.
 function haptic(p) { try { if (navigator.vibrate && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(p); } catch {} }
+function track(ev, props) { try { if (window.posthog) window.posthog.capture(ev, props || {}); } catch {} }
 
 // ---- bottom sheet ----
 function openSheet(html) {
@@ -179,6 +180,7 @@ async function route() {
   app.innerHTML = '<div class="spin">Loading…</div>';
   try { CONFIG = await api('/config'); } catch {}
   renderHeader();
+  const _me = me.get(); if (_me && window.posthog) { try { posthog.identify(_me.token, { name: _me.name }); } catch {} }
   if (id) { setTab(null); return renderBet(id); }
   if (code) { setTab('league'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
   if (!me.get()) { setTab(null); return renderOnboarding(); }
@@ -512,6 +514,7 @@ async function renderCreate() {
         backedOutcome: state.backedOutcome, stake, currency: $('#currency').value, note: $('#note').value.trim(), rematch: Boolean(rematchOf || copy),
       }) });
       roleStore.set(bet.id, 'proposer'); PREFILL = null;
+      track('bet_created', { stake });
       closeSheet();
       history.pushState({}, '', '/b/' + bet.id); renderBet(bet.id);
     } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Lock it in & get link →'; }
@@ -599,6 +602,7 @@ async function renderBet(id, opts = {}) {
       const btn = $('#acceptBtn'); btn.disabled = true; $('.card').classList.add('locking'); haptic(22);
       try {
         await api('/bets/' + id + '/accept', { method: 'POST', body: JSON.stringify({ opponentName }) });
+        track('bet_accepted');
         if (!m) me.set(opponentName);
         roleStore.set(id, 'opponent');
         sealThen(() => renderBet(id));
@@ -622,39 +626,38 @@ async function renderBet(id, opts = {}) {
         ${reactionsHtml(bet)}
       </div>`;
     const zone = $('#resolveZone');
-    if (CONFIG.live && bet.externalId) {
-      zone.innerHTML = `<button class="cta" id="autoBtn">Check final result</button><div class="banner">Auto-resolves from football-data.org once the match is finished.</div>`;
+    const pend = bet.pendingResult;
+    const meName = m ? m.name : '';
+    const other = otherSide(bet, m);
+    const showReportSeg = () => {
+      zone.innerHTML = `
+        <label>Report the final result</label>
+        <div class="seg" id="resSeg">
+          <button data-o="HOME">${esc(bet.home)} won</button>
+          <button data-o="DRAW">Draw</button>
+          <button data-o="AWAY">${esc(bet.away)} won</button>
+        </div>
+        <div class="banner">Your mate confirms it before it's final — keeps it honest 🤝</div>`;
+      $('#resSeg').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => doResolve(id, b.dataset.o)));
+    };
+    if (pend && pend.by && meName && norm(pend.by) === norm(meName)) {
+      zone.innerHTML = `
+        <div class="banner" style="margin-bottom:10px">You reported <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b>. Waiting for ${esc(other)} to confirm…</div>
+        <button class="ghost" id="changeBtn">Change my report</button>`;
+      $('#changeBtn').addEventListener('click', showReportSeg);
+    } else if (pend && meName) {
+      zone.innerHTML = `
+        <div class="banner" style="margin-bottom:10px">${esc(pend.by || 'Your mate')} says it finished: <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b></div>
+        <button class="cta gold" id="confirmBtn">Confirm result ✓</button>
+        <button class="ghost" id="disputeBtn">No — report a different result</button>`;
+      $('#confirmBtn').addEventListener('click', () => doConfirm(id));
+      $('#disputeBtn').addEventListener('click', showReportSeg);
+    } else if (CONFIG.live && bet.externalId) {
+      zone.innerHTML = `<button class="cta" id="autoBtn">Check final result</button><div class="banner">Auto-resolves from the live feed once the match is finished.</div><button class="muted-link" id="manualBtn">Match over but the feed's not updating? Report it manually</button>`;
       $('#autoBtn').addEventListener('click', () => doResolve(id, null));
+      $('#manualBtn').addEventListener('click', showReportSeg);
     } else {
-      const pend = bet.pendingResult;
-      const meName = m ? m.name : '';
-      const other = otherSide(bet, m);
-      const showReportSeg = () => {
-        zone.innerHTML = `
-          <label>Report the final result</label>
-          <div class="seg" id="resSeg">
-            <button data-o="HOME">${esc(bet.home)} won</button>
-            <button data-o="DRAW">Draw</button>
-            <button data-o="AWAY">${esc(bet.away)} won</button>
-          </div>
-          <div class="banner">Your mate confirms it before it's final — keeps it honest 🤝</div>`;
-        $('#resSeg').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => doResolve(id, b.dataset.o)));
-      };
-      if (pend && pend.by && meName && norm(pend.by) === norm(meName)) {
-        zone.innerHTML = `
-          <div class="banner" style="margin-bottom:10px">You reported <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b>. Waiting for ${esc(other)} to confirm…</div>
-          <button class="ghost" id="changeBtn">Change my report</button>`;
-        $('#changeBtn').addEventListener('click', showReportSeg);
-      } else if (pend && meName) {
-        zone.innerHTML = `
-          <div class="banner" style="margin-bottom:10px">${esc(pend.by || 'Your mate')} says it finished: <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b></div>
-          <button class="cta gold" id="confirmBtn">Confirm result ✓</button>
-          <button class="ghost" id="disputeBtn">No — report a different result</button>`;
-        $('#confirmBtn').addEventListener('click', () => doConfirm(id));
-        $('#disputeBtn').addEventListener('click', showReportSeg);
-      } else {
-        showReportSeg();
-      }
+      showReportSeg();
     }
     wireReactions(id);
     return;
@@ -751,7 +754,7 @@ async function doResolve(id, actualOutcome) {
 }
 async function doConfirm(id) {
   const m = me.get();
-  try { await api('/bets/' + id + '/confirm', { method: 'POST', body: JSON.stringify({ confirmerName: m ? m.name : undefined }) }); renderBet(id); }
+  try { await api('/bets/' + id + '/confirm', { method: 'POST', body: JSON.stringify({ confirmerName: m ? m.name : undefined }) }); track('bet_resolved'); renderBet(id); }
   catch (e) { toast(e.message); }
 }
 

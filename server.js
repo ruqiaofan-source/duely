@@ -125,7 +125,7 @@ async function fetchLiveResult(externalId) {
 let _matchCache = { t: 0, data: null };
 async function getMatches() {
   if (FOOTBALL_TOKEN) {
-    if (_matchCache.data && Date.now() - _matchCache.t < 60000) return _matchCache.data; // respect rate limits
+    if (_matchCache.data && Date.now() - _matchCache.t < 300000) return _matchCache.data; // 5-min cache to respect the 10/min upstream limit
     try {
       const live = await fetchLiveMatches();
       if (live.length) { _matchCache = { t: Date.now(), data: live }; return live; }
@@ -283,7 +283,7 @@ function cardSvgForBet(bet) {
     STAKE: sym(bet.currency) + bet.stake,
     BACKED: outcomeLabel(bet, bet.backedOutcome),
     COMPLEMENT: complementLabel(bet),
-    NOTE: bet.note || '',
+    NOTE: bet.note ? (bet.note.length > 52 ? bet.note.slice(0, 51) + '…' : bet.note) : '',
   };
   if (bet.status === 'resolved' || bet.status === 'settled') {
     const winner = winnerName(bet);
@@ -490,7 +490,6 @@ async function handleApi(req, res, url) {
         resolveRate: accepted ? +(resolved / accepted).toFixed(2) : 0,
       },
       stats: s,
-      recent: (db.events || []).slice(-40).reverse(),
     });
   }
 
@@ -600,6 +599,7 @@ async function handleApi(req, res, url) {
       const b = await readBody(req);
       if (bet.status !== 'open') return sendJson(res, 409, { error: 'Bet already taken' });
       if (!b.opponentName) return sendJson(res, 400, { error: 'Name required' });
+      if (norm(b.opponentName) === norm(bet.proposerName)) return sendJson(res, 409, { error: "That's your own bet — send the link to a mate to take the other side." });
       bet.opponentName = String(b.opponentName).slice(0, 40);
       bet.status = 'accepted';
       bet.acceptedAt = new Date().toISOString();
@@ -620,8 +620,12 @@ async function handleApi(req, res, url) {
         } catch (e) { console.warn('live result failed:', e.message); }
       }
       if (!OUTCOMES.includes(b.actualOutcome)) return sendJson(res, 400, { error: 'Provide the final result' });
-      // manual: record the claim; the OTHER player must confirm before it's final (anti-cheat)
-      bet.pendingResult = { outcome: b.actualOutcome, by: b.reporterName ? String(b.reporterName).slice(0, 40) : null };
+      // manual: only a participant can report, and the OTHER player must confirm before it's final (anti-cheat)
+      const reporter = b.reporterName ? String(b.reporterName).slice(0, 40) : '';
+      if (!reporter || (norm(reporter) !== norm(bet.proposerName) && norm(reporter) !== norm(bet.opponentName))) {
+        return sendJson(res, 403, { error: 'Only a player in this bet can report the result.' });
+      }
+      bet.pendingResult = { outcome: b.actualOutcome, by: reporter };
       saveData(db);
       return sendJson(res, 200, bet);
     }
@@ -631,8 +635,10 @@ async function handleApi(req, res, url) {
       if (!bet.pendingResult || !OUTCOMES.includes(bet.pendingResult.outcome)) return sendJson(res, 409, { error: 'Nothing to confirm yet' });
       const b = await readBody(req);
       const who = b.confirmerName ? String(b.confirmerName).slice(0, 40) : '';
-      if (bet.pendingResult.by && norm(who) === norm(bet.pendingResult.by)) {
-        return sendJson(res, 403, { error: 'The other player has to confirm — not whoever reported it.' });
+      const reporter = bet.pendingResult.by;
+      const counterparty = norm(reporter) === norm(bet.proposerName) ? bet.opponentName : bet.proposerName;
+      if (!who || norm(who) !== norm(counterparty)) {
+        return sendJson(res, 403, { error: 'Only the other player can confirm the result.' });
       }
       resolveBet(bet, bet.pendingResult.outcome);
       delete bet.pendingResult;
@@ -710,6 +716,7 @@ function serveLeagueHtml(req, res, code) {
 // ---------------------------------------------------------------------------
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
   if (url.pathname.startsWith('/api/')) {
     try { await handleApi(req, res, url); }
     catch (e) { console.error(e); sendJson(res, 500, { error: 'Server error' }); }

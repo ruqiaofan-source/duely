@@ -11,6 +11,7 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: node server.js
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
         value: "22"
