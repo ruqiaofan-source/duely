@@ -1,21 +1,29 @@
 :root {
-  /* Pitch & Prize palette */
-  --bg: #0B0F14;          /* stadium navy-black */
-  --surface: #161C26;     /* raised slate cards */
-  --surface-2: #1E2735;
-  --line: #2A3340;
-  --teal: #14E0C8;        /* brand / trust + energy */
-  --teal-dim: #0FB3A1;
-  --red: #FF4757;         /* rationed: the commit action only */
+  /* Floodlit palette — luminance-stepped surface ramp (premium dark mode) */
+  --bg: #0A0E13;          /* canvas — deeper for OLED black-point + glow contrast */
+  --surface: #131A24;     /* level 1 — cards / panels */
+  --surface-2: #1B2430;   /* level 2 — nested cards, hover, segments */
+  --surface-3: #25303E;   /* level 3 — modals / overlays / sheets */
+  --line: #33414F;        /* hairlines / dividers */
+  --teal: #14E0C8;        /* brand / primary CTA */
+  --teal-bright: #2FF3DC; /* hover / peak-chroma strokes (small areas only) */
+  --teal-dim: #0BA899;    /* pressed / large fills (APCA-safe) */
+  --indigo: #5B6CFF;      /* bridge accent — links / secondary */
+  --purple: #7C3AED;      /* rivalry / versus (scarce) */
+  --red: #FF5063;         /* rationed: the commit action only */
   --gold: #FFC83D;        /* winning / trophy / #1 */
-  --green: #2ED573;       /* win / positive */
+  --green: #2BD17E;       /* money / positive (de-clichéd, cooler) */
   --loss: #E63946;        /* negative */
   --amber: #FF8C42;       /* streak flame */
-  --text: #F5F7FA;
-  --muted: #9AA7B8;
-  --muted-2: #6B7A90;
+  --text: #F4F7FB;
+  --muted: #93A1B3;
+  --muted-2: #5E6B7C;
   --radius: 16px;
-  --shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  /* signature gradient — "Floodlit Teal" aurora */
+  --aurora: radial-gradient(120% 90% at 15% 0%, rgba(24,232,255,.20) 0%, transparent 45%),
+            radial-gradient(110% 80% at 85% 8%, rgba(91,108,255,.18) 0%, transparent 50%),
+            linear-gradient(160deg, rgba(20,224,200,.10) 0%, rgba(91,108,255,.06) 55%, transparent 100%);
 }
 
 * { box-sizing: border-box; }
@@ -259,7 +267,7 @@ button.ghost {
 /* intro — floodlights on */
 .no-intro .intro { display: none; }
 .intro {
-  position: fixed; inset: 0; z-index: 100; background: #06080c;
+  position: fixed; inset: 0; z-index: 100; background: var(--aurora), #06080c;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
   animation: introOut .55s ease 1.2s forwards;
 }
@@ -301,6 +309,102 @@ button.cta.commit { animation: commitPulse 3s ease-in-out infinite; }
   .amb-aurora, .ball-spin, .logo::after,
   button.cta::after, button.cta.commit, .intro, .intro-beam, .intro-core { animation: none !important; }
 }
+
+/* =========================================================
+   Motion system, tab bar, sheet, reactions, odometer
+   ========================================================= */
+:root {
+  --smooth: cubic-bezier(.4, 0, .2, 1);          /* content / screen changes */
+  --snappy: cubic-bezier(.2, .9, .25, 1);        /* controls / taps */
+  --bouncy: cubic-bezier(.18, 1.5, .4, 1);       /* celebration only */
+  --glass: rgba(19, 26, 36, 0.72);
+}
+
+/* ---- bottom tab bar (thumb-zone IA) ---- */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: none; grid-template-columns: repeat(4, 1fr);
+  gap: 2px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  background: var(--glass); backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border-top: 1px solid rgba(255, 255, 255, .06);
+}
+body.has-tabbar .tabbar { display: grid; }
+body.has-tabbar .wrap { padding-bottom: 96px; }
+.tab {
+  background: none; border: none; color: var(--muted-2); font-family: inherit; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0; border-radius: 12px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .3px; transition: color .2s var(--snappy), transform .2s var(--snappy);
+}
+.tab .ti { font-size: 19px; line-height: 1; filter: grayscale(.4) opacity(.7); transition: filter .2s, transform .2s var(--snappy); }
+.tab.active { color: var(--teal); }
+.tab.active .ti { filter: none; transform: translateY(-1px) scale(1.08); }
+.tab:active { transform: scale(.92); }
+
+/* ---- bottom sheet ---- */
+.sheet-scrim {
+  position: fixed; inset: 0; z-index: 90; background: rgba(4, 6, 10, .6);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  display: none; align-items: flex-end; justify-content: center; opacity: 0; transition: opacity .25s var(--smooth);
+}
+.sheet-scrim.open { display: flex; opacity: 1; }
+.sheet {
+  width: 100%; max-width: 480px; max-height: 92vh; overflow: hidden;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--line); border-bottom: none;
+  border-radius: 24px 24px 0 0; box-shadow: 0 -20px 60px rgba(0, 0, 0, .55);
+  transform: translateY(14px); opacity: .6; transition: transform .32s var(--bouncy), opacity .2s var(--smooth);
+  display: flex; flex-direction: column;
+}
+.sheet-scrim.open .sheet { transform: translateY(0); opacity: 1; }
+.sheet-handle { width: 40px; height: 4px; border-radius: 99px; background: var(--line); margin: 10px auto 2px; flex: 0 0 auto; }
+.sheet-head { padding: 6px 18px 4px; display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; }
+.sheet-head h2 { font-size: 18px; margin: 0; }
+.sheet-x { background: var(--surface-3); border: 1px solid var(--line); color: var(--muted); width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 15px; line-height: 1; }
+.sheet-body { padding: 4px 18px 14px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.sheet-foot {
+  flex: 0 0 auto; padding: 12px 18px calc(14px + env(safe-area-inset-bottom));
+  background: var(--glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255, 255, 255, .05);
+}
+.sheet-foot .cta { margin-top: 0; }
+
+/* ---- in-card emoji reactions ---- */
+.reacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; align-items: center; }
+.react-chip {
+  display: inline-flex; align-items: center; gap: 5px; background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: 5px 11px; font-size: 14px; cursor: pointer; font-family: inherit; color: var(--text);
+  transition: transform .15s var(--snappy), border-color .15s, background .15s;
+}
+.react-chip:active { transform: scale(.9); }
+.react-chip.mine { border-color: var(--teal); background: rgba(20, 224, 200, .1); }
+.react-chip .ct { font-size: 12px; font-weight: 800; color: var(--muted); }
+.react-add { color: var(--muted-2); }
+.react-pop { display: flex; gap: 4px; margin-top: 8px; }
+.react-pop button { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; font-size: 18px; padding: 6px 9px; cursor: pointer; transition: transform .12s var(--snappy); }
+.react-pop button:active { transform: scale(.85); }
+
+/* ---- odometer (rolling digits) ---- */
+.odo { display: inline-flex; font-variant-numeric: tabular-nums; line-height: 1; }
+.odo .col { overflow: hidden; height: 1em; }
+.odo .col .strip { display: flex; flex-direction: column; will-change: transform; }
+.odo .col .strip span { height: 1em; display: flex; align-items: center; justify-content: center; }
+
+/* ---- league row reveal (scroll-driven where supported) ---- */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .lg-row { animation: rowIn linear both; animation-timeline: view(); animation-range: entry 0% entry 30%; }
+    @keyframes rowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  }
+}
+.lg-row.climb { animation: climbFlash 1.1s var(--smooth); }
+@keyframes climbFlash { 0%, 100% { background: transparent; } 30% { background: rgba(255, 200, 61, .14); } }
+
+/* ---- live duel hero / glass card ---- */
+.hero-duel {
+  background: var(--aurora), linear-gradient(160deg, var(--surface-2), var(--surface));
+  border: 1px solid rgba(124, 58, 237, .35);
+}
+.glass { background: var(--glass); backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2); }
 
 /* responsible-design net line */
 .resp { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-top: 12px; justify-content: center; }

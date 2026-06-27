@@ -63,6 +63,38 @@ const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/sv
 <text x="600" y="582" class="inter" text-anchor="middle" font-size="18" font-weight="700" fill="#9AA7B8">join code <tspan class="anton" font-size="22" fill="#14E0C8" letter-spacing="2">{{CODE}}</tspan></text>
 </svg>`;
 
+// 1080x1920 story / reel variant (Instagram/WhatsApp status)
+const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely story card">
+<defs>
+<style>@import url('https://fonts.googleapis.com/css2?family=Anton&amp;family=Inter:wght@400;600;700;800;900&amp;display=swap');
+.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}.inter{font-family:'Inter',system-ui,sans-serif;}</style>
+<linearGradient id="sBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0A0E13"/></linearGradient>
+<radialGradient id="sGlow" cx="50%" cy="20%" r="70%"><stop offset="0" stop-color="{{ACCENT}}" stop-opacity="0.18"/><stop offset="1" stop-color="{{ACCENT}}" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1080" height="1920" fill="#0A0E13"/>
+<rect width="1080" height="1920" fill="url(#sBg)"/>
+<rect width="1080" height="1920" fill="url(#sGlow)"/>
+<rect x="0" y="0" width="1080" height="10" fill="{{ACCENT}}"/>
+<g class="inter">
+<rect x="72" y="100" width="78" height="78" rx="20" fill="#14E0C8"/>
+<circle cx="111" cy="139" r="22" fill="none" stroke="#0B0F14" stroke-width="4"/><polygon points="111,123 124,133 119,148 103,148 98,133" fill="#0B0F14"/>
+<text x="172" y="144" class="anton" font-size="56" fill="#F5F7FA" letter-spacing="1">DUELY</text>
+<text x="174" y="176" class="inter" font-size="20" font-weight="700" fill="#14E0C8" letter-spacing="3">BACK YOURSELF.</text>
+</g>
+<rect x="72" y="320" width="360" height="60" rx="30" fill="#161C26" stroke="{{ACCENT}}" stroke-width="2"/>
+<text x="252" y="360" class="inter" text-anchor="middle" font-size="26" font-weight="800" fill="{{ACCENT}}" letter-spacing="3">{{BADGE}}</text>
+<text x="72" y="580" class="inter" font-size="36" font-weight="700" fill="#93A1B3">{{SUB}}</text>
+<text x="72" y="720" class="anton" font-size="120" fill="{{ACCENT}}">{{HERO}}</text>
+<rect x="72" y="840" width="936" height="104" rx="24" fill="#161C26" stroke="#2A3340" stroke-width="2"/>
+<text x="540" y="906" class="inter" text-anchor="middle" font-size="42" font-weight="800" fill="#F5F7FA">{{HOME}}  v  {{AWAY}}</text>
+<text x="72" y="1110" class="inter" font-size="28" font-weight="800" fill="#93A1B3" letter-spacing="2">THE STAKE</text>
+<text x="72" y="1250" class="anton" font-size="140" fill="#2BD17E">{{STAKE}}</text>
+<text x="72" y="1320" class="inter" font-size="30" font-weight="700" fill="#93A1B3">winner takes the bragging rights</text>
+<rect x="72" y="1690" width="936" height="124" rx="30" fill="{{ACCENT}}"/>
+<text x="540" y="1768" class="inter" text-anchor="middle" font-size="42" font-weight="900" fill="#06140f">{{FOOT}}</text>
+<text x="540" y="1862" class="inter" text-anchor="middle" font-size="28" font-weight="800" fill="#5E6B7C" letter-spacing="2">duely.live</text>
+</svg>`;
+
 function challengeSvg(data) {
   // Per design notes: never leave the trash-talk panel hollow.
   const d = { ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'easy money.' };
@@ -70,6 +102,7 @@ function challengeSvg(data) {
 }
 function resultSvg(data) { return fill(RESULT_TPL, data); }
 function leagueSvg(data) { return fill(LEAGUE_TPL, data); }
+function storySvg(data) { return fill(STORY_TPL, data); }
 
 function renderPng(svg) {
   if (!Resvg) return null;
@@ -83,4 +116,4 @@ function renderPng(svg) {
   } catch (e) { console.warn('card png render failed:', e.message); return null; }
 }
 
-module.exports = { challengeSvg, resultSvg, leagueSvg, renderPng, hasRasterizer: Boolean(Resvg) };
+module.exports = { challengeSvg, resultSvg, leagueSvg, storySvg, renderPng, hasRasterizer: Boolean(Resvg) };

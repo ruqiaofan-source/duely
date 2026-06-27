@@ -282,6 +282,21 @@ function cardSvgForBet(bet) {
   return cards.challengeSvg(data);
 }
 
+function storySvgForBet(bet) {
+  const resolved = bet.status === 'resolved' || bet.status === 'settled';
+  const accent = resolved ? '#FFC83D' : '#14E0C8';
+  let badge, hero, sub, foot;
+  if (resolved) {
+    badge = 'FULL TIME'; hero = winnerName(bet);
+    sub = 'called it — ' + outcomeLabel(bet, bet.actualOutcome);
+    foot = rivalryLine(bet.proposerName, bet.opponentName);
+  } else {
+    badge = 'OPEN BET'; hero = outcomeLabel(bet, bet.backedOutcome);
+    sub = bet.proposerName + ' is backing'; foot = 'Take the other side →';
+  }
+  return cards.storySvg({ BADGE: badge, HERO: hero, SUB: sub, ACCENT: accent, HOME: bet.home, AWAY: bet.away, STAKE: sym(bet.currency) + bet.stake, FOOT: foot });
+}
+
 function serveCard(req, res, url) {
   const m = url.pathname.match(/^\/card\/([a-f0-9]+)\.(svg|png)$/);
   if (!m) { res.writeHead(404); return res.end('Not found'); }
@@ -298,6 +313,18 @@ function serveCard(req, res, url) {
     return res.end(png);
   }
   res.writeHead(302, { Location: `/card/${m[1]}.svg` }); res.end();
+}
+
+function serveStoryCard(req, res, url) {
+  const m = url.pathname.match(/^\/storycard\/([a-f0-9]+)\.(svg|png)$/);
+  if (!m) { res.writeHead(404); return res.end('Not found'); }
+  const bet = db.bets[m[1]];
+  if (!bet) { res.writeHead(404); return res.end('No such bet'); }
+  const svg = storySvgForBet(bet);
+  if (m[2] === 'svg') { res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-cache' }); return res.end(svg); }
+  const png = cards.renderPng(svg);
+  if (png) { res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' }); return res.end(png); }
+  res.writeHead(302, { Location: `/storycard/${m[1]}.svg` }); res.end();
 }
 
 const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -465,6 +492,24 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { leagues });
   }
 
+  // GET /api/players/:name/bets — for the Duels tab (active + history)
+  if (req.method === 'GET' && parts[1] === 'players' && parts[2] && parts[3] === 'bets') {
+    const name = decodeURIComponent(parts[2]);
+    const mine = Object.values(db.bets).filter((b) => involves(b, name));
+    const map = (b) => ({
+      id: b.id, home: b.home, away: b.away, status: b.status,
+      opponent: b.opponentName ? otherName(b, name) : null,
+      backed: outcomeLabel(b, b.backedOutcome), stake: b.stake, currency: b.currency,
+      mine: norm(b.proposerName) === norm(name),
+      won: (b.status === 'resolved' || b.status === 'settled') ? norm(winnerName(b)) === norm(name) : null,
+      pending: Boolean(b.pendingResult), createdAt: b.createdAt,
+    });
+    const active = mine.filter((b) => b.status === 'open' || b.status === 'accepted')
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map(map);
+    const history = mine.filter((b) => b.status === 'resolved' || b.status === 'settled').sort(byRecent).map(map);
+    return sendJson(res, 200, { active, history });
+  }
+
   // GET /api/rivalry?a=&b=
   if (req.method === 'GET' && parts[1] === 'rivalry') {
     const a = url.searchParams.get('a'), b = url.searchParams.get('b');
@@ -581,6 +626,19 @@ async function handleApi(req, res, url) {
       bet.status = 'settled'; bet.settledAt = new Date().toISOString(); saveData(db);
       return sendJson(res, 200, bet);
     }
+
+    if (req.method === 'POST' && action === 'react') {
+      const b = await readBody(req);
+      const emoji = String(b.emoji || '').slice(0, 8);
+      const by = String(b.by || '').slice(0, 40);
+      if (!emoji || !by) return sendJson(res, 400, { error: 'emoji and name required' });
+      if (!bet.reactions) bet.reactions = [];
+      const idx = bet.reactions.findIndex((r) => norm(r.by) === norm(by) && r.emoji === emoji);
+      if (idx >= 0) bet.reactions.splice(idx, 1); else bet.reactions.push({ by, emoji });
+      logEvent('reaction', { id: bet.id }, false);
+      saveData(db);
+      return sendJson(res, 200, bet);
+    }
   }
 
   return sendJson(res, 404, { error: 'Unknown endpoint' });
@@ -639,6 +697,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname.startsWith('/card/')) return serveCard(req, res, url);
+  if (url.pathname.startsWith('/storycard/')) return serveStoryCard(req, res, url);
   if (url.pathname.startsWith('/lcard/')) return serveLeagueCard(req, res, url);
   // canonical share link (/b/:id) and legacy (/?b=:id) get OG meta injected
   const shareMatch = url.pathname.match(/^\/b\/([a-f0-9]+)$/);

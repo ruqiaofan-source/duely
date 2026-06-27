@@ -18,6 +18,63 @@ const signed = (n, c) => `${n >= 0 ? '+' : '−'}${sym(c)}${Math.abs(n)}`;
 const initials = (n) => String(n || '?').trim().slice(0, 2).toUpperCase();
 
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1900); }
+// haptics — progressive enhancement (Android Chrome; iOS Safari no-ops). Respects reduced-motion.
+function haptic(p) { try { if (navigator.vibrate && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(p); } catch {} }
+
+// ---- bottom sheet ----
+function openSheet(html) {
+  const scrim = document.getElementById('sheetScrim');
+  document.getElementById('sheetPanel').innerHTML = html;
+  scrim.classList.add('open'); scrim.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+}
+function closeSheet() {
+  const scrim = document.getElementById('sheetScrim');
+  scrim.classList.remove('open'); scrim.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+  setTimeout(() => { const p = document.getElementById('sheetPanel'); if (p && !scrim.classList.contains('open')) p.innerHTML = ''; }, 300);
+}
+
+// ---- tab bar ----
+function setTab(name) {
+  const bar = document.getElementById('tabbar'); if (!bar) return;
+  document.body.classList.toggle('has-tabbar', Boolean(me.get()) && Boolean(name));
+  bar.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+}
+
+function statusLabel(b) {
+  if (b.status === 'open') return 'open';
+  if (b.status === 'accepted') return b.pending ? 'confirm' : 'live';
+  return (b.won ? '+' : '−') + sym(b.currency) + b.stake;
+}
+
+// ---- emoji reactions ----
+function reactionsHtml(bet) {
+  const rs = bet.reactions || [];
+  const counts = {}; rs.forEach((r) => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; });
+  const m = me.get();
+  const mine = new Set(rs.filter((r) => m && norm(r.by) === norm(m.name)).map((r) => r.emoji));
+  const chips = Object.entries(counts).map(([e, c]) => `<button class="react-chip ${mine.has(e) ? 'mine' : ''}" data-react="${e}">${e}<span class="ct">${c}</span></button>`).join('');
+  return `<div class="reacts">${chips}<button class="react-chip react-add" id="reactAdd">＋ react</button></div><div class="react-pop" id="reactPop" style="display:none"></div>`;
+}
+function wireReactions(id) {
+  const palette = ['🔥', '😂', '😱', '🧊', '💀', '🐐', '😭', '👏'];
+  const add = $('#reactAdd'), pop = $('#reactPop');
+  if (add) add.addEventListener('click', () => {
+    if (!pop.innerHTML) {
+      pop.innerHTML = palette.map((e) => `<button data-pick="${e}">${e}</button>`).join('');
+      pop.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => doReact(id, b.dataset.pick)));
+    }
+    pop.style.display = pop.style.display === 'none' ? 'flex' : 'none';
+  });
+  document.querySelectorAll('[data-react]').forEach((b) => b.addEventListener('click', () => doReact(id, b.dataset.react)));
+}
+async function doReact(id, emoji) {
+  const m = me.get(); if (!m) return toast('Add your name first');
+  haptic(10);
+  try { await api('/bets/' + id + '/react', { method: 'POST', body: JSON.stringify({ emoji, by: m.name }) }); renderBet(id); }
+  catch (e) { toast(e.message); }
+}
 
 // identity (this device's player)
 const me = {
@@ -38,13 +95,14 @@ let PREFILL = null; // for rematch
 // ---------------------------------------------------------------------------
 // Confetti (tiny, zero-dep) + count-up
 // ---------------------------------------------------------------------------
-function confetti() {
+function confetti(intensity = 1) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; // respect reduced-motion
   let c = $('#confetti');
   if (!c) { c = document.createElement('canvas'); c.id = 'confetti'; document.body.appendChild(c); }
   const ctx = c.getContext('2d');
   c.width = innerWidth; c.height = innerHeight;
-  const colors = ['#14E0C8', '#FFC83D', '#2ED573', '#FF8C42', '#7C3AED'];
-  const N = 130;
+  const colors = ['#14E0C8', '#FFC83D', '#2BD17E', '#FF8C42', '#7C3AED', '#5B6CFF'];
+  const N = Math.round(80 + Math.min(140, intensity * 55)); // scale celebration to the stake
   const P = Array.from({ length: N }, () => ({
     x: innerWidth / 2 + (Math.random() - 0.5) * 80, y: innerHeight * 0.32,
     vx: (Math.random() - 0.5) * 11, vy: Math.random() * -13 - 4,
@@ -62,14 +120,24 @@ function confetti() {
     if (t < 150) requestAnimationFrame(frame); else ctx.clearRect(0, 0, c.width, c.height);
   })();
 }
+// odometer-style rolling digits (the Robinhood "premium tell")
 function countUp(el, to, prefix = '') {
-  const dur = 900, start = performance.now();
-  (function step(now) {
-    const k = Math.min(1, (now - start) / dur);
-    const v = Math.round((1 - Math.pow(1 - k, 3)) * to);
-    el.textContent = prefix + v;
-    if (k < 1) requestAnimationFrame(step);
-  })(start);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = prefix + to; return; }
+  el.innerHTML = '';
+  const pre = document.createElement('span'); pre.textContent = prefix;
+  const wrap = document.createElement('span'); wrap.className = 'odo';
+  el.appendChild(pre); el.appendChild(wrap);
+  const cols = String(Math.round(to)).split('').map((d) => {
+    const col = document.createElement('span'); col.className = 'col';
+    const strip = document.createElement('span'); strip.className = 'strip';
+    for (let i = 0; i <= 9; i++) { const s = document.createElement('span'); s.textContent = i; strip.appendChild(s); }
+    col.appendChild(strip); wrap.appendChild(col);
+    return { strip, target: Number(d) };
+  });
+  requestAnimationFrame(() => cols.forEach((c, i) => {
+    c.strip.style.transition = `transform .95s cubic-bezier(.18,1.4,.4,1) ${i * 0.07}s`;
+    c.strip.style.transform = `translateY(-${c.target}em)`;
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -111,10 +179,14 @@ async function route() {
   app.innerHTML = '<div class="spin">Loading…</div>';
   try { CONFIG = await api('/config'); } catch {}
   renderHeader();
-  if (id) return renderBet(id);
-  if (code) { if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
-  if (!me.get()) return renderOnboarding();
-  return renderHome();
+  if (id) { setTab(null); return renderBet(id); }
+  if (code) { setTab('league'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
+  if (!me.get()) { setTab(null); return renderOnboarding(); }
+  const path = location.pathname;
+  if (path.startsWith('/duels')) { setTab('duels'); return renderDuels(); }
+  if (path.startsWith('/leagues')) { setTab('league'); return renderLeagueHub(); }
+  if (path.startsWith('/profile')) { setTab('profile'); return renderProfile(); }
+  setTab('home'); return renderHome();
 }
 
 // ---------------------------------------------------------------------------
@@ -216,12 +288,61 @@ async function renderHome() {
 
     <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> this season. Play it responsibly — it's for the banter, not the bank.</div>`;
 
-  $('#challenge').addEventListener('click', () => { PREFILL = null; history.pushState({}, '', '/create'); renderCreate(); });
+  $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   app.querySelectorAll('[data-rematch]').forEach((b) =>
     b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
   $('#newLeague').addEventListener('click', () => renderLeagueHub());
   app.querySelectorAll('[data-league]').forEach((b) =>
     b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
+}
+
+// ---------------------------------------------------------------------------
+// Duels tab — all your bets
+// ---------------------------------------------------------------------------
+async function renderDuels() {
+  const m = me.get();
+  let d = { active: [], history: [] };
+  try { d = await api('/players/' + encodeURIComponent(m.name) + '/bets'); } catch {}
+  const row = (b) => `
+    <div class="recent" data-bet="${b.id}" style="cursor:pointer">
+      <span>${esc(b.home)} v ${esc(b.away)}${b.opponent ? ' · <span style="color:var(--muted)">' + esc(b.opponent) + '</span>' : ''}</span>
+      <span class="res ${b.won === true ? 'w' : b.won === false ? 'l' : ''}">${statusLabel(b)}</span>
+    </div>`;
+  app.innerHTML = `
+    <div class="card">
+      <div class="cardhead"><h2>Active duels ⚔️</h2><button class="linkbtn" id="newBet">+ New</button></div>
+      ${d.active.length ? d.active.map(row).join('') : '<p class="sub" style="margin:8px 0 0">No live duels. Challenge a mate.</p>'}
+    </div>
+    ${d.history.length ? `<div class="card"><h2>Settled</h2>${d.history.map(row).join('')}</div>` : ''}`;
+  $('#newBet').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  app.querySelectorAll('[data-bet]').forEach((el) => el.addEventListener('click', () => { history.pushState({}, '', '/b/' + el.dataset.bet); renderBet(el.dataset.bet); }));
+}
+
+// ---------------------------------------------------------------------------
+// Profile tab — record, rivalries, identity
+// ---------------------------------------------------------------------------
+async function renderProfile() {
+  const m = me.get();
+  let s;
+  try { s = await api('/players/' + encodeURIComponent(m.name) + '/summary'); }
+  catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [] }; }
+  const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
+  const streakTxt = s.streak.count ? `${s.streak.count}${s.streak.type}` : '—';
+  app.innerHTML = `
+    <div class="card">
+      <div class="cardhead"><h2>${esc(m.name)}</h2><button class="linkbtn" id="rename">Edit name</button></div>
+      <div class="stats">
+        <div class="stat"><div class="n">${s.w}–${s.l}</div><div class="k">Record</div></div>
+        <div class="stat"><div class="n ${netClass}">${signed(s.net, s.currency)}</div><div class="k">Net</div></div>
+        <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
+      </div>
+    </div>
+    <div class="card"><h2>Rivalries</h2>${s.rivalries.length
+      ? s.rivalries.map((r) => `<div class="riv-row" data-rematch="${esc(r.opponent)}" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">net ${signed(r.net, s.currency)}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
+      : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
+    <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b>. Play it responsibly — banter, not the bank.</div>`;
+  $('#rename').addEventListener('click', () => { const n = prompt('What should mates call you?', m.name); if (n && n.trim()) { me.set(n.trim()); renderHeader(); renderProfile(); } });
+  app.querySelectorAll('[data-rematch]').forEach((b) => b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
 }
 
 // ---------------------------------------------------------------------------
@@ -322,53 +443,58 @@ async function renderCreate() {
   const m = me.get();
   let matches = [], live = false;
   try { const r = await api('/matches'); matches = r.matches; live = r.live; } catch {}
-  const state = { backedOutcome: 'HOME' };
+  const copy = PREFILL?.copy;
+  const state = { backedOutcome: copy?.backedOutcome || 'HOME' };
   const rematchOf = PREFILL?.opponent;
 
-  app.innerHTML = `
-    ${rematchOf ? `<div class="card" style="padding:14px 16px"><div class="cardhead"><h2 style="font-size:15px">Rematch ${esc(rematchOf)} ⚔️</h2></div><p class="sub" style="margin:6px 0 0">Set the terms — winner takes the bragging rights and the lead.</p></div>` : ''}
-    <div class="card">
-      <h2>${rematchOf ? 'The bet' : 'Start a bet 🤝'}</h2>
-      ${rematchOf ? '' : '<p class="sub">Set the terms, send the link. We keep score — no money touches Duely.</p>'}
-
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><h2>${rematchOf ? 'Rematch ' + esc(rematchOf) + ' ⚔️' : copy ? 'Run it back 🔁' : 'Start a duel 🤝'}</h2><button class="sheet-x" id="sheetClose">✕</button></div>
+    <div class="sheet-body">
+      <p class="sub" style="margin:2px 0 12px">${rematchOf ? 'Winner takes the bragging rights and the lead.' : 'Set the terms, send the link. No money touches Duely.'}</p>
       <label>The match</label>
       <select id="matchSel"></select>
-      <div id="customWrap" style="display:none">
-        <div class="row">
-          <div><label>Home team</label><input id="home" placeholder="Spain" maxlength="40" /></div>
-          <div><label>Away team</label><input id="away" placeholder="Uruguay" maxlength="40" /></div>
-        </div>
-      </div>
-
+      <div id="customWrap" style="display:none"><div class="row"><div><label>Home team</label><input id="home" placeholder="Spain" maxlength="40" /></div><div><label>Away team</label><input id="away" placeholder="Uruguay" maxlength="40" /></div></div></div>
       <label>What are you backing?</label>
       <div class="seg" id="seg"></div>
-
-      <div class="row">
-        <div><label>Stake</label><input id="stake" type="number" inputmode="decimal" min="0" step="1" value="20" /></div>
-        <div><label>Currency</label><select id="currency"><option>EUR</option><option>GBP</option><option>USD</option></select></div>
-      </div>
-
+      <div class="row"><div><label>Stake</label><input id="stake" type="number" inputmode="decimal" min="0" step="1" value="${copy?.stake || 20}" /></div><div><label>Currency</label><select id="currency"><option>EUR</option><option>GBP</option><option>USD</option></select></div></div>
       <label>Trash talk (optional)</label>
-      <input id="note" placeholder="No chance Uruguay keeps it close 😏" maxlength="140" />
-
-      <button class="cta commit" id="createBtn">Lock it in & get link →</button>
+      <input id="note" placeholder="No chance they keep it close 😏" maxlength="140" value="${copy?.note ? esc(copy.note) : ''}" />
+      <div class="banner" style="margin-top:14px;text-align:left"><span id="previewLine">…</span></div>
+      <div class="banner" style="margin-top:8px">${live ? '🟢 Live fixtures' : '🟡 Demo fixtures'}</div>
     </div>
-    <div class="banner">${live ? '🟢 Live fixtures from football-data.org' : '🟡 Demo mode — sample fixtures, results reported manually'}</div>`;
+    <div class="sheet-foot"><button class="cta commit" id="createBtn">Lock it in & get link →</button></div>
+  `);
 
   const sel = $('#matchSel');
   sel.innerHTML = matches.map((mm) => `<option value="${mm.id}">${esc(mm.home)} vs ${esc(mm.away)}${mm.competition ? ' · ' + esc(mm.competition) : ''}</option>`).join('') + '<option value="custom">+ Custom match…</option>';
 
+  const updatePreview = () => {
+    const mm = matches.find((x) => x.id === sel.value);
+    const home = mm ? mm.home : ($('#home')?.value || 'Home');
+    const away = mm ? mm.away : ($('#away')?.value || 'Away');
+    const backedLbl = state.backedOutcome === 'HOME' ? home + ' win' : state.backedOutcome === 'AWAY' ? away + ' win' : 'Draw';
+    const compl = state.backedOutcome === 'DRAW' ? 'not a draw' : state.backedOutcome === 'HOME' ? home + " don't win" : away + " don't win";
+    const el = $('#previewLine');
+    if (el) el.innerHTML = `You back <b style="color:var(--text)">${esc(backedLbl)}</b> for <b style="color:var(--green)">${sym($('#currency').value)}${esc($('#stake').value || '0')}</b> — they take <b style="color:var(--text)">${esc(compl)}</b>`;
+  };
   const renderSeg = () => {
     const mm = matches.find((x) => x.id === sel.value);
     const home = mm ? mm.home : ($('#home')?.value || 'Home');
     const away = mm ? mm.away : ($('#away')?.value || 'Away');
     $('#seg').innerHTML = [['HOME', `${home} win`], ['DRAW', 'Draw'], ['AWAY', `${away} win`]]
       .map(([code, lbl]) => `<button data-o="${code}" class="${state.backedOutcome === code ? 'active' : ''}">${esc(lbl)}</button>`).join('');
-    $('#seg').querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => { state.backedOutcome = btn.dataset.o; renderSeg(); }));
+    $('#seg').querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => { state.backedOutcome = btn.dataset.o; haptic(8); renderSeg(); }));
+    updatePreview();
   };
   const onMatchChange = () => { $('#customWrap').style.display = sel.value === 'custom' ? 'block' : 'none'; renderSeg(); };
   sel.addEventListener('change', onMatchChange);
-  document.addEventListener('input', (e) => { if (e.target.id === 'home' || e.target.id === 'away') renderSeg(); });
+  $('#home').addEventListener('input', renderSeg);
+  $('#away').addEventListener('input', renderSeg);
+  ['input', 'change'].forEach((ev) => { $('#stake').addEventListener(ev, updatePreview); $('#currency').addEventListener(ev, updatePreview); });
+  $('#sheetClose').addEventListener('click', closeSheet);
+
+  if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; if (copy.currency) $('#currency').value = copy.currency; }
   onMatchChange();
 
   $('#createBtn').addEventListener('click', async () => {
@@ -378,17 +504,17 @@ async function renderCreate() {
     if (!home || !away) return toast('Add both teams');
     const stake = Number($('#stake').value);
     if (!(stake > 0)) return toast('Add a stake');
-    const btn = $('#createBtn'); btn.disabled = true;
-    $('.card').classList.add('locking');
+    const btn = $('#createBtn'); btn.disabled = true; btn.textContent = 'Locking in…'; haptic(22);
     try {
       const bet = await api('/bets', { method: 'POST', body: JSON.stringify({
-        proposerName: m.name, home, away, competition: mm ? mm.competition : '',
+        proposerName: m.name, home, away, competition: mm ? mm.competition : (copy?.competition || ''),
         utcDate: mm ? mm.utcDate : null, externalId: mm ? mm.externalId || null : null,
-        backedOutcome: state.backedOutcome, stake, currency: $('#currency').value, note: $('#note').value.trim(), rematch: Boolean(rematchOf),
+        backedOutcome: state.backedOutcome, stake, currency: $('#currency').value, note: $('#note').value.trim(), rematch: Boolean(rematchOf || copy),
       }) });
       roleStore.set(bet.id, 'proposer'); PREFILL = null;
-      sealThen(() => { history.pushState({}, '', '?b=' + bet.id); renderBet(bet.id); });
-    } catch (e) { toast(e.message); btn.disabled = false; $('.card').classList.remove('locking'); }
+      closeSheet();
+      history.pushState({}, '', '/b/' + bet.id); renderBet(bet.id);
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Lock it in & get link →'; }
   });
 }
 
@@ -470,7 +596,7 @@ async function renderBet(id, opts = {}) {
     $('#acceptBtn').addEventListener('click', async () => {
       const opponentName = $('#opponentName').value.trim();
       if (!opponentName) return toast('Add your name');
-      const btn = $('#acceptBtn'); btn.disabled = true; $('.card').classList.add('locking');
+      const btn = $('#acceptBtn'); btn.disabled = true; $('.card').classList.add('locking'); haptic(22);
       try {
         await api('/bets/' + id + '/accept', { method: 'POST', body: JSON.stringify({ opponentName }) });
         if (!m) me.set(opponentName);
@@ -493,6 +619,7 @@ async function renderBet(id, opts = {}) {
         <div class="side"><div><div class="who">${esc(bet.proposerName)}</div><div class="pick">${esc(outcomeLabel(bet, bet.backedOutcome))}</div></div><div class="stake">${money(bet)}</div></div>
         <div class="side"><div><div class="who">${esc(bet.opponentName)}</div><div class="pick">${esc(complementLabel(bet))}</div></div><div class="stake">${money(bet)}</div></div>
         <div id="resolveZone"></div>
+        ${reactionsHtml(bet)}
       </div>`;
     const zone = $('#resolveZone');
     if (CONFIG.live && bet.externalId) {
@@ -529,6 +656,7 @@ async function renderBet(id, opts = {}) {
         showReportSeg();
       }
     }
+    wireReactions(id);
     return;
   }
 
@@ -553,8 +681,13 @@ async function renderBet(id, opts = {}) {
         <div class="side win reveal delay2"><div><div class="who">🏆 ${esc(winnerNm)}</div><div class="pick">called it: ${esc(winPick)}</div></div></div>
         ${rb ? `<div class="reveal delay3">${rb}</div>` : ''}
         <div class="reveal delay3">
+          ${reactionsHtml(bet)}
           <img class="cardimg" src="/card/${id}.svg" alt="Result card" loading="lazy" />
-          <button class="ghost" id="shareResult">Share the result 📤</button>
+          <button class="cta wa" id="shareResult">Share the result 📤</button>
+          <div class="row" style="margin-top:10px">
+            <button class="ghost" id="storyBtn">Story image 📲</button>
+            <button class="ghost" id="copyBet">Run it back 🔁</button>
+          </div>
           ${bet.status === 'resolved' ? `<button class="cta gold" id="settleBtn" style="margin-top:10px">Mark as paid ✓</button>` : `<div class="banner" style="margin-top:14px">✓ Marked as paid${bet.settledAt ? ' · ' + new Date(bet.settledAt).toLocaleDateString() : ''}</div>`}
           ${other ? `<button class="cta commit" id="rematchBtn" style="margin-top:10px">Rematch ${esc(other)} ⚔️</button>` : ''}
           <button class="muted-link" id="homeLink">Back to my season</button>
@@ -562,10 +695,13 @@ async function renderBet(id, opts = {}) {
       </div>`;
     const shareText = `${winnerNm} called it: ${outcomeLabel(bet, bet.actualOutcome)} ⚽ Settled on Duely.`;
     const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => nativeShare(link, shareText));
+    const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => window.open('/storycard/' + id + '.png', '_blank'));
+    const cb = $('#copyBet'); if (cb) cb.addEventListener('click', () => { PREFILL = { copy: { home: bet.home, away: bet.away, competition: bet.competition, backedOutcome: bet.backedOutcome, stake: bet.stake, currency: bet.currency, note: bet.note } }; renderCreate(); });
+    wireReactions(id);
 
     // animate the payout count-up, confetti only if *I* won
     setTimeout(() => { const el = $('#amt'); if (el) countUp(el, bet.owes.amount, sym(bet.currency)); }, 420);
-    if (iWon) setTimeout(confetti, 520);
+    if (iWon) { setTimeout(() => confetti(Math.max(1, Math.min(3, bet.stake / 20))), 520); haptic([14, 50, 22]); }
 
     if (bet.status === 'resolved') $('#settleBtn').addEventListener('click', async () => {
       try { await api('/bets/' + id + '/settle', { method: 'POST' }); toast('Nice — settled'); renderBet(id); } catch (e) { toast(e.message); }
@@ -618,6 +754,15 @@ async function doConfirm(id) {
   try { await api('/bets/' + id + '/confirm', { method: 'POST', body: JSON.stringify({ confirmerName: m ? m.name : undefined }) }); renderBet(id); }
   catch (e) { toast(e.message); }
 }
+
+document.getElementById('tabbar')?.addEventListener('click', (e) => {
+  const t = e.target.closest('.tab'); if (!t) return;
+  haptic(8);
+  const tab = t.dataset.tab;
+  history.pushState({}, '', tab === 'home' ? '/' : tab === 'league' ? '/leagues' : '/' + tab);
+  route();
+});
+document.getElementById('sheetScrim')?.addEventListener('click', (e) => { if (e.target.id === 'sheetScrim') closeSheet(); });
 
 window.addEventListener('popstate', route);
 route();
