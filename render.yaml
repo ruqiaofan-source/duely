@@ -1,9 +1,10 @@
 # One-click-ish deploy to Render (https://render.com) — free tier.
 # 1. Push this folder to a GitHub repo.
 # 2. Render → New → Blueprint → point at the repo. This file does the rest.
-# Notes: the free web service sleeps after ~15 min idle (cold start on next hit),
-# and the filesystem is ephemeral — data.json resets on each deploy/restart.
-# Fine for a test; swap the JSON store for a real DB (or add a Render Disk) for keeps.
+# Notes: the free web service sleeps after ~15 min idle (cold start on next hit).
+# The filesystem is ephemeral, so durability comes from Postgres: set DATABASE_URL
+# (below) to a Neon connection string and the app writes through to it. Without it,
+# the app falls back to an ephemeral data.json that resets on each deploy/restart.
 services:
   - type: web
     name: settle
@@ -17,4 +18,8 @@ services:
         value: "22"
       # live football fixtures/results — Render asks you to paste the value at deploy
       - key: FOOTBALL_DATA_TOKEN
+        sync: false
+      # durable Postgres store (Neon) — Render prompts for the value at sync, same as
+      # the token above; sync:false keeps the secret out of git. Unset = ephemeral JSON.
+      - key: DATABASE_URL
         sync: false
