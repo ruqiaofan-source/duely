@@ -43,23 +43,47 @@ const FOOTBALL_TOKEN = process.env.FOOTBALL_DATA_TOKEN || '';
 const BRAND = 'Duely';
 
 // ---------------------------------------------------------------------------
-// Store
+// Store — Postgres (durable, survives redeploys) with a JSON-file fallback
 // ---------------------------------------------------------------------------
-function loadData() {
-  try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
-  catch { return { bets: {}, seeded: false }; }
+const DATABASE_URL = process.env.DATABASE_URL || '';
+let pool = null;
+if (DATABASE_URL) {
+  const { Pool } = require('pg');
+  pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 5 });
+  pool.on('error', (e) => console.error('pg pool error:', e.message));
 }
-// atomic write: temp file + rename so a crash or concurrent read never sees a half-written file
-function saveData(d) {
+
+let db = { bets: {}, leagues: {}, events: [], stats: {} };
+
+// serialized write-through (latest state always wins, writes never overlap)
+let _writing = false, _dirty = false;
+async function pgSave() {
+  if (_writing) { _dirty = true; return; }
+  _writing = true;
+  try { await pool.query('INSERT INTO app_state (id, data) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET data = $1', [JSON.stringify(db)]); }
+  catch (e) { console.error('pg save failed:', e.message); }
+  finally { _writing = false; if (_dirty) { _dirty = false; pgSave(); } }
+}
+function saveData() {
+  if (pool) { pgSave(); return; }
   const tmp = `${DATA_FILE}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(d, null, 2));
+  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
   fs.renameSync(tmp, DATA_FILE);
 }
-let db = loadData();
-if (!db.bets) db.bets = {};
-if (!db.leagues) db.leagues = {};
-if (!db.events) db.events = [];
-if (!db.stats) db.stats = {};
+async function initData() {
+  if (pool) {
+    await pool.query('CREATE TABLE IF NOT EXISTS app_state (id int PRIMARY KEY, data jsonb NOT NULL)');
+    const r = await pool.query('SELECT data FROM app_state WHERE id = 1');
+    if (r.rows[0] && r.rows[0].data) db = r.rows[0].data;
+  } else {
+    try { db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch {}
+  }
+  if (!db.bets) db.bets = {};
+  if (!db.leagues) db.leagues = {};
+  if (!db.events) db.events = [];
+  if (!db.stats) db.stats = {};
+  seedHistory();
+}
 
 // lightweight loop-funnel instrumentation (created → opened → accepted → resolved → rematch)
 function logEvent(type, meta = {}, persist = true) {
@@ -431,7 +455,6 @@ function seedHistory() {
   db.seeded = true;
   saveData(db);
 }
-seedHistory();
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -734,8 +757,10 @@ const server = http.createServer(async (req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`\n  ${BRAND} running →  http://localhost:${PORT}`);
-  console.log(`  Mode: ${FOOTBALL_TOKEN ? 'LIVE (football-data.org)' : 'DEMO (sample fixtures, manual results)'}`);
-  console.log(`  Data: ${DATA_FILE}\n`);
-});
+initData().then(() => {
+  server.listen(PORT, () => {
+    console.log(`\n  ${BRAND} running →  http://localhost:${PORT}`);
+    console.log(`  Mode: ${FOOTBALL_TOKEN ? 'LIVE (football-data.org)' : 'DEMO (manual results)'}`);
+    console.log(`  Store: ${pool ? 'Postgres (durable)' : 'JSON file (' + DATA_FILE + ')'}\n`);
+  });
+}).catch((e) => { console.error('init failed:', e.message); process.exit(1); });
