@@ -1,0 +1,16 @@
+{
+  "name": "settle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Scorekeeper MVP — settle a football bet with a mate. No money held, no commission.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  }
+}

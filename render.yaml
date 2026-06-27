@@ -1,0 +1,19 @@
+# One-click-ish deploy to Render (https://render.com) — free tier.
+# 1. Push this folder to a GitHub repo.
+# 2. Render → New → Blueprint → point at the repo. This file does the rest.
+# Notes: the free web service sleeps after ~15 min idle (cold start on next hit),
+# and the filesystem is ephemeral — data.json resets on each deploy/restart.
+# Fine for a test; swap the JSON store for a real DB (or add a Render Disk) for keeps.
+services:
+  - type: web
+    name: settle
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Optional: live football fixtures/results (free key from football-data.org)
+      # - key: FOOTBALL_DATA_TOKEN
+      #   sync: false

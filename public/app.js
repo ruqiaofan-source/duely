@@ -1,0 +1,659 @@
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+const $ = (s, el = document) => el.querySelector(s);
+const app = $('#app');
+const api = async (path, opts) => {
+  const res = await fetch('/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  return data;
+};
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const sym = (c) => (c === 'EUR' ? '€' : c === 'GBP' ? '£' : c === 'USD' ? '$' : c + ' ');
+const money = (b) => `${sym(b.currency)}${b.stake}`;
+const signed = (n, c) => `${n >= 0 ? '+' : '−'}${sym(c)}${Math.abs(n)}`;
+const initials = (n) => String(n || '?').trim().slice(0, 2).toUpperCase();
+
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1900); }
+
+// identity (this device's player)
+const me = {
+  get() { try { return JSON.parse(localStorage.getItem('settle_me') || 'null'); } catch { return null; } },
+  set(name) { localStorage.setItem('settle_me', JSON.stringify({ name, token: Math.random().toString(36).slice(2) })); },
+};
+const roleStore = {
+  get: (id) => { try { return JSON.parse(localStorage.getItem('settle_roles') || '{}')[id]; } catch { return null; } },
+  set: (id, role) => { let m = {}; try { m = JSON.parse(localStorage.getItem('settle_roles') || '{}'); } catch {} m[id] = role; localStorage.setItem('settle_roles', JSON.stringify(m)); },
+};
+
+const outcomeLabel = (b, code) => code === 'HOME' ? `${b.home} win` : code === 'AWAY' ? `${b.away} win` : code === 'DRAW' ? 'Draw' : code;
+const complementLabel = (b) => b.backedOutcome === 'DRAW' ? "it's not a draw" : b.backedOutcome === 'HOME' ? `${b.home} don't win` : `${b.away} don't win`;
+
+let CONFIG = { brand: 'Duely', live: false };
+let PREFILL = null; // for rematch
+
+// ---------------------------------------------------------------------------
+// Confetti (tiny, zero-dep) + count-up
+// ---------------------------------------------------------------------------
+function confetti() {
+  let c = $('#confetti');
+  if (!c) { c = document.createElement('canvas'); c.id = 'confetti'; document.body.appendChild(c); }
+  const ctx = c.getContext('2d');
+  c.width = innerWidth; c.height = innerHeight;
+  const colors = ['#14E0C8', '#FFC83D', '#2ED573', '#FF8C42', '#7C3AED'];
+  const N = 130;
+  const P = Array.from({ length: N }, () => ({
+    x: innerWidth / 2 + (Math.random() - 0.5) * 80, y: innerHeight * 0.32,
+    vx: (Math.random() - 0.5) * 11, vy: Math.random() * -13 - 4,
+    s: Math.random() * 6 + 4, c: colors[(Math.random() * colors.length) | 0],
+    r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.3,
+  }));
+  let t = 0;
+  (function frame() {
+    t++; ctx.clearRect(0, 0, c.width, c.height);
+    P.forEach((p) => {
+      p.vy += 0.32; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.vx *= 0.99;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c;
+      ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.6); ctx.restore();
+    });
+    if (t < 150) requestAnimationFrame(frame); else ctx.clearRect(0, 0, c.width, c.height);
+  })();
+}
+function countUp(el, to, prefix = '') {
+  const dur = 900, start = performance.now();
+  (function step(now) {
+    const k = Math.min(1, (now - start) / dur);
+    const v = Math.round((1 - Math.pow(1 - k, 3)) * to);
+    el.textContent = prefix + v;
+    if (k < 1) requestAnimationFrame(step);
+  })(start);
+}
+
+// ---------------------------------------------------------------------------
+// Header (identity chip)
+// ---------------------------------------------------------------------------
+function renderHeader() {
+  const h = $('#headExtra');
+  const m = me.get();
+  if (!h) return;
+  h.innerHTML = m ? `<div class="idchip" id="idchip"><span class="av">${initials(m.name)}</span>${esc(m.name)}</div>` : '';
+  const chip = $('#idchip');
+  if (chip) chip.addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+function getBetId() {
+  const p = location.pathname.match(/^\/b\/([a-z0-9]+)/i);
+  if (p) return p[1];
+  return new URLSearchParams(location.search).get('b');
+}
+function getLeagueCode() {
+  const p = location.pathname.match(/^\/l\/([a-z0-9]+)/i);
+  return p ? p[1].toUpperCase() : null;
+}
+
+async function nativeShare(link, text) {
+  if (navigator.share) {
+    try { await navigator.share({ title: 'Duely', text, url: link }); return true; } catch { return false; }
+  }
+  window.open('https://wa.me/?text=' + encodeURIComponent(text + ' ' + link), '_blank');
+  return true;
+}
+
+async function route() {
+  const id = getBetId();
+  const code = getLeagueCode();
+  app.innerHTML = '<div class="spin">Loading…</div>';
+  try { CONFIG = await api('/config'); } catch {}
+  renderHeader();
+  if (id) return renderBet(id);
+  if (code) { if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
+  if (!me.get()) return renderOnboarding();
+  return renderHome();
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding
+// ---------------------------------------------------------------------------
+function renderOnboarding(next) {
+  app.innerHTML = `
+    <div class="card">
+      <h2>Back yourself 🤝</h2>
+      <p class="sub">Duely turns a football argument into a bet you can settle with a mate — and a rivalry you'll want to win. We keep score. No money, no bookie.</p>
+      <label>What should mates call you?</label>
+      <input id="name" placeholder="e.g. Alex" maxlength="40" />
+      <div class="checkrow">
+        <input type="checkbox" id="age" />
+        <label for="age">I'm 18 or over and I get that Duely is for bragging rights, not income.</label>
+      </div>
+      <button class="cta" id="go">Let's go →</button>
+    </div>
+    <div class="banner">Your record lives on this device — no signup, no password.</div>`;
+  $('#go').addEventListener('click', () => {
+    const name = $('#name').value.trim();
+    if (!name) return toast('Pick a name');
+    if (!$('#age').checked) return toast("Confirm you're 18+");
+    me.set(name); renderHeader(); (next || renderHome)();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Home dashboard — the rivalry hub
+// ---------------------------------------------------------------------------
+async function renderHome() {
+  const m = me.get();
+  let s;
+  try { s = await api('/players/' + encodeURIComponent(m.name) + '/summary'); }
+  catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] }; }
+  let lg = { leagues: [] };
+  try { lg = await api('/players/' + encodeURIComponent(m.name) + '/leagues'); } catch {}
+
+  const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
+  const streakTxt = s.streak.count ? `${s.streak.count}${s.streak.type}` : '—';
+  const onFire = s.streak.type === 'W' && s.streak.count >= 2;
+  const isNew = s.w === 0 && s.l === 0 && s.rivalries.length === 0 && lg.leagues.length === 0;
+
+  const rivalriesHtml = s.rivalries.length
+    ? s.rivalries.map((r) => {
+        const lead = r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : 'level';
+        const verb = r.w > r.l ? 'You lead' : r.w < r.l ? 'You trail' : 'Level with';
+        return `
+          <div class="riv-row" data-opp="${esc(r.opponent)}">
+            <div>
+              <div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div>
+              <div class="sm">${verb} · net ${signed(r.net, s.currency)}</div>
+            </div>
+            <div style="text-align:right">
+              <div class="rec ${lead}">${r.w}–${r.l}</div>
+              <button class="muted-link" style="margin:2px 0 0;font-size:12px" data-rematch="${esc(r.opponent)}">Rematch →</button>
+            </div>
+          </div>`;
+      }).join('')
+    : `<p class="sub" style="margin:8px 0 0">No rivalries yet. Challenge a mate and start one. 👀</p>`;
+
+  const recentHtml = s.recent.length
+    ? s.recent.map((r) => `
+        <div class="recent">
+          <span>${esc(r.home)} v ${esc(r.away)} · <span style="color:var(--muted)">${esc(r.opponent)}</span></span>
+          <span class="res ${r.won ? 'w' : 'l'}">${r.won ? '+' : '−'}${sym(r.currency)}${r.amount}</span>
+        </div>`).join('')
+    : '';
+
+  app.innerHTML = `
+    ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)"><h2>New here? 👋</h2><p class="sub" style="margin:0">Pick this weekend's match, back your call, and fire the link to a mate — they tap, take the other side, done. No signup, no money. Duely just keeps score and builds your rivalry.</p></div>` : ''}
+    <div class="card">
+      <div class="cardhead"><h2>Your season</h2><span class="flame ${onFire ? 'on' : ''}">${onFire ? '🔥 ' + s.streak.count + ' in a row' : ''}</span></div>
+      <div class="stats">
+        <div class="stat"><div class="n">${s.w}–${s.l}</div><div class="k">Record</div></div>
+        <div class="stat"><div class="n ${netClass}">${signed(s.net, s.currency)}</div><div class="k">Net</div></div>
+        <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
+      </div>
+      <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
+    </div>
+
+    <div class="card">
+      <h2>Rivalries</h2>
+      ${rivalriesHtml}
+    </div>
+
+    <div class="card">
+      <div class="cardhead"><h2>Leagues</h2><button class="linkbtn" id="newLeague">+ New / join</button></div>
+      ${lg.leagues.length
+        ? lg.leagues.map((l) => `
+          <div class="riv-row" data-league="${esc(l.code)}" style="cursor:pointer">
+            <div><div class="nm">${esc(l.name)}</div><div class="sm">${l.members} mates · ${l.rank ? 'you\'re #' + l.rank + ' of ' + l.total : 'unranked'}</div></div>
+            <div class="rec ${l.rank === 1 ? 'lead' : ''}">#${l.rank || '–'}</div>
+          </div>`).join('')
+        : `<p class="sub" style="margin:8px 0 0">No leagues yet — turn your group chat into a season-long table. 🏆</p>`}
+    </div>
+
+    ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
+
+    <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> this season. Play it responsibly — it's for the banter, not the bank.</div>`;
+
+  $('#challenge').addEventListener('click', () => { PREFILL = null; history.pushState({}, '', '/create'); renderCreate(); });
+  app.querySelectorAll('[data-rematch]').forEach((b) =>
+    b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
+  $('#newLeague').addEventListener('click', () => renderLeagueHub());
+  app.querySelectorAll('[data-league]').forEach((b) =>
+    b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
+}
+
+// ---------------------------------------------------------------------------
+// Leagues — the scale layer
+// ---------------------------------------------------------------------------
+function renderLeagueHub() {
+  const m = me.get();
+  app.innerHTML = `
+    <div class="card">
+      <h2>Leagues 🏆</h2>
+      <p class="sub">Turn your group chat into a season-long table. Every bet between members feeds one leaderboard.</p>
+      <label>Create a league</label>
+      <input id="lname" placeholder="e.g. Sunday League" maxlength="50" />
+      <button class="cta" id="createLeague">Create league →</button>
+      <div style="height:8px"></div>
+      <label>…or join with a code</label>
+      <input id="lcode" placeholder="e.g. K7M2Q" maxlength="8" style="text-transform:uppercase" />
+      <button class="ghost" id="joinByCode">Join league</button>
+      <button class="muted-link" id="homeLink">Back to my season</button>
+    </div>`;
+  $('#createLeague').addEventListener('click', async () => {
+    const name = $('#lname').value.trim();
+    if (!name) return toast('Name your league');
+    try {
+      const l = await api('/leagues', { method: 'POST', body: JSON.stringify({ name, creatorName: m.name }) });
+      history.pushState({}, '', '/l/' + l.code); renderLeague(l.code);
+    } catch (e) { toast(e.message); }
+  });
+  $('#joinByCode').addEventListener('click', async () => {
+    const code = $('#lcode').value.trim().toUpperCase();
+    if (!code) return toast('Enter a code');
+    try {
+      await api('/leagues/' + code + '/join', { method: 'POST', body: JSON.stringify({ name: m.name }) });
+      history.pushState({}, '', '/l/' + code); renderLeague(code);
+    } catch (e) { toast(e.message); }
+  });
+  $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+}
+
+async function renderLeague(code) {
+  app.innerHTML = '<div class="spin">Loading…</div>';
+  const m = me.get();
+  let lg;
+  try { lg = await api('/leagues/' + code); }
+  catch { app.innerHTML = `<div class="card"><h2>League not found</h2><p class="sub">This invite looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
+
+  const isMember = m && lg.members.some((x) => norm(x) === norm(m.name));
+  const link = location.origin + '/l/' + code;
+
+  if (!isMember) {
+    app.innerHTML = `
+      <div class="card">
+        <div class="cardhead"><h2>Join ${esc(lg.name)} 🏆</h2></div>
+        <p class="sub">${lg.members.length} mate${lg.members.length === 1 ? '' : 's'} settling football bets in one league. Climb the table.</p>
+        <img class="cardimg" src="/lcard/${code}.svg" alt="League invite" />
+        <button class="cta" id="joinBtn">Join the league 🤝</button>
+        <button class="muted-link" onclick="location.href='/'">Not now</button>
+      </div>`;
+    $('#joinBtn').addEventListener('click', async () => {
+      if (!m) return renderOnboarding(() => renderLeague(code));
+      try { await api('/leagues/' + code + '/join', { method: 'POST', body: JSON.stringify({ name: m.name }) }); renderLeague(code); }
+      catch (e) { toast(e.message); }
+    });
+    return;
+  }
+
+  const rows = lg.standings || [];
+  const tbl = rows.map((r) => `
+    <div class="lg-row ${m && norm(r.name) === norm(m.name) ? 'me' : ''}">
+      <div class="lg-rank">${r.rank}</div>
+      <div class="lg-name">${esc(r.name)}${r.rank === 1 && r.games ? ' 👑' : ''}</div>
+      <div class="lg-rec">${r.w}-${r.l}</div>
+      <div class="lg-net ${r.net > 0 ? 'pos' : r.net < 0 ? 'neg' : ''}">${signed(r.net, 'EUR')}</div>
+    </div>`).join('');
+  const waText = `Join our Duely league "${lg.name}" 🏆 — settle football bets, climb the table.`;
+
+  app.innerHTML = `
+    <div class="card">
+      <div class="cardhead"><h2>${esc(lg.name)} 🏆</h2><span class="pill resolved">${lg.members.length} mates</span></div>
+      <div class="lg-head"><div class="lg-rank">#</div><div class="lg-name">Player</div><div class="lg-rec">W-L</div><div class="lg-net">Net</div></div>
+      ${tbl}
+      <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
+      <button class="cta wa" id="invite">Invite mates on WhatsApp</button>
+      <button class="ghost" id="copyInvite">Copy invite link</button>
+      <button class="muted-link" id="homeLink">Back to my season</button>
+    </div>
+    <div class="banner">League table counts bets between members only. Win to climb. 🪜</div>`;
+  $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  $('#invite').addEventListener('click', () => window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'));
+  $('#copyInvite').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); toast('Invite copied'); } catch { toast(link); } });
+  $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+}
+
+// ---------------------------------------------------------------------------
+// Create a bet
+// ---------------------------------------------------------------------------
+async function renderCreate() {
+  const m = me.get();
+  let matches = [], live = false;
+  try { const r = await api('/matches'); matches = r.matches; live = r.live; } catch {}
+  const state = { backedOutcome: 'HOME' };
+  const rematchOf = PREFILL?.opponent;
+
+  app.innerHTML = `
+    ${rematchOf ? `<div class="card" style="padding:14px 16px"><div class="cardhead"><h2 style="font-size:15px">Rematch ${esc(rematchOf)} ⚔️</h2></div><p class="sub" style="margin:6px 0 0">Set the terms — winner takes the bragging rights and the lead.</p></div>` : ''}
+    <div class="card">
+      <h2>${rematchOf ? 'The bet' : 'Start a bet 🤝'}</h2>
+      ${rematchOf ? '' : '<p class="sub">Set the terms, send the link. We keep score — no money touches Duely.</p>'}
+
+      <label>The match</label>
+      <select id="matchSel"></select>
+      <div id="customWrap" style="display:none">
+        <div class="row">
+          <div><label>Home team</label><input id="home" placeholder="Spain" maxlength="40" /></div>
+          <div><label>Away team</label><input id="away" placeholder="Uruguay" maxlength="40" /></div>
+        </div>
+      </div>
+
+      <label>What are you backing?</label>
+      <div class="seg" id="seg"></div>
+
+      <div class="row">
+        <div><label>Stake</label><input id="stake" type="number" inputmode="decimal" min="0" step="1" value="20" /></div>
+        <div><label>Currency</label><select id="currency"><option>EUR</option><option>GBP</option><option>USD</option></select></div>
+      </div>
+
+      <label>Trash talk (optional)</label>
+      <input id="note" placeholder="No chance Uruguay keeps it close 😏" maxlength="140" />
+
+      <button class="cta commit" id="createBtn">Lock it in & get link →</button>
+    </div>
+    <div class="banner">${live ? '🟢 Live fixtures from football-data.org' : '🟡 Demo mode — sample fixtures, results reported manually'}</div>`;
+
+  const sel = $('#matchSel');
+  sel.innerHTML = matches.map((mm) => `<option value="${mm.id}">${esc(mm.home)} vs ${esc(mm.away)}${mm.competition ? ' · ' + esc(mm.competition) : ''}</option>`).join('') + '<option value="custom">+ Custom match…</option>';
+
+  const renderSeg = () => {
+    const mm = matches.find((x) => x.id === sel.value);
+    const home = mm ? mm.home : ($('#home')?.value || 'Home');
+    const away = mm ? mm.away : ($('#away')?.value || 'Away');
+    $('#seg').innerHTML = [['HOME', `${home} win`], ['DRAW', 'Draw'], ['AWAY', `${away} win`]]
+      .map(([code, lbl]) => `<button data-o="${code}" class="${state.backedOutcome === code ? 'active' : ''}">${esc(lbl)}</button>`).join('');
+    $('#seg').querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => { state.backedOutcome = btn.dataset.o; renderSeg(); }));
+  };
+  const onMatchChange = () => { $('#customWrap').style.display = sel.value === 'custom' ? 'block' : 'none'; renderSeg(); };
+  sel.addEventListener('change', onMatchChange);
+  document.addEventListener('input', (e) => { if (e.target.id === 'home' || e.target.id === 'away') renderSeg(); });
+  onMatchChange();
+
+  $('#createBtn').addEventListener('click', async () => {
+    const mm = matches.find((x) => x.id === sel.value);
+    const home = mm ? mm.home : $('#home').value.trim();
+    const away = mm ? mm.away : $('#away').value.trim();
+    if (!home || !away) return toast('Add both teams');
+    const stake = Number($('#stake').value);
+    if (!(stake > 0)) return toast('Add a stake');
+    const btn = $('#createBtn'); btn.disabled = true;
+    $('.card').classList.add('locking');
+    try {
+      const bet = await api('/bets', { method: 'POST', body: JSON.stringify({
+        proposerName: m.name, home, away, competition: mm ? mm.competition : '',
+        utcDate: mm ? mm.utcDate : null, externalId: mm ? mm.externalId || null : null,
+        backedOutcome: state.backedOutcome, stake, currency: $('#currency').value, note: $('#note').value.trim(), rematch: Boolean(rematchOf),
+      }) });
+      roleStore.set(bet.id, 'proposer'); PREFILL = null;
+      sealThen(() => { history.pushState({}, '', '?b=' + bet.id); renderBet(bet.id); });
+    } catch (e) { toast(e.message); btn.disabled = false; $('.card').classList.remove('locking'); }
+  });
+}
+
+// brief "locked in" seal animation between commit and next screen
+function sealThen(next) {
+  app.innerHTML = `<div class="card"><div class="sealwrap"><div class="seal">🔒</div><h2 style="text-align:center">Locked in</h2></div></div>`;
+  setTimeout(next, 720);
+}
+
+// ---------------------------------------------------------------------------
+// A specific bet
+// ---------------------------------------------------------------------------
+async function renderBet(id, opts = {}) {
+  app.innerHTML = '<div class="spin">Loading…</div>';
+  let bet;
+  try { bet = await api('/bets/' + id); }
+  catch { app.innerHTML = `<div class="card"><h2>Bet not found</h2><p class="sub">This link looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
+
+  const role = roleStore.get(id);
+  const m = me.get();
+  const link = location.origin + '/b/' + id;
+  const matchCard = `
+    <div class="match">
+      <div class="teams">${esc(bet.home)} <span class="vs">VS</span> ${esc(bet.away)}</div>
+      <div class="meta">${bet.competition ? esc(bet.competition) + ' · ' : ''}${bet.utcDate ? new Date(bet.utcDate).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) : ''}</div>
+    </div>`;
+  const pill = `<span class="pill ${bet.status}">${bet.status}</span>`;
+
+  // helper: rivalry banner between me and the other player (if history exists)
+  async function rivalryBanner(otherName) {
+    if (!m || !otherName || norm(otherName) === norm(m.name)) return '';
+    try {
+      const r = await api('/rivalry?a=' + encodeURIComponent(m.name) + '&b=' + encodeURIComponent(otherName));
+      if (!r.games) return '';
+      const lead = r.aWins > r.bWins ? 'lead' : r.aWins < r.bWins ? 'trail' : 'level';
+      const verb = r.aWins > r.bWins ? 'You lead' : r.aWins < r.bWins ? 'You trail' : 'All level';
+      return `<div class="rivalry"><div><div class="vsline">${verb} ${esc(otherName)}</div><div class="sm" style="color:var(--muted);font-size:12px">net ${signed(r.aNet, r.currency)} this season</div></div><div class="score ${lead}">${r.aWins}–${r.bWins}</div></div>`;
+    } catch { return ''; }
+  }
+
+  // ---- OPEN ----
+  if (bet.status === 'open') {
+    if (role === 'proposer') {
+      app.innerHTML = `
+        <div class="card">
+          <div class="cardhead"><h2>Send it to your mate 📲</h2>${pill}</div>
+          <p class="sub">You're backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b> for <b>${money(bet)}</b>. They take the other side (${esc(complementLabel(bet))}).</p>
+          <img class="cardimg" src="/card/${id}.svg" alt="Your bet card" loading="eager" />
+          <button class="cta wa" id="waBtn">Share on WhatsApp</button>
+          <button class="ghost" id="shareBtn">Share card / copy link</button>
+          <a class="muted-link" href="/card/${id}.png" target="_blank" rel="noopener">Save card image</a>
+          <button class="muted-link" id="homeLink">Back to my season</button>
+        </div>
+        <div class="banner">Waiting for your mate to take the bet…</div>`;
+      const waText = `I bet you ${outcomeLabel(bet, bet.backedOutcome)} — ${money(bet)} on it. ${bet.note ? bet.note + ' ' : ''}Take the other side 👉`;
+      $('#waBtn').addEventListener('click', () => window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'));
+      $('#shareBtn').addEventListener('click', async () => {
+        if (navigator.share) { await nativeShare(link, waText); }
+        else { try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } }
+      });
+      $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+      return;
+    }
+    // opponent / fresh visitor
+    const rb = await rivalryBanner(bet.proposerName);
+    app.innerHTML = `
+      <div class="card">
+        <div class="cardhead"><h2>${esc(bet.proposerName)} wants to bet you 👀</h2>${pill}</div>
+        <p class="sub"><b>${esc(bet.proposerName)}</b> is backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b> for <b>${money(bet)}</b>.</p>
+        ${rb}
+        ${matchCard}
+        ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}
+        <div class="side"><div><div class="who">You'd be backing</div><div class="pick">${esc(complementLabel(bet))}</div></div><div class="stake">${money(bet)}</div></div>
+        <label>Your name</label>
+        <input id="opponentName" placeholder="e.g. Jordan" maxlength="40" value="${m ? esc(m.name) : ''}" />
+        <button class="cta commit" id="acceptBtn">Take the bet 🤝</button>
+        <button class="muted-link" onclick="location.href='/'">Nah — not this one</button>
+      </div>`;
+    $('#acceptBtn').addEventListener('click', async () => {
+      const opponentName = $('#opponentName').value.trim();
+      if (!opponentName) return toast('Add your name');
+      const btn = $('#acceptBtn'); btn.disabled = true; $('.card').classList.add('locking');
+      try {
+        await api('/bets/' + id + '/accept', { method: 'POST', body: JSON.stringify({ opponentName }) });
+        if (!m) me.set(opponentName);
+        roleStore.set(id, 'opponent');
+        sealThen(() => renderBet(id));
+      } catch (e) { toast(e.message); btn.disabled = false; $('.card').classList.remove('locking'); }
+    });
+    return;
+  }
+
+  // ---- ACCEPTED ----
+  if (bet.status === 'accepted') {
+    const rb = await rivalryBanner(otherSide(bet, m));
+    app.innerHTML = `
+      <div class="card">
+        <div class="cardhead"><h2>Bet's on 🔒</h2>${pill}</div>
+        ${matchCard}
+        ${rb}
+        ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}
+        <div class="side"><div><div class="who">${esc(bet.proposerName)}</div><div class="pick">${esc(outcomeLabel(bet, bet.backedOutcome))}</div></div><div class="stake">${money(bet)}</div></div>
+        <div class="side"><div><div class="who">${esc(bet.opponentName)}</div><div class="pick">${esc(complementLabel(bet))}</div></div><div class="stake">${money(bet)}</div></div>
+        <div id="resolveZone"></div>
+      </div>`;
+    const zone = $('#resolveZone');
+    if (CONFIG.live && bet.externalId) {
+      zone.innerHTML = `<button class="cta" id="autoBtn">Check final result</button><div class="banner">Auto-resolves from football-data.org once the match is finished.</div>`;
+      $('#autoBtn').addEventListener('click', () => doResolve(id, null));
+    } else {
+      const pend = bet.pendingResult;
+      const meName = m ? m.name : '';
+      const other = otherSide(bet, m);
+      const showReportSeg = () => {
+        zone.innerHTML = `
+          <label>Report the final result</label>
+          <div class="seg" id="resSeg">
+            <button data-o="HOME">${esc(bet.home)} won</button>
+            <button data-o="DRAW">Draw</button>
+            <button data-o="AWAY">${esc(bet.away)} won</button>
+          </div>
+          <div class="banner">Your mate confirms it before it's final — keeps it honest 🤝</div>`;
+        $('#resSeg').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => doResolve(id, b.dataset.o)));
+      };
+      if (pend && pend.by && meName && norm(pend.by) === norm(meName)) {
+        zone.innerHTML = `
+          <div class="banner" style="margin-bottom:10px">You reported <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b>. Waiting for ${esc(other)} to confirm…</div>
+          <button class="ghost" id="changeBtn">Change my report</button>`;
+        $('#changeBtn').addEventListener('click', showReportSeg);
+      } else if (pend && meName) {
+        zone.innerHTML = `
+          <div class="banner" style="margin-bottom:10px">${esc(pend.by || 'Your mate')} says it finished: <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b></div>
+          <button class="cta gold" id="confirmBtn">Confirm result ✓</button>
+          <button class="ghost" id="disputeBtn">No — report a different result</button>`;
+        $('#confirmBtn').addEventListener('click', () => doConfirm(id));
+        $('#disputeBtn').addEventListener('click', showReportSeg);
+      } else {
+        showReportSeg();
+      }
+    }
+    return;
+  }
+
+  // ---- RESOLVED / SETTLED ----
+  if (bet.status === 'resolved' || bet.status === 'settled') {
+    const winnerNm = bet.winner === 'proposer' ? bet.proposerName : bet.opponentName;
+    const winPick = bet.winner === 'proposer' ? outcomeLabel(bet, bet.backedOutcome) : complementLabel(bet);
+    const other = otherSide(bet, m);
+    const iWon = m && norm(winnerNm) === norm(m.name);
+    const rb = await rivalryBanner(other);
+
+    app.innerHTML = `
+      <div class="card">
+        <div class="cardhead"><h2>Full time 🏁</h2>${pill}</div>
+        ${matchCard}
+        <div class="banner reveal" style="margin-bottom:12px">Result: <b style="color:var(--text)">${esc(outcomeLabel(bet, bet.actualOutcome))}</b></div>
+        <div class="owes reveal delay1">
+          <div class="lbl">${bet.status === 'settled' ? 'Settled up' : 'Pay up'} 👇</div>
+          <div class="big">${esc(bet.owes.from)} → ${esc(bet.owes.to)}</div>
+          <div class="amt" id="amt">${sym(bet.currency)}0</div>
+        </div>
+        <div class="side win reveal delay2"><div><div class="who">🏆 ${esc(winnerNm)}</div><div class="pick">called it: ${esc(winPick)}</div></div></div>
+        ${rb ? `<div class="reveal delay3">${rb}</div>` : ''}
+        <div class="reveal delay3">
+          <img class="cardimg" src="/card/${id}.svg" alt="Result card" loading="lazy" />
+          <button class="ghost" id="shareResult">Share the result 📤</button>
+          ${bet.status === 'resolved' ? `<button class="cta gold" id="settleBtn" style="margin-top:10px">Mark as paid ✓</button>` : `<div class="banner" style="margin-top:14px">✓ Marked as paid${bet.settledAt ? ' · ' + new Date(bet.settledAt).toLocaleDateString() : ''}</div>`}
+          ${other ? `<button class="cta commit" id="rematchBtn" style="margin-top:10px">Rematch ${esc(other)} ⚔️</button>` : ''}
+          <button class="muted-link" id="homeLink">Back to my season</button>
+        </div>
+      </div>`;
+    const shareText = `${winnerNm} called it: ${outcomeLabel(bet, bet.actualOutcome)} ⚽ Settled on Duely.`;
+    const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => nativeShare(link, shareText));
+
+    // animate the payout count-up, confetti only if *I* won
+    setTimeout(() => { const el = $('#amt'); if (el) countUp(el, bet.owes.amount, sym(bet.currency)); }, 420);
+    if (iWon) setTimeout(confetti, 520);
+
+    if (bet.status === 'resolved') $('#settleBtn').addEventListener('click', async () => {
+      try { await api('/bets/' + id + '/settle', { method: 'POST' }); toast('Nice — settled'); renderBet(id); } catch (e) { toast(e.message); }
+    });
+    const rbtn = $('#rematchBtn'); if (rbtn) rbtn.addEventListener('click', () => rematchConfirm(other, bet));
+    $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+    return;
+  }
+}
+
+// the other player relative to "me" (falls back to opponent)
+function otherSide(bet, m) {
+  if (!m) return bet.opponentName || bet.proposerName;
+  return norm(bet.proposerName) === norm(m.name) ? bet.opponentName : bet.proposerName;
+}
+function norm(s) { return String(s || '').trim().toLowerCase(); }
+
+// ---------------------------------------------------------------------------
+// Rematch — deliberate friction (responsible design): restate stake + net,
+// never one-tap, never auto-fired after a loss.
+// ---------------------------------------------------------------------------
+async function rematchConfirm(other, lastBet) {
+  const m = me.get();
+  let netLine = '';
+  try {
+    const r = await api('/rivalry?a=' + encodeURIComponent(m.name) + '&b=' + encodeURIComponent(other));
+    netLine = `You're <b>${signed(r.aNet, r.currency)}</b> vs ${esc(other)} this season · record <b>${r.aWins}–${r.bWins}</b>.`;
+  } catch {}
+  app.innerHTML = `
+    <div class="card">
+      <h2>Rematch ${esc(other)}?</h2>
+      <p class="sub">Quick gut-check before you go again.</p>
+      <div class="side"><div><div class="who">Last bet</div><div class="pick">${esc(lastBet.home)} v ${esc(lastBet.away)}</div></div><div class="stake">${money(lastBet)}</div></div>
+      <div class="resp" style="margin-top:14px;text-align:center;display:block">${netLine || 'New rivalry — make it count.'}</div>
+      <div class="banner" style="margin-top:12px">Bragging rights, not income. Set your own stake on the next screen.</div>
+      <button class="cta commit" id="goRematch">Set up the rematch →</button>
+      <button class="muted-link" id="notNow">Not now</button>
+    </div>`;
+  $('#goRematch').addEventListener('click', () => { PREFILL = { opponent: other }; renderCreate(); });
+  $('#notNow').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+}
+
+async function doResolve(id, actualOutcome) {
+  const m = me.get();
+  try { await api('/bets/' + id + '/resolve', { method: 'POST', body: JSON.stringify({ actualOutcome, reporterName: m ? m.name : undefined }) }); renderBet(id); }
+  catch (e) { toast(e.message); }
+}
+async function doConfirm(id) {
+  const m = me.get();
+  try { await api('/bets/' + id + '/confirm', { method: 'POST', body: JSON.stringify({ confirmerName: m ? m.name : undefined }) }); renderBet(id); }
+  catch (e) { toast(e.message); }
+}
+
+window.addEventListener('popstate', route);
+route();
+
+// floodlights intro + ambient spotlight that tracks the pointer
+(function floodlit() {
+  const intro = document.getElementById('intro');
+  if (intro) {
+    if (document.documentElement.classList.contains('no-intro')) {
+      intro.classList.add('gone');
+    } else {
+      const kill = () => intro.classList.add('gone');
+      intro.addEventListener('click', kill);
+      setTimeout(kill, 1850);
+    }
+  }
+  const spot = document.querySelector('.amb-spot');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (spot && !reduce) {
+    let lastPointer = -9999;
+    window.addEventListener('pointermove', (e) => {
+      lastPointer = performance.now();
+      spot.style.setProperty('--mx', (e.clientX / innerWidth * 100).toFixed(1) + '%');
+      spot.style.setProperty('--my', (e.clientY / innerHeight * 100).toFixed(1) + '%');
+    }, { passive: true });
+    // on phones (no pointer) and when the cursor is idle, the floodlight drifts on its own
+    const drift = (t) => {
+      if (performance.now() - lastPointer > 1400) {
+        const s = t / 1000;
+        const mx = 50 + Math.sin(s * 0.16) * 32 + Math.sin(s * 0.07) * 8;
+        const my = 24 + Math.cos(s * 0.12) * 18;
+        spot.style.setProperty('--mx', mx.toFixed(1) + '%');
+        spot.style.setProperty('--my', my.toFixed(1) + '%');
+      }
+      requestAnimationFrame(drift);
+    };
+    requestAnimationFrame(drift);
+  }
+})();
