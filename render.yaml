@@ -14,6 +14,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      # Optional: live football fixtures/results (free key from football-data.org)
-      # - key: FOOTBALL_DATA_TOKEN
-      #   sync: false
+      # live football fixtures/results — Render asks you to paste the value at deploy
+      - key: FOOTBALL_DATA_TOKEN
+        sync: false
