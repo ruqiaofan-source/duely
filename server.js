@@ -10,12 +10,19 @@
  * The server holds NO money and takes NO commission. It records the wager,
  * keeps the head-to-head ledger, and tells two friends who pays whom.
  *
+ * Identity is server-authoritative: every player gets an opaque id (public,
+ * stamped onto bets/leagues) and a secret bearer token (private, sent as the
+ * `x-duely-secret` header). Private reads are gated by the secret — names are
+ * display labels only, never the key, so nobody can read or claim a record by
+ * guessing a name. Optional Google / email login attaches a verified identity
+ * to an existing player id (see /api/auth/*).
+ *
  * NOTE (legal): "no money held" is NOT a confirmed exemption from gambling
  * intermediary licensing (e.g. UK Gambling Act 2005 s.13). This is a
  * prototype to validate the loop — get counsel before any public launch.
  *
- * Zero npm dependencies. Node 18+.
  * Optional live results: set FOOTBALL_DATA_TOKEN (free key, football-data.org).
+ * Optional Google sign-in: set GOOGLE_CLIENT_ID (OAuth 2.0 Web client id).
  */
 
 const http = require('http');
@@ -40,6 +47,7 @@ const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
 const DATA_FILE = path.join(ROOT, 'data.json');
 const FOOTBALL_TOKEN = process.env.FOOTBALL_DATA_TOKEN || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const BRAND = 'Duely';
 
 // ---------------------------------------------------------------------------
@@ -53,7 +61,7 @@ if (DATABASE_URL) {
   pool.on('error', (e) => console.error('pg pool error:', e.message));
 }
 
-let db = { bets: {}, leagues: {}, events: [], stats: {} };
+let db = { players: {}, bets: {}, leagues: {}, events: [], stats: {} };
 
 // serialized write-through (latest state always wins, writes never overlap)
 let _writing = false, _dirty = false;
@@ -78,10 +86,12 @@ async function initData() {
   } else {
     try { db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch {}
   }
+  if (!db.players) db.players = {};
   if (!db.bets) db.bets = {};
   if (!db.leagues) db.leagues = {};
   if (!db.events) db.events = [];
   if (!db.stats) db.stats = {};
+  rebuildSecretIndex();
   seedHistory();
 }
 
@@ -90,10 +100,11 @@ function logEvent(type, meta = {}, persist = true) {
   db.stats[type] = (db.stats[type] || 0) + 1;
   db.events.push({ type, t: new Date().toISOString(), ...meta });
   if (db.events.length > 5000) db.events = db.events.slice(-5000);
-  if (persist) saveData(db);
+  if (persist) saveData();
 }
 
 const newId = () => crypto.randomBytes(4).toString('hex');
+const newSecret = () => crypto.randomBytes(24).toString('hex');
 const newCode = () => {
   const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no ambiguous chars
   const b = crypto.randomBytes(5);
@@ -101,7 +112,61 @@ const newCode = () => {
   return s;
 };
 const norm = (s) => String(s || '').trim().toLowerCase();
+const normEmail = (s) => String(s || '').trim().toLowerCase();
 const OUTCOMES = ['HOME', 'DRAW', 'AWAY'];
+
+// ---------------------------------------------------------------------------
+// Identity — server-authoritative players (id public, secret private)
+// ---------------------------------------------------------------------------
+let _secretIndex = null; // secret -> id, lazily rebuilt
+function rebuildSecretIndex() {
+  _secretIndex = {};
+  for (const p of Object.values(db.players)) if (p && p.secret) _secretIndex[p.secret] = p.id;
+}
+function playerBySecret(secret) {
+  if (!secret) return null;
+  if (!_secretIndex) rebuildSecretIndex();
+  const id = _secretIndex[secret];
+  return id ? db.players[id] : null;
+}
+function authPlayer(req) {
+  const secret = req.headers['x-duely-secret'] || '';
+  return playerBySecret(secret);
+}
+function createPlayer(name) {
+  const id = newId();
+  const p = { id, secret: newSecret(), name: String(name || '').slice(0, 40) || 'Player', createdAt: new Date().toISOString() };
+  db.players[id] = p;
+  if (_secretIndex) _secretIndex[p.secret] = id;
+  return p;
+}
+const playerByEmail = (email) => Object.values(db.players).find((p) => p.email && normEmail(p.email) === normEmail(email)) || null;
+const playerByGoogle = (sub) => Object.values(db.players).find((p) => p.googleSub === sub) || null;
+const nameOf = (id) => (db.players[id] ? db.players[id].name : null);
+// what the owner gets back (includes the secret); everyone else gets publicPlayer
+const selfPlayer = (p) => ({ id: p.id, name: p.name, secret: p.secret, email: p.email || null, verified: Boolean(p.emailVerified), hasPassword: Boolean(p.passHash), google: Boolean(p.googleSub) });
+
+function hashPw(pw) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const h = crypto.scryptSync(pw, salt, 64).toString('hex');
+  return salt + ':' + h;
+}
+function checkPw(pw, stored) {
+  try {
+    const [salt, h] = String(stored).split(':');
+    const hh = crypto.scryptSync(pw, salt, 64).toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(hh, 'hex'));
+  } catch { return false; }
+}
+async function verifyGoogleIdToken(idToken) {
+  if (!idToken || !GOOGLE_CLIENT_ID) return null;
+  const res = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken));
+  if (!res.ok) return null;
+  const j = await res.json();
+  if (j.aud !== GOOGLE_CLIENT_ID) return null;
+  if (j.email_verified !== 'true' && j.email_verified !== true) return null;
+  return { sub: j.sub, email: j.email, name: j.name || (j.email || '').split('@')[0] };
+}
 
 // ---------------------------------------------------------------------------
 // Demo fixtures
@@ -176,108 +241,125 @@ function complementLabel(bet) {
 }
 function resolveBet(bet, actualOutcome) {
   const proposerWins = actualOutcome === bet.backedOutcome;
-  const winnerName = proposerWins ? bet.proposerName : bet.opponentName;
-  const loserName = proposerWins ? bet.opponentName : bet.proposerName;
+  const winnerPid = proposerWins ? bet.proposerId : bet.opponentId;
+  const loserPid = proposerWins ? bet.opponentId : bet.proposerId;
+  const winnerNm = proposerWins ? bet.proposerName : bet.opponentName;
+  const loserNm = proposerWins ? bet.opponentName : bet.proposerName;
   bet.status = 'resolved';
   bet.actualOutcome = actualOutcome;
   bet.winner = proposerWins ? 'proposer' : 'opponent';
-  bet.owes = { from: loserName, to: winnerName, amount: bet.stake, currency: bet.currency };
+  // owes carries ids (the ledger key) plus denormalized names (for cards/OG)
+  bet.owes = { fromId: loserPid, toId: winnerPid, from: loserNm, to: winnerNm, amount: bet.stake, currency: bet.currency };
   bet.resolvedAt = new Date().toISOString();
   return bet;
 }
 
 // ---------------------------------------------------------------------------
-// Stats engine (records computed by player name)
+// Stats engine (records computed by player id; names are display only)
 // ---------------------------------------------------------------------------
 const decidedBets = () => Object.values(db.bets).filter((b) => b.status === 'resolved' || b.status === 'settled');
-const winnerName = (b) => (b.winner === 'proposer' ? b.proposerName : b.opponentName);
-const involves = (b, name) => norm(b.proposerName) === norm(name) || norm(b.opponentName) === norm(name);
-const otherName = (b, name) => (norm(b.proposerName) === norm(name) ? b.opponentName : b.proposerName);
+const involvesId = (b, id) => b.proposerId === id || b.opponentId === id;
+const otherId = (b, id) => (b.proposerId === id ? b.opponentId : b.proposerId);
+const nameForId = (b, id) => (b.proposerId === id ? b.proposerName : b.opponentName); // display name straight off the bet
+const winnerId = (b) => (b.winner === 'proposer' ? b.proposerId : b.opponentId);
+const winnerDisplayName = (b) => (b.winner === 'proposer' ? b.proposerName : b.opponentName);
 const byRecent = (a, b) => new Date(b.resolvedAt || 0) - new Date(a.resolvedAt || 0);
 
-function playerSummary(name) {
-  const mine = decidedBets().filter((b) => involves(b, name)).sort(byRecent);
+function playerSummary(id) {
+  const name = nameOf(id);
+  const mine = decidedBets().filter((b) => involvesId(b, id)).sort(byRecent);
   let w = 0, l = 0, net = 0;
   for (const b of mine) {
-    if (norm(winnerName(b)) === norm(name)) w++; else l++;
+    if (winnerId(b) === id) w++; else l++;
     if (b.owes) {
-      if (norm(b.owes.to) === norm(name)) net += b.owes.amount;
-      else if (norm(b.owes.from) === norm(name)) net -= b.owes.amount;
+      if (b.owes.toId === id) net += b.owes.amount;
+      else if (b.owes.fromId === id) net -= b.owes.amount;
     }
   }
   let streak = { type: null, count: 0 };
   for (const b of mine) {
-    const t = norm(winnerName(b)) === norm(name) ? 'W' : 'L';
+    const t = winnerId(b) === id ? 'W' : 'L';
     if (streak.type === null) streak = { type: t, count: 1 };
     else if (streak.type === t) streak.count++;
     else break;
   }
   const byOpp = {};
   for (const b of mine) {
-    const o = otherName(b, name), k = norm(o);
-    if (!byOpp[k]) byOpp[k] = { opponent: o, w: 0, l: 0, net: 0, games: 0 };
-    const r = byOpp[k];
+    const oid = otherId(b, id);
+    if (!byOpp[oid]) byOpp[oid] = { opponentId: oid, opponent: nameForId(b, oid), w: 0, l: 0, net: 0, games: 0 };
+    const r = byOpp[oid];
+    r.opponent = nameForId(b, oid); // keep the freshest label
     r.games++;
-    if (norm(winnerName(b)) === norm(name)) r.w++; else r.l++;
+    if (winnerId(b) === id) r.w++; else r.l++;
     if (b.owes) {
-      if (norm(b.owes.to) === norm(name)) r.net += b.owes.amount;
-      else if (norm(b.owes.from) === norm(name)) r.net -= b.owes.amount;
+      if (b.owes.toId === id) r.net += b.owes.amount;
+      else if (b.owes.fromId === id) r.net -= b.owes.amount;
     }
   }
   const rivalries = Object.values(byOpp)
     .map((r) => ({ ...r, isRival: r.games >= 3 }))
     .sort((a, b) => b.games - a.games);
   const recent = mine.slice(0, 8).map((b) => ({
-    id: b.id, home: b.home, away: b.away, opponent: otherName(b, name),
-    won: norm(winnerName(b)) === norm(name), amount: b.owes ? b.owes.amount : b.stake,
+    id: b.id, home: b.home, away: b.away, opponent: nameForId(b, otherId(b, id)),
+    won: winnerId(b) === id, amount: b.owes ? b.owes.amount : b.stake,
     currency: b.currency, status: b.status,
   }));
-  return { name, w, l, net, currency: 'EUR', streak, rivalries, recent };
+  return { id, name, w, l, net, currency: 'EUR', streak, rivalries, recent };
 }
 
-function rivalry(a, b) {
-  const both = decidedBets().filter((x) => involves(x, a) && involves(x, b)).sort(byRecent);
-  let aWins = 0, bWins = 0, aNet = 0;
+function rivalry(idA, idB) {
+  const both = decidedBets().filter((x) => involvesId(x, idA) && involvesId(x, idB)).sort(byRecent);
+  let aWins = 0, bWins = 0, aNet = 0, aName = nameOf(idA), bName = nameOf(idB);
   for (const x of both) {
-    if (norm(winnerName(x)) === norm(a)) aWins++; else bWins++;
+    aName = nameForId(x, idA); bName = nameForId(x, idB);
+    if (winnerId(x) === idA) aWins++; else bWins++;
     if (x.owes) {
-      if (norm(x.owes.to) === norm(a)) aNet += x.owes.amount;
-      else if (norm(x.owes.from) === norm(a)) aNet -= x.owes.amount;
+      if (x.owes.toId === idA) aNet += x.owes.amount;
+      else if (x.owes.fromId === idA) aNet -= x.owes.amount;
     }
   }
-  return { a, b, aWins, bWins, aNet, games: both.length, currency: 'EUR' };
+  return { aId: idA, bId: idB, a: aName, b: bName, aWins, bWins, aNet, games: both.length, currency: 'EUR' };
 }
 
-function rivalryLine(proposer, opponent) {
-  const r = rivalry(proposer, opponent);
-  if (!r.games) return `First bet of the ${proposer}-${opponent} rivalry`;
+// Rivalry one-liner for a specific bet's two players (used on cards / OG meta).
+function rivalryLine(bet) {
+  const r = rivalry(bet.proposerId, bet.opponentId);
+  const p = bet.proposerName, o = bet.opponentName;
+  if (!r.games) return `First bet of the ${p}-${o} rivalry`;
   const hi = Math.max(r.aWins, r.bWins), lo = Math.min(r.aWins, r.bWins);
-  if (r.aWins === r.bWins) return `${proposer} & ${opponent} all level ${hi}-${lo}`;
-  const leader = r.aWins > r.bWins ? proposer : opponent;
-  const chaser = r.aWins > r.bWins ? opponent : proposer;
+  if (r.aWins === r.bWins) return `${p} & ${o} all level ${hi}-${lo}`;
+  const leader = r.aWins > r.bWins ? p : o;
+  const chaser = r.aWins > r.bWins ? o : p;
   return `${leader} leads ${chaser} ${hi}-${lo}`;
 }
 
-// League table: aggregate decided bets *between members of the league*.
+// League table: aggregate decided bets *between members of the league* (by id).
 function leagueStandings(league) {
-  const set = new Set(league.members.map(norm));
-  const rel = decidedBets().filter((b) => set.has(norm(b.proposerName)) && set.has(norm(b.opponentName)));
+  const ids = new Set(league.members.map((m) => m.id));
+  const rel = decidedBets().filter((b) => ids.has(b.proposerId) && ids.has(b.opponentId));
   const tbl = {};
-  for (const nm of league.members) tbl[norm(nm)] = { name: nm, w: 0, l: 0, net: 0, games: 0 };
+  for (const m of league.members) tbl[m.id] = { id: m.id, name: m.name, w: 0, l: 0, net: 0, games: 0 };
   for (const b of rel) {
-    const wn = winnerName(b);
-    const wk = norm(wn);
-    const lk = wk === norm(b.proposerName) ? norm(b.opponentName) : norm(b.proposerName);
-    if (tbl[wk]) { tbl[wk].w++; tbl[wk].games++; }
-    if (tbl[lk]) { tbl[lk].l++; tbl[lk].games++; }
+    const wk = winnerId(b), lk = otherId(b, wk);
+    if (tbl[wk]) { tbl[wk].w++; tbl[wk].games++; tbl[wk].name = nameForId(b, wk); }
+    if (tbl[lk]) { tbl[lk].l++; tbl[lk].games++; tbl[lk].name = nameForId(b, lk); }
     if (b.owes) {
-      if (tbl[norm(b.owes.to)]) tbl[norm(b.owes.to)].net += b.owes.amount;
-      if (tbl[norm(b.owes.from)]) tbl[norm(b.owes.from)].net -= b.owes.amount;
+      if (tbl[b.owes.toId]) tbl[b.owes.toId].net += b.owes.amount;
+      if (tbl[b.owes.fromId]) tbl[b.owes.fromId].net -= b.owes.amount;
     }
   }
   const rows = Object.values(tbl).sort((a, b) => b.w - a.w || b.net - a.net || a.l - b.l || a.name.localeCompare(b.name));
   rows.forEach((r, i) => (r.rank = i + 1));
   return rows;
+}
+
+// shape a league for the API (denormalize member names off their player records)
+function leagueView(league) {
+  return {
+    code: league.code, name: league.name,
+    members: league.members.map((m) => ({ id: m.id, name: nameOf(m.id) || m.name })),
+    standings: leagueStandings(league),
+  };
 }
 
 function leagueSvgFor(league) {
@@ -310,11 +392,11 @@ function cardSvgForBet(bet) {
     NOTE: bet.note ? (bet.note.length > 52 ? bet.note.slice(0, 51) + '…' : bet.note) : '',
   };
   if (bet.status === 'resolved' || bet.status === 'settled') {
-    const winner = winnerName(bet);
-    const loser = norm(winner) === norm(bet.proposerName) ? bet.opponentName : bet.proposerName;
+    const winner = winnerDisplayName(bet);
+    const loser = bet.winner === 'proposer' ? bet.opponentName : bet.proposerName;
     Object.assign(data, {
       RESULT: outcomeLabel(bet, bet.actualOutcome), WINNER: winner, LOSER: loser,
-      OWES: `${bet.owes.from}  →  ${bet.owes.to}`, RIVALRY: rivalryLine(bet.proposerName, bet.opponentName),
+      OWES: `${bet.owes.from}  →  ${bet.owes.to}`, RIVALRY: rivalryLine(bet),
     });
     return cards.resultSvg(data);
   }
@@ -326,9 +408,9 @@ function storySvgForBet(bet) {
   const accent = resolved ? '#FFC83D' : '#14E0C8';
   let badge, hero, sub, foot;
   if (resolved) {
-    badge = 'FULL TIME'; hero = winnerName(bet);
+    badge = 'FULL TIME'; hero = winnerDisplayName(bet);
     sub = 'called it — ' + outcomeLabel(bet, bet.actualOutcome);
-    foot = rivalryLine(bet.proposerName, bet.opponentName);
+    foot = rivalryLine(bet);
   } else {
     badge = 'OPEN BET'; hero = outcomeLabel(bet, bet.backedOutcome);
     sub = bet.proposerName + ' is backing'; foot = 'Take the other side →';
@@ -370,10 +452,10 @@ const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;'
 
 function ogTextForBet(bet) {
   if (bet.status === 'resolved' || bet.status === 'settled') {
-    const winner = winnerName(bet);
+    const winner = winnerDisplayName(bet);
     return {
       title: `${winner} called it: ${outcomeLabel(bet, bet.actualOutcome)} ⚽`,
-      desc: `${bet.owes.from} owes ${bet.owes.to} ${sym(bet.currency)}${bet.stake}. ${rivalryLine(bet.proposerName, bet.opponentName)}. Back yourself on Duely.`,
+      desc: `${bet.owes.from} owes ${bet.owes.to} ${sym(bet.currency)}${bet.stake}. ${rivalryLine(bet)}. Back yourself on Duely.`,
     };
   }
   if (bet.status === 'accepted') {
@@ -426,17 +508,27 @@ function serveShareHtml(req, res, id) {
 function seedHistory() {
   if (db.seeded) return;
   if (process.env.SEED_DEMO !== '1') return; // deployed app starts clean (no demo names)
+  const players = {};
+  const ply = (name) => {
+    const k = norm(name);
+    if (!players[k]) players[k] = createPlayer(name);
+    return players[k];
+  };
   const mk = (proposer, opponent, home, away, backed, actual, stake, daysAgo, comp) => {
     const id = newId();
+    const P = ply(proposer), O = ply(opponent);
     const proposerWins = actual === backed;
     const ts = new Date(Date.now() - daysAgo * 86400000).toISOString();
     db.bets[id] = {
-      id, status: 'settled', proposerName: proposer, opponentName: opponent,
+      id, status: 'settled', proposerId: P.id, opponentId: O.id, proposerName: P.name, opponentName: O.name,
       home, away, competition: comp || 'Premier League', utcDate: ts, externalId: null,
       backedOutcome: backed, stake, currency: 'EUR', note: '',
       createdAt: ts, acceptedAt: ts, actualOutcome: actual,
       winner: proposerWins ? 'proposer' : 'opponent',
-      owes: { from: proposerWins ? opponent : proposer, to: proposerWins ? proposer : opponent, amount: stake, currency: 'EUR' },
+      owes: {
+        fromId: proposerWins ? O.id : P.id, toId: proposerWins ? P.id : O.id,
+        from: proposerWins ? O.name : P.name, to: proposerWins ? P.name : O.name, amount: stake, currency: 'EUR',
+      },
       resolvedAt: ts, settledAt: ts, seeded: true,
     };
   };
@@ -449,11 +541,12 @@ function seedHistory() {
   mk('Alex', 'Casey', 'Inter', 'Milan', 'HOME', 'HOME', 10, 21, 'Serie A');
   mk('Casey', 'Alex', 'PSG', 'Lyon', 'HOME', 'HOME', 10, 33, 'Ligue 1');
   db.leagues['SUN01'] = {
-    code: 'SUN01', name: 'Sunday League', createdBy: 'Alex',
-    members: ['Alex', 'Jordan', 'Casey'], createdAt: new Date(Date.now() - 45 * 86400000).toISOString(),
+    code: 'SUN01', name: 'Sunday League', createdById: players[norm('Alex')].id,
+    members: [players[norm('Alex')], players[norm('Jordan')], players[norm('Casey')]].map((p) => ({ id: p.id, name: p.name })),
+    createdAt: new Date(Date.now() - 45 * 86400000).toISOString(),
   };
   db.seeded = true;
-  saveData(db);
+  saveData();
 }
 
 // ---------------------------------------------------------------------------
@@ -488,9 +581,10 @@ function serveStatic(req, res) {
 // ---------------------------------------------------------------------------
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean);
+  const need401 = () => sendJson(res, 401, { error: 'Sign in on this device first.' });
 
   if (req.method === 'GET' && parts[1] === 'config')
-    return sendJson(res, 200, { brand: BRAND, live: Boolean(FOOTBALL_TOKEN) });
+    return sendJson(res, 200, { brand: BRAND, live: Boolean(FOOTBALL_TOKEN), googleClientId: GOOGLE_CLIENT_ID || null });
 
   if (req.method === 'GET' && parts[1] === 'matches') {
     const matches = await getMatches();
@@ -502,11 +596,9 @@ async function handleApi(req, res, url) {
     const s = db.stats || {};
     const created = s.bet_created || 0, opened = s.link_opened || 0, accepted = s.bet_accepted || 0, resolved = s.bet_resolved || 0;
     const rematch = (db.events || []).filter((e) => e.type === 'bet_created' && e.rematch).length;
-    const names = new Set();
-    Object.values(db.bets).forEach((b) => { if (b.proposerName) names.add(norm(b.proposerName)); if (b.opponentName) names.add(norm(b.opponentName)); });
-    Object.values(db.leagues).forEach((l) => l.members.forEach((mm) => names.add(norm(mm))));
+    const verified = Object.values(db.players).filter((p) => p.emailVerified || p.email).length;
     return sendJson(res, 200, {
-      totals: { players: names.size, bets: Object.keys(db.bets).length, leagues: Object.keys(db.leagues).length },
+      totals: { players: Object.keys(db.players).length, verified, bets: Object.keys(db.bets).length, leagues: Object.keys(db.leagues).length },
       funnel: {
         created, opened, accepted, resolved, rematch,
         acceptRate: created ? +(accepted / created).toFixed(2) : 0,
@@ -516,58 +608,126 @@ async function handleApi(req, res, url) {
     });
   }
 
-  // GET /api/players/:name/summary
-  if (req.method === 'GET' && parts[1] === 'players' && parts[2] && parts[3] === 'summary') {
-    return sendJson(res, 200, playerSummary(decodeURIComponent(parts[2])));
+  // -------------------------------------------------------------------------
+  // Identity
+  // -------------------------------------------------------------------------
+
+  // POST /api/players  {name}  — register this device (or rename if already authed)
+  if (req.method === 'POST' && parts[1] === 'players' && parts.length === 2) {
+    const b = await readBody(req);
+    const existing = authPlayer(req);
+    if (existing) {
+      if (b.name) { existing.name = String(b.name).slice(0, 40) || existing.name; saveData(); }
+      return sendJson(res, 200, selfPlayer(existing));
+    }
+    const p = createPlayer(b.name || 'Player');
+    saveData();
+    return sendJson(res, 201, selfPlayer(p));
   }
 
-  // GET /api/players/:name/leagues
-  if (req.method === 'GET' && parts[1] === 'players' && parts[2] && parts[3] === 'leagues') {
-    const name = decodeURIComponent(parts[2]);
-    const mine = Object.values(db.leagues).filter((l) => l.members.some((m) => norm(m) === norm(name)));
-    const leagues = mine.map((l) => {
-      const s = leagueStandings(l);
-      const row = s.find((r) => norm(r.name) === norm(name));
-      return { code: l.code, name: l.name, members: l.members.length, rank: row ? row.rank : null, total: s.length };
-    });
-    return sendJson(res, 200, { leagues });
+  // /api/players/me[...]  — everything here requires the secret and acts on the caller
+  if (parts[1] === 'players' && parts[2] === 'me') {
+    const me = authPlayer(req);
+    if (!me) return need401();
+
+    if (req.method === 'POST' && !parts[3]) { // rename (id + secret stay stable)
+      const b = await readBody(req);
+      if (b.name) { me.name = String(b.name).slice(0, 40) || me.name; saveData(); }
+      return sendJson(res, 200, selfPlayer(me));
+    }
+    if (req.method === 'GET' && !parts[3]) return sendJson(res, 200, selfPlayer(me));
+    if (req.method === 'GET' && parts[3] === 'summary') return sendJson(res, 200, playerSummary(me.id));
+    if (req.method === 'GET' && parts[3] === 'leagues') {
+      const mine = Object.values(db.leagues).filter((l) => l.members.some((m) => m.id === me.id));
+      const leagues = mine.map((l) => {
+        const s = leagueStandings(l);
+        const row = s.find((r) => r.id === me.id);
+        return { code: l.code, name: l.name, members: l.members.length, rank: row ? row.rank : null, total: s.length };
+      });
+      return sendJson(res, 200, { leagues });
+    }
+    if (req.method === 'GET' && parts[3] === 'bets') {
+      const mine = Object.values(db.bets).filter((b) => involvesId(b, me.id));
+      const map = (b) => ({
+        id: b.id, home: b.home, away: b.away, status: b.status,
+        opponent: b.opponentId ? nameForId(b, otherId(b, me.id)) : null,
+        backed: outcomeLabel(b, b.backedOutcome), stake: b.stake, currency: b.currency,
+        mine: b.proposerId === me.id,
+        won: (b.status === 'resolved' || b.status === 'settled') ? winnerId(b) === me.id : null,
+        pending: Boolean(b.pendingResult), createdAt: b.createdAt,
+      });
+      const active = mine.filter((b) => b.status === 'open' || b.status === 'accepted')
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map(map);
+      const history = mine.filter((b) => b.status === 'resolved' || b.status === 'settled').sort(byRecent).map(map);
+      return sendJson(res, 200, { active, history });
+    }
+    // GET /api/players/me/rivalry?with=:opponentId — only your own head-to-heads
+    if (req.method === 'GET' && parts[3] === 'rivalry') {
+      const oppId = url.searchParams.get('with');
+      if (!oppId) return sendJson(res, 400, { error: 'with required' });
+      return sendJson(res, 200, rivalry(me.id, oppId));
+    }
+    return sendJson(res, 404, { error: 'Unknown endpoint' });
   }
 
-  // GET /api/players/:name/bets — for the Duels tab (active + history)
-  if (req.method === 'GET' && parts[1] === 'players' && parts[2] && parts[3] === 'bets') {
-    const name = decodeURIComponent(parts[2]);
-    const mine = Object.values(db.bets).filter((b) => involves(b, name));
-    const map = (b) => ({
-      id: b.id, home: b.home, away: b.away, status: b.status,
-      opponent: b.opponentName ? otherName(b, name) : null,
-      backed: outcomeLabel(b, b.backedOutcome), stake: b.stake, currency: b.currency,
-      mine: norm(b.proposerName) === norm(name),
-      won: (b.status === 'resolved' || b.status === 'settled') ? norm(winnerName(b)) === norm(name) : null,
-      pending: Boolean(b.pendingResult), createdAt: b.createdAt,
-    });
-    const active = mine.filter((b) => b.status === 'open' || b.status === 'accepted')
-      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map(map);
-    const history = mine.filter((b) => b.status === 'resolved' || b.status === 'settled').sort(byRecent).map(map);
-    return sendJson(res, 200, { active, history });
+  // -------------------------------------------------------------------------
+  // Login — attach a verified identity to an existing (or new) player
+  // -------------------------------------------------------------------------
+  if (req.method === 'POST' && parts[1] === 'auth' && parts[2] === 'google') {
+    if (!GOOGLE_CLIENT_ID) return sendJson(res, 503, { error: 'Google sign-in is not configured.' });
+    const b = await readBody(req);
+    let info; try { info = await verifyGoogleIdToken(b.idToken); } catch { info = null; }
+    if (!info) return sendJson(res, 401, { error: 'Google sign-in failed.' });
+    let p = playerByGoogle(info.sub) || playerByEmail(info.email);
+    const current = authPlayer(req);
+    if (p) {
+      p.googleSub = info.sub; p.email = info.email; p.emailVerified = true;
+      if (!p.name) p.name = info.name;
+    } else if (current && !current.email && !current.googleSub) {
+      p = current; p.googleSub = info.sub; p.email = info.email; p.emailVerified = true; // upgrade anon, keep record
+    } else {
+      p = createPlayer(info.name); p.googleSub = info.sub; p.email = info.email; p.emailVerified = true;
+    }
+    saveData();
+    return sendJson(res, 200, selfPlayer(p));
   }
 
-  // GET /api/rivalry?a=&b=
-  if (req.method === 'GET' && parts[1] === 'rivalry') {
-    const a = url.searchParams.get('a'), b = url.searchParams.get('b');
-    if (!a || !b) return sendJson(res, 400, { error: 'a and b required' });
-    return sendJson(res, 200, rivalry(a, b));
+  if (req.method === 'POST' && parts[1] === 'auth' && parts[2] === 'email') {
+    const b = await readBody(req);
+    const email = normEmail(b.email);
+    const pw = String(b.password || '');
+    if (!email || !email.includes('@') || !pw) return sendJson(res, 400, { error: 'Enter your email and password.' });
+    let p = playerByEmail(email);
+    if (p) {
+      // existing account → log in (no length gate; a wrong guess is a wrong password, not a 400)
+      if (!p.passHash) return sendJson(res, 409, { error: 'That email is linked to Google sign-in — use the Google button.' });
+      if (!checkPw(pw, p.passHash)) return sendJson(res, 401, { error: 'Wrong password.' });
+    } else {
+      // new account → register (enforce a minimum password here)
+      if (pw.length < 6) return sendJson(res, 400, { error: 'Pick a password with at least 6 characters.' });
+      const current = authPlayer(req);
+      if (current && !current.email && !current.googleSub) p = current; // upgrade anon, keep record
+      else p = createPlayer(b.name || email.split('@')[0]);
+      p.email = email; p.passHash = hashPw(pw); p.emailVerified = false;
+    }
+    saveData();
+    return sendJson(res, 200, selfPlayer(p));
   }
+
+  // -------------------------------------------------------------------------
+  // Leagues
+  // -------------------------------------------------------------------------
 
   // POST /api/leagues  (create)
   if (req.method === 'POST' && parts[1] === 'leagues' && parts.length === 2) {
+    const me = authPlayer(req); if (!me) return need401();
     const b = await readBody(req);
-    if (!b.name || !b.creatorName) return sendJson(res, 400, { error: 'name and creatorName required' });
+    if (!b.name) return sendJson(res, 400, { error: 'name required' });
     let code; do { code = newCode(); } while (db.leagues[code]);
-    const creator = String(b.creatorName).slice(0, 40);
-    const league = { code, name: String(b.name).slice(0, 50), createdBy: creator, members: [creator], createdAt: new Date().toISOString() };
+    const league = { code, name: String(b.name).slice(0, 50), createdById: me.id, members: [{ id: me.id, name: me.name }], createdAt: new Date().toISOString() };
     db.leagues[code] = league;
     logEvent('league_created', { code });
-    return sendJson(res, 201, { ...league, standings: leagueStandings(league) });
+    return sendJson(res, 201, leagueView(league));
   }
 
   // /api/leagues/:code[/join]
@@ -576,27 +736,30 @@ async function handleApi(req, res, url) {
     const league = db.leagues[code];
     if (!league) return sendJson(res, 404, { error: 'League not found' });
     if (req.method === 'GET' && !parts[3]) {
-      return sendJson(res, 200, { ...league, standings: leagueStandings(league) });
+      return sendJson(res, 200, leagueView(league));
     }
     if (req.method === 'POST' && parts[3] === 'join') {
-      const b = await readBody(req);
-      if (!b.name) return sendJson(res, 400, { error: 'Name required' });
-      const nm = String(b.name).slice(0, 40);
-      if (!league.members.some((m) => norm(m) === norm(nm))) league.members.push(nm);
+      const me = authPlayer(req); if (!me) return need401();
+      if (!league.members.some((m) => m.id === me.id)) league.members.push({ id: me.id, name: me.name });
       logEvent('league_joined', { code });
-      return sendJson(res, 200, { ...league, standings: leagueStandings(league) });
+      return sendJson(res, 200, leagueView(league));
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Bets
+  // -------------------------------------------------------------------------
+
   // POST /api/bets
   if (req.method === 'POST' && parts[1] === 'bets' && parts.length === 2) {
+    const me = authPlayer(req); if (!me) return need401();
     const b = await readBody(req);
-    if (!b.proposerName || !b.home || !b.away || !OUTCOMES.includes(b.backedOutcome))
+    if (!b.home || !b.away || !OUTCOMES.includes(b.backedOutcome))
       return sendJson(res, 400, { error: 'Missing or invalid fields' });
     const id = newId();
     const bet = {
       id, status: 'open',
-      proposerName: String(b.proposerName).slice(0, 40), opponentName: null,
+      proposerId: me.id, proposerName: me.name, opponentId: null, opponentName: null,
       home: String(b.home).slice(0, 40), away: String(b.away).slice(0, 40),
       competition: b.competition ? String(b.competition).slice(0, 60) : '',
       utcDate: b.utcDate || null, externalId: b.externalId || null,
@@ -616,14 +779,14 @@ async function handleApi(req, res, url) {
     if (!bet) return sendJson(res, 404, { error: 'Bet not found' });
     const action = parts[3];
 
-    if (req.method === 'GET' && !action) return sendJson(res, 200, bet);
+    if (req.method === 'GET' && !action) return sendJson(res, 200, bet); // public: link possession is the capability
 
     if (req.method === 'POST' && action === 'accept') {
-      const b = await readBody(req);
+      const me = authPlayer(req); if (!me) return need401();
       if (bet.status !== 'open') return sendJson(res, 409, { error: 'Bet already taken' });
-      if (!b.opponentName) return sendJson(res, 400, { error: 'Name required' });
-      if (norm(b.opponentName) === norm(bet.proposerName)) return sendJson(res, 409, { error: "That's your own bet — send the link to a mate to take the other side." });
-      bet.opponentName = String(b.opponentName).slice(0, 40);
+      if (me.id === bet.proposerId) return sendJson(res, 409, { error: "That's your own bet — send the link to a mate to take the other side." });
+      bet.opponentId = me.id;
+      bet.opponentName = me.name;
       bet.status = 'accepted';
       bet.acceptedAt = new Date().toISOString();
       logEvent('bet_accepted', { id: bet.id });
@@ -631,6 +794,8 @@ async function handleApi(req, res, url) {
     }
 
     if (req.method === 'POST' && action === 'resolve') {
+      const me = authPlayer(req); if (!me) return need401();
+      if (me.id !== bet.proposerId && me.id !== bet.opponentId) return sendJson(res, 403, { error: 'Only a player in this bet can report the result.' });
       if (bet.status === 'open') return sendJson(res, 409, { error: 'Nobody has taken this bet yet' });
       if (bet.status === 'resolved' || bet.status === 'settled') return sendJson(res, 409, { error: 'Already resolved' });
       const b = await readBody(req);
@@ -643,26 +808,18 @@ async function handleApi(req, res, url) {
         } catch (e) { console.warn('live result failed:', e.message); }
       }
       if (!OUTCOMES.includes(b.actualOutcome)) return sendJson(res, 400, { error: 'Provide the final result' });
-      // manual: only a participant can report, and the OTHER player must confirm before it's final (anti-cheat)
-      const reporter = b.reporterName ? String(b.reporterName).slice(0, 40) : '';
-      if (!reporter || (norm(reporter) !== norm(bet.proposerName) && norm(reporter) !== norm(bet.opponentName))) {
-        return sendJson(res, 403, { error: 'Only a player in this bet can report the result.' });
-      }
-      bet.pendingResult = { outcome: b.actualOutcome, by: reporter };
-      saveData(db);
+      // manual: a participant reports, the OTHER player must confirm before it's final (anti-cheat)
+      bet.pendingResult = { outcome: b.actualOutcome, byId: me.id, by: me.name };
+      saveData();
       return sendJson(res, 200, bet);
     }
 
     if (req.method === 'POST' && action === 'confirm') {
+      const me = authPlayer(req); if (!me) return need401();
       if (bet.status === 'resolved' || bet.status === 'settled') return sendJson(res, 409, { error: 'Already resolved' });
       if (!bet.pendingResult || !OUTCOMES.includes(bet.pendingResult.outcome)) return sendJson(res, 409, { error: 'Nothing to confirm yet' });
-      const b = await readBody(req);
-      const who = b.confirmerName ? String(b.confirmerName).slice(0, 40) : '';
-      const reporter = bet.pendingResult.by;
-      const counterparty = norm(reporter) === norm(bet.proposerName) ? bet.opponentName : bet.proposerName;
-      if (!who || norm(who) !== norm(counterparty)) {
-        return sendJson(res, 403, { error: 'Only the other player can confirm the result.' });
-      }
+      const counterpartyId = bet.pendingResult.byId === bet.proposerId ? bet.opponentId : bet.proposerId;
+      if (me.id !== counterpartyId) return sendJson(res, 403, { error: 'Only the other player can confirm the result.' });
       resolveBet(bet, bet.pendingResult.outcome);
       delete bet.pendingResult;
       logEvent('bet_resolved', { id: bet.id });
@@ -670,21 +827,23 @@ async function handleApi(req, res, url) {
     }
 
     if (req.method === 'POST' && action === 'settle') {
+      const me = authPlayer(req); if (!me) return need401();
+      if (me.id !== bet.proposerId && me.id !== bet.opponentId) return sendJson(res, 403, { error: 'Only a player in this bet can settle it.' });
       if (bet.status !== 'resolved') return sendJson(res, 409, { error: 'Not resolved yet' });
-      bet.status = 'settled'; bet.settledAt = new Date().toISOString(); saveData(db);
+      bet.status = 'settled'; bet.settledAt = new Date().toISOString(); saveData();
       return sendJson(res, 200, bet);
     }
 
     if (req.method === 'POST' && action === 'react') {
+      const me = authPlayer(req); if (!me) return need401();
       const b = await readBody(req);
       const emoji = String(b.emoji || '').slice(0, 8);
-      const by = String(b.by || '').slice(0, 40);
-      if (!emoji || !by) return sendJson(res, 400, { error: 'emoji and name required' });
+      if (!emoji) return sendJson(res, 400, { error: 'emoji required' });
       if (!bet.reactions) bet.reactions = [];
-      const idx = bet.reactions.findIndex((r) => norm(r.by) === norm(by) && r.emoji === emoji);
-      if (idx >= 0) bet.reactions.splice(idx, 1); else bet.reactions.push({ by, emoji });
+      const idx = bet.reactions.findIndex((r) => r.byId === me.id && r.emoji === emoji);
+      if (idx >= 0) bet.reactions.splice(idx, 1); else bet.reactions.push({ byId: me.id, by: me.name, emoji });
       logEvent('reaction', { id: bet.id }, false);
-      saveData(db);
+      saveData();
       return sendJson(res, 200, bet);
     }
   }
@@ -761,6 +920,7 @@ initData().then(() => {
   server.listen(PORT, () => {
     console.log(`\n  ${BRAND} running →  http://localhost:${PORT}`);
     console.log(`  Mode: ${FOOTBALL_TOKEN ? 'LIVE (football-data.org)' : 'DEMO (manual results)'}`);
+    console.log(`  Login: ${GOOGLE_CLIENT_ID ? 'Google + email' : 'email only (set GOOGLE_CLIENT_ID for Google)'}`);
     console.log(`  Store: ${pool ? 'Postgres (durable)' : 'JSON file (' + DATA_FILE + ')'}\n`);
   });
 }).catch((e) => { console.error('init failed:', e.message); process.exit(1); });

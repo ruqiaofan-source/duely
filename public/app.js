@@ -5,8 +5,11 @@
 // ---------------------------------------------------------------------------
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
-const api = async (path, opts) => {
-  const res = await fetch('/api' + path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+const api = async (path, opts = {}) => {
+  const m = me.get();
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (m && m.secret) headers['x-duely-secret'] = m.secret;
+  const res = await fetch('/api' + path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Something went wrong');
   return data;
@@ -54,7 +57,7 @@ function reactionsHtml(bet) {
   const rs = bet.reactions || [];
   const counts = {}; rs.forEach((r) => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; });
   const m = me.get();
-  const mine = new Set(rs.filter((r) => m && norm(r.by) === norm(m.name)).map((r) => r.emoji));
+  const mine = new Set(rs.filter((r) => m && r.byId === m.id).map((r) => r.emoji));
   const chips = Object.entries(counts).map(([e, c]) => `<button class="react-chip ${mine.has(e) ? 'mine' : ''}" data-react="${e}">${e}<span class="ct">${c}</span></button>`).join('');
   return `<div class="reacts">${chips}<button class="react-chip react-add" id="reactAdd">＋ react</button></div><div class="react-pop" id="reactPop" style="display:none"></div>`;
 }
@@ -73,15 +76,79 @@ function wireReactions(id) {
 async function doReact(id, emoji) {
   const m = me.get(); if (!m) return toast('Add your name first');
   haptic(10);
-  try { await api('/bets/' + id + '/react', { method: 'POST', body: JSON.stringify({ emoji, by: m.name }) }); renderBet(id); }
+  try { await api('/bets/' + id + '/react', { method: 'POST', body: JSON.stringify({ emoji }) }); renderBet(id); }
   catch (e) { toast(e.message); }
 }
 
-// identity (this device's player)
+// identity (server-authoritative: id is public, secret is the bearer token)
 const me = {
   get() { try { return JSON.parse(localStorage.getItem('settle_me') || 'null'); } catch { return null; } },
-  set(name) { localStorage.setItem('settle_me', JSON.stringify({ name, token: Math.random().toString(36).slice(2) })); },
+  save(p) { if (p && p.id && p.secret) localStorage.setItem('settle_me', JSON.stringify(p)); },
+  clear() { localStorage.removeItem('settle_me'); },
 };
+// mint a player on first use, or rename (id + secret stay stable across renames)
+async function register(name) { const p = await api('/players', { method: 'POST', body: JSON.stringify({ name }) }); me.save(p); return p; }
+async function rename(name) { const p = await api('/players/me', { method: 'POST', body: JSON.stringify({ name }) }); me.save(p); return p; }
+
+// Google Identity Services loader (only used when a client id is configured)
+let _gsiPromise = null;
+function loadGoogle() {
+  if (window.google && google.accounts && google.accounts.id) return Promise.resolve();
+  if (_gsiPromise) return _gsiPromise;
+  _gsiPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.defer = true;
+    s.onload = () => resolve(); s.onerror = () => reject(new Error('Google script failed to load'));
+    document.head.appendChild(s);
+  });
+  return _gsiPromise;
+}
+// sign-in sheet: Google (if configured) + email/password. Upgrades the current
+// anonymous player when possible, so the rivalry record on this device carries over.
+function openLoginSheet(onDone) {
+  const hasGoogle = Boolean(CONFIG.googleClientId);
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><h2>Sign in 🔐</h2><button class="sheet-x" id="sheetClose">✕</button></div>
+    <div class="sheet-body">
+      <p class="sub" style="margin:2px 0 12px">Save your record and pick it up on any device. Your history on this device carries over. 18+ only.</p>
+      ${hasGoogle ? `<div id="gBtn" style="display:flex;justify-content:center;margin-bottom:4px"></div><div style="text-align:center;color:var(--muted);font-size:12px;margin:10px 0">or with email</div>` : ''}
+      <label>Email</label>
+      <input id="loginEmail" type="email" inputmode="email" placeholder="you@example.com" autocomplete="email" />
+      <label>Password</label>
+      <input id="loginPw" type="password" placeholder="6+ characters" autocomplete="current-password" />
+      <p class="sub" id="loginErr" style="color:var(--red);min-height:16px;margin:6px 0 0"></p>
+    </div>
+    <div class="sheet-foot"><button class="cta commit" id="loginBtn">Continue with email →</button></div>
+  `);
+  $('#sheetClose').addEventListener('click', closeSheet);
+  const err = $('#loginErr');
+  const finish = (p) => {
+    me.save(p); renderHeader(); closeSheet(); toast('Signed in');
+    try { if (window.posthog) posthog.identify(p.id, { name: p.name, email: p.email || undefined }); } catch {}
+    (onDone || (() => route()))();
+  };
+  $('#loginBtn').addEventListener('click', async () => {
+    const email = $('#loginEmail').value.trim(), password = $('#loginPw').value;
+    if (!email || !password) { err.textContent = 'Enter your email and password.'; return; }
+    const btn = $('#loginBtn'); btn.disabled = true;
+    try { finish(await api('/auth/email', { method: 'POST', body: JSON.stringify({ email, password, name: (me.get() || {}).name }) })); }
+    catch (e) { err.textContent = e.message; btn.disabled = false; }
+  });
+  if (hasGoogle) {
+    loadGoogle().then(() => {
+      google.accounts.id.initialize({
+        client_id: CONFIG.googleClientId,
+        callback: async (resp) => {
+          try { finish(await api('/auth/google', { method: 'POST', body: JSON.stringify({ idToken: resp.credential }) })); }
+          catch (e) { err.textContent = e.message; }
+        },
+      });
+      const el = document.getElementById('gBtn');
+      if (el) google.accounts.id.renderButton(el, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with', width: 240 });
+    }).catch(() => { const el = document.getElementById('gBtn'); if (el) el.innerHTML = '<p class="sub" style="text-align:center">Google sign-in unavailable right now.</p>'; });
+  }
+}
 const roleStore = {
   get: (id) => { try { return JSON.parse(localStorage.getItem('settle_roles') || '{}')[id]; } catch { return null; } },
   set: (id, role) => { let m = {}; try { m = JSON.parse(localStorage.getItem('settle_roles') || '{}'); } catch {} m[id] = role; localStorage.setItem('settle_roles', JSON.stringify(m)); },
@@ -179,8 +246,11 @@ async function route() {
   const code = getLeagueCode();
   app.innerHTML = '<div class="spin">Loading…</div>';
   try { CONFIG = await api('/config'); } catch {}
+  // migrate any pre-accounts identity ({name, token}) to a server-issued player
+  let _me = me.get();
+  if (_me && (!_me.id || !_me.secret)) { try { _me = await register(_me.name || 'Player'); } catch { me.clear(); _me = null; } }
   renderHeader();
-  const _me = me.get(); if (_me && window.posthog) { try { posthog.identify(_me.token, { name: _me.name }); } catch {} }
+  if (_me && window.posthog) { try { posthog.identify(_me.id, { name: _me.name, email: _me.email || undefined }); } catch {} }
   if (id) { setTab(null); return renderBet(id); }
   if (code) { setTab('league'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
   if (!me.get()) { setTab(null); return renderOnboarding(); }
@@ -206,14 +276,18 @@ function renderOnboarding(next) {
         <label for="age">I'm 18 or over and I get that Duely is for bragging rights, not income.</label>
       </div>
       <button class="cta" id="go">Let's go →</button>
+      <button class="muted-link" id="signin">I already have an account → sign in</button>
     </div>
-    <div class="banner">Your record lives on this device — no signup, no password.</div>`;
-  $('#go').addEventListener('click', () => {
+    <div class="banner">Quick start needs just a name. Sign in (Google or email) to save your record across devices.</div>`;
+  $('#go').addEventListener('click', async () => {
     const name = $('#name').value.trim();
     if (!name) return toast('Pick a name');
     if (!$('#age').checked) return toast("Confirm you're 18+");
-    me.set(name); renderHeader(); (next || renderHome)();
+    const btn = $('#go'); btn.disabled = true; btn.textContent = 'Setting up…';
+    try { await register(name); renderHeader(); (next || renderHome)(); }
+    catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Let's go →"; }
   });
+  $('#signin').addEventListener('click', () => openLoginSheet(next || renderHome));
 }
 
 // ---------------------------------------------------------------------------
@@ -222,10 +296,10 @@ function renderOnboarding(next) {
 async function renderHome() {
   const m = me.get();
   let s;
-  try { s = await api('/players/' + encodeURIComponent(m.name) + '/summary'); }
+  try { s = await api('/players/me/summary'); }
   catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] }; }
   let lg = { leagues: [] };
-  try { lg = await api('/players/' + encodeURIComponent(m.name) + '/leagues'); } catch {}
+  try { lg = await api('/players/me/leagues'); } catch {}
 
   const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
   const streakTxt = s.streak.count ? `${s.streak.count}${s.streak.type}` : '—';
@@ -304,7 +378,7 @@ async function renderHome() {
 async function renderDuels() {
   const m = me.get();
   let d = { active: [], history: [] };
-  try { d = await api('/players/' + encodeURIComponent(m.name) + '/bets'); } catch {}
+  try { d = await api('/players/me/bets'); } catch {}
   const row = (b) => `
     <div class="recent" data-bet="${b.id}" style="cursor:pointer">
       <span>${esc(b.home)} v ${esc(b.away)}${b.opponent ? ' · <span style="color:var(--muted)">' + esc(b.opponent) + '</span>' : ''}</span>
@@ -326,10 +400,13 @@ async function renderDuels() {
 async function renderProfile() {
   const m = me.get();
   let s;
-  try { s = await api('/players/' + encodeURIComponent(m.name) + '/summary'); }
+  try { s = await api('/players/me/summary'); }
   catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [] }; }
   const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
   const streakTxt = s.streak.count ? `${s.streak.count}${s.streak.type}` : '—';
+  const acct = m.email
+    ? `<div class="card"><div class="cardhead"><h2>Account</h2><button class="linkbtn" id="signout">Sign out</button></div><p class="sub" style="margin:0">Signed in as <b style="color:var(--text)">${esc(m.email)}</b>${m.verified ? ' ✓' : ''}. Your record syncs to this account.</p></div>`
+    : `<div class="card"><div class="cardhead"><h2>Account</h2></div><p class="sub" style="margin:0 0 10px">You're playing as a guest on this device. Save your record so it survives across devices.</p><button class="cta" id="signin">Sign in / create account</button></div>`;
   app.innerHTML = `
     <div class="card">
       <div class="cardhead"><h2>${esc(m.name)}</h2><button class="linkbtn" id="rename">Edit name</button></div>
@@ -339,11 +416,14 @@ async function renderProfile() {
         <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
       </div>
     </div>
+    ${acct}
     <div class="card"><h2>Rivalries</h2>${s.rivalries.length
       ? s.rivalries.map((r) => `<div class="riv-row" data-rematch="${esc(r.opponent)}" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">net ${signed(r.net, s.currency)}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
       : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
     <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b>. Play it responsibly — banter, not the bank.</div>`;
-  $('#rename').addEventListener('click', () => { const n = prompt('What should mates call you?', m.name); if (n && n.trim()) { me.set(n.trim()); renderHeader(); renderProfile(); } });
+  $('#rename').addEventListener('click', async () => { const n = prompt('What should mates call you?', m.name); if (n && n.trim()) { try { await rename(n.trim()); renderHeader(); renderProfile(); } catch (e) { toast(e.message); } } });
+  const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
+  const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
   app.querySelectorAll('[data-rematch]').forEach((b) => b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
 }
 
@@ -369,7 +449,7 @@ function renderLeagueHub() {
     const name = $('#lname').value.trim();
     if (!name) return toast('Name your league');
     try {
-      const l = await api('/leagues', { method: 'POST', body: JSON.stringify({ name, creatorName: m.name }) });
+      const l = await api('/leagues', { method: 'POST', body: JSON.stringify({ name }) });
       history.pushState({}, '', '/l/' + l.code); renderLeague(l.code);
     } catch (e) { toast(e.message); }
   });
@@ -377,7 +457,7 @@ function renderLeagueHub() {
     const code = $('#lcode').value.trim().toUpperCase();
     if (!code) return toast('Enter a code');
     try {
-      await api('/leagues/' + code + '/join', { method: 'POST', body: JSON.stringify({ name: m.name }) });
+      await api('/leagues/' + code + '/join', { method: 'POST' });
       history.pushState({}, '', '/l/' + code); renderLeague(code);
     } catch (e) { toast(e.message); }
   });
@@ -391,7 +471,7 @@ async function renderLeague(code) {
   try { lg = await api('/leagues/' + code); }
   catch { app.innerHTML = `<div class="card"><h2>League not found</h2><p class="sub">This invite looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
 
-  const isMember = m && lg.members.some((x) => norm(x) === norm(m.name));
+  const isMember = m && lg.members.some((x) => x.id === m.id);
   const link = location.origin + '/l/' + code;
 
   if (!isMember) {
@@ -405,7 +485,7 @@ async function renderLeague(code) {
       </div>`;
     $('#joinBtn').addEventListener('click', async () => {
       if (!m) return renderOnboarding(() => renderLeague(code));
-      try { await api('/leagues/' + code + '/join', { method: 'POST', body: JSON.stringify({ name: m.name }) }); renderLeague(code); }
+      try { await api('/leagues/' + code + '/join', { method: 'POST' }); renderLeague(code); }
       catch (e) { toast(e.message); }
     });
     return;
@@ -413,7 +493,7 @@ async function renderLeague(code) {
 
   const rows = lg.standings || [];
   const tbl = rows.map((r) => `
-    <div class="lg-row ${m && norm(r.name) === norm(m.name) ? 'me' : ''}">
+    <div class="lg-row ${m && r.id === m.id ? 'me' : ''}">
       <div class="lg-rank">${r.rank}</div>
       <div class="lg-name">${esc(r.name)}${r.rank === 1 && r.games ? ' 👑' : ''}</div>
       <div class="lg-rec">${r.w}-${r.l}</div>
@@ -509,7 +589,7 @@ async function renderCreate() {
     const btn = $('#createBtn'); btn.disabled = true; btn.textContent = 'Locking in…'; haptic(22);
     try {
       const bet = await api('/bets', { method: 'POST', body: JSON.stringify({
-        proposerName: m.name, home, away, competition: mm ? mm.competition : (copy?.competition || ''),
+        home, away, competition: mm ? mm.competition : (copy?.competition || ''),
         utcDate: mm ? mm.utcDate : null, externalId: mm ? mm.externalId || null : null,
         backedOutcome: state.backedOutcome, stake, currency: $('#currency').value, note: $('#note').value.trim(), rematch: Boolean(rematchOf || copy),
       }) });
@@ -547,10 +627,10 @@ async function renderBet(id, opts = {}) {
   const pill = `<span class="pill ${bet.status}">${bet.status}</span>`;
 
   // helper: rivalry banner between me and the other player (if history exists)
-  async function rivalryBanner(otherName) {
-    if (!m || !otherName || norm(otherName) === norm(m.name)) return '';
+  async function rivalryBanner(otherPid, otherName) {
+    if (!m || !otherPid || otherPid === m.id) return '';
     try {
-      const r = await api('/rivalry?a=' + encodeURIComponent(m.name) + '&b=' + encodeURIComponent(otherName));
+      const r = await api('/players/me/rivalry?with=' + encodeURIComponent(otherPid));
       if (!r.games) return '';
       const lead = r.aWins > r.bWins ? 'lead' : r.aWins < r.bWins ? 'trail' : 'level';
       const verb = r.aWins > r.bWins ? 'You lead' : r.aWins < r.bWins ? 'You trail' : 'All level';
@@ -582,7 +662,7 @@ async function renderBet(id, opts = {}) {
       return;
     }
     // opponent / fresh visitor
-    const rb = await rivalryBanner(bet.proposerName);
+    const rb = await rivalryBanner(bet.proposerId, bet.proposerName);
     app.innerHTML = `
       <div class="card">
         <div class="cardhead"><h2>${esc(bet.proposerName)} wants to bet you 👀</h2>${pill}</div>
@@ -601,9 +681,12 @@ async function renderBet(id, opts = {}) {
       if (!opponentName) return toast('Add your name');
       const btn = $('#acceptBtn'); btn.disabled = true; $('.card').classList.add('locking'); haptic(22);
       try {
-        await api('/bets/' + id + '/accept', { method: 'POST', body: JSON.stringify({ opponentName }) });
+        let mm = me.get();
+        if (!mm) mm = await register(opponentName);
+        else if (norm(mm.name) !== norm(opponentName)) mm = await rename(opponentName);
+        await api('/bets/' + id + '/accept', { method: 'POST' });
         track('bet_accepted');
-        if (!m) me.set(opponentName);
+        renderHeader();
         roleStore.set(id, 'opponent');
         sealThen(() => renderBet(id));
       } catch (e) { toast(e.message); btn.disabled = false; $('.card').classList.remove('locking'); }
@@ -613,7 +696,7 @@ async function renderBet(id, opts = {}) {
 
   // ---- ACCEPTED ----
   if (bet.status === 'accepted') {
-    const rb = await rivalryBanner(otherSide(bet, m));
+    const rb = await rivalryBanner(otherSideId(bet, m), otherSide(bet, m));
     app.innerHTML = `
       <div class="card">
         <div class="cardhead"><h2>Bet's on 🔒</h2>${pill}</div>
@@ -668,8 +751,8 @@ async function renderBet(id, opts = {}) {
     const winnerNm = bet.winner === 'proposer' ? bet.proposerName : bet.opponentName;
     const winPick = bet.winner === 'proposer' ? outcomeLabel(bet, bet.backedOutcome) : complementLabel(bet);
     const other = otherSide(bet, m);
-    const iWon = m && norm(winnerNm) === norm(m.name);
-    const rb = await rivalryBanner(other);
+    const iWon = m && (bet.winner === 'proposer' ? bet.proposerId : bet.opponentId) === m.id;
+    const rb = await rivalryBanner(otherSideId(bet, m), other);
 
     app.innerHTML = `
       <div class="card">
@@ -718,7 +801,11 @@ async function renderBet(id, opts = {}) {
 // the other player relative to "me" (falls back to opponent)
 function otherSide(bet, m) {
   if (!m) return bet.opponentName || bet.proposerName;
-  return norm(bet.proposerName) === norm(m.name) ? bet.opponentName : bet.proposerName;
+  return bet.proposerId === m.id ? bet.opponentName : bet.proposerName;
+}
+function otherSideId(bet, m) {
+  if (!m) return bet.opponentId || bet.proposerId;
+  return bet.proposerId === m.id ? bet.opponentId : bet.proposerId;
 }
 function norm(s) { return String(s || '').trim().toLowerCase(); }
 
@@ -728,9 +815,10 @@ function norm(s) { return String(s || '').trim().toLowerCase(); }
 // ---------------------------------------------------------------------------
 async function rematchConfirm(other, lastBet) {
   const m = me.get();
+  const oppId = otherSideId(lastBet, m);
   let netLine = '';
   try {
-    const r = await api('/rivalry?a=' + encodeURIComponent(m.name) + '&b=' + encodeURIComponent(other));
+    const r = await api('/players/me/rivalry?with=' + encodeURIComponent(oppId));
     netLine = `You're <b>${signed(r.aNet, r.currency)}</b> vs ${esc(other)} this season · record <b>${r.aWins}–${r.bWins}</b>.`;
   } catch {}
   app.innerHTML = `
@@ -748,13 +836,11 @@ async function rematchConfirm(other, lastBet) {
 }
 
 async function doResolve(id, actualOutcome) {
-  const m = me.get();
-  try { await api('/bets/' + id + '/resolve', { method: 'POST', body: JSON.stringify({ actualOutcome, reporterName: m ? m.name : undefined }) }); renderBet(id); }
+  try { await api('/bets/' + id + '/resolve', { method: 'POST', body: JSON.stringify({ actualOutcome }) }); renderBet(id); }
   catch (e) { toast(e.message); }
 }
 async function doConfirm(id) {
-  const m = me.get();
-  try { await api('/bets/' + id + '/confirm', { method: 'POST', body: JSON.stringify({ confirmerName: m ? m.name : undefined }) }); track('bet_resolved'); renderBet(id); }
+  try { await api('/bets/' + id + '/confirm', { method: 'POST' }); track('bet_resolved'); renderBet(id); }
   catch (e) { toast(e.message); }
 }
 

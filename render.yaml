@@ -23,3 +23,7 @@ services:
       # the token above; sync:false keeps the secret out of git. Unset = ephemeral JSON.
       - key: DATABASE_URL
         sync: false
+      # optional Google Sign-In — paste an OAuth Web client id to enable the Google
+      # button; leave empty for email-only login. sync:false = set in the dashboard.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
