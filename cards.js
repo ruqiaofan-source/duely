@@ -36,8 +36,7 @@ const RESULT_TPL = loadTemplate('result.svg', FALLBACK);
 
 const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely league invite">
 <defs>
-<style>@import url('https://fonts.googleapis.com/css2?family=Anton&amp;family=Inter:wght@400;600;700;800;900&amp;display=swap');
-.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}
+<style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}
 .inter{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;}</style>
 <linearGradient id="lBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0B0F14"/></linearGradient>
 <linearGradient id="lTeal" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#14E0C8"/><stop offset="1" stop-color="#0FB7A4"/></linearGradient>
@@ -65,8 +64,7 @@ const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/sv
 // 1080x1920 story / reel variant (Instagram/WhatsApp status)
 const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely story card">
 <defs>
-<style>@import url('https://fonts.googleapis.com/css2?family=Anton&amp;family=Inter:wght@400;600;700;800;900&amp;display=swap');
-.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}.inter{font-family:'Inter',system-ui,sans-serif;}</style>
+<style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}.inter{font-family:'Inter',system-ui,sans-serif;}</style>
 <linearGradient id="sBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0A0E13"/></linearGradient>
 <radialGradient id="sGlow" cx="50%" cy="20%" r="70%"><stop offset="0" stop-color="{{ACCENT}}" stop-opacity="0.18"/><stop offset="1" stop-color="{{ACCENT}}" stop-opacity="0"/></radialGradient>
 <linearGradient id="sDuel" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#14E0C8"/><stop offset=".5" stop-color="#14E0C8"/><stop offset=".5" stop-color="#7C3AED"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
@@ -99,7 +97,10 @@ function challengeSvg(data) {
   const d = { ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'called it.' };
   return fill(CHALLENGE_TPL, d);
 }
-function resultSvg(data) { return fill(RESULT_TPL, data); }
+function resultSvg(data) {
+  const d = { ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'told you so.' };
+  return fill(RESULT_TPL, d);
+}
 function leagueSvg(data) { return fill(LEAGUE_TPL, data); }
 function storySvg(data) { return fill(STORY_TPL, data); }
 

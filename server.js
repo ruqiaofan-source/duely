@@ -389,7 +389,7 @@ function cardSvgForBet(bet) {
     STAKE: sym(bet.currency) + bet.stake,
     BACKED: outcomeLabel(bet, bet.backedOutcome),
     COMPLEMENT: complementLabel(bet),
-    NOTE: bet.note ? (bet.note.length > 52 ? bet.note.slice(0, 51) + '…' : bet.note) : '',
+    NOTE: bet.note ? (bet.note.length > 44 ? bet.note.slice(0, 43) + '…' : bet.note) : '',
   };
   if (bet.status === 'resolved' || bet.status === 'settled') {
     const winner = winnerDisplayName(bet);
