@@ -10,14 +10,15 @@
   --teal-dim: #0BA899;    /* pressed / large fills (APCA-safe) */
   --indigo: #5B6CFF;      /* bridge accent — links / secondary */
   --purple: #7C3AED;      /* rivalry / versus (scarce) */
-  --red: #FF5063;         /* rationed: the commit action only */
+  --red: #E11D2E;         /* commit CTA — darkened so white text clears WCAG AA */
+  --red-deep: #C8102E;    /* commit gradient end */
   --gold: #FFC83D;        /* winning / trophy / #1 */
   --green: #2BD17E;       /* money / positive (de-clichéd, cooler) */
-  --loss: #E63946;        /* negative */
+  --loss: #CF6679;        /* negative / past result — distinct from commit red */
   --amber: #FF8C42;       /* streak flame */
   --text: #F4F7FB;
   --muted: #93A1B3;
-  --muted-2: #5E6B7C;
+  --muted-2: #7C8A9C;     /* AA-safe: placeholders, footer legal text, inactive tabs */
   --radius: 16px;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
   /* signature gradient — "Floodlit Teal" aurora */
@@ -27,6 +28,11 @@
 }
 
 * { box-sizing: border-box; }
+
+/* keyboard focus — visible everywhere (inputs set outline:none below) */
+:where(button, a, input, select, [tabindex], [role="button"]):focus-visible {
+  outline: 2px solid var(--teal-bright); outline-offset: 2px; border-radius: inherit;
+}
 
 html, body {
   margin: 0; padding: 0;
@@ -46,10 +52,7 @@ html, body {
 header.brand { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 header.brand a { color: inherit; text-decoration: none; display: flex; gap: 11px; align-items: center; }
 header.brand .logo {
-  width: 36px; height: 36px; border-radius: 11px;
-  background: linear-gradient(140deg, var(--teal), var(--teal-dim));
-  display: grid; place-items: center; font-size: 20px;
-  box-shadow: 0 6px 18px rgba(20, 224, 200, 0.35);
+  width: 36px; height: 36px; display: grid; place-items: center;
 }
 header.brand h1 { font-family: "Anton", sans-serif; font-size: 24px; margin: 0; letter-spacing: 0.5px; text-transform: uppercase; }
 header.brand .tag { color: var(--muted); font-size: 11.5px; margin-top: -2px; }
@@ -106,14 +109,14 @@ button.cta {
   background: linear-gradient(140deg, var(--teal), var(--teal-dim)); color: #06140f;
   transition: transform .08s, box-shadow .2s; box-shadow: 0 8px 22px rgba(20, 224, 200, 0.28);
 }
-button.cta.commit { background: linear-gradient(140deg, #FF6271, var(--red)); color: #fff; box-shadow: 0 8px 22px rgba(255, 71, 87, 0.32); }
+button.cta.commit { background: linear-gradient(140deg, var(--red), var(--red-deep)); color: #fff; box-shadow: 0 8px 22px rgba(200, 16, 46, 0.34); }
 button.cta.gold { background: linear-gradient(140deg, #FFD976, var(--gold)); color: #2a1d00; box-shadow: 0 8px 22px rgba(255, 200, 61, 0.3); }
 button.cta.wa { background: #25D366; color: #04241a; box-shadow: 0 8px 22px rgba(37, 211, 102, 0.28); }
 button.cta:active { transform: translateY(2px); }
 button.cta:disabled { opacity: .55; cursor: default; }
 button.ghost {
   width: 100%; background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
-  border-radius: 13px; padding: 14px; font-size: 14.5px; font-weight: 700; cursor: pointer;
+  border-radius: 14px; padding: 14px; font-size: 14.5px; font-weight: 700; cursor: pointer;
   margin-top: 10px; font-family: inherit;
 }
 .muted-link { background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; text-decoration: underline; margin-top: 14px; display: block; width: 100%; font-family: inherit; }
@@ -252,20 +255,10 @@ button.ghost {
   opacity: .04; mix-blend-mode: soft-light;
 }
 
-/* animated logo (header + intro) */
-.logo { position: relative; overflow: hidden; }
-.logo .ball, .intro-logo .ball { display: block; width: 76%; height: 76%; filter: drop-shadow(0 2px 4px rgba(0,0,0,.25)); }
-.ball-spin { transform-box: fill-box; transform-origin: 50% 50%; animation: ballSpin 6s linear infinite; }
-/* dramatic spin-in on the entry page (2 full rotations as it scales in), then a quick continuous spin */
-.intro-logo .ball-spin { animation: ballKick 1.4s cubic-bezier(.15,.85,.25,1) .15s both, ballSpin 1.6s linear 1.55s infinite; }
-@keyframes ballSpin { to { transform: rotate(360deg); } }
-@keyframes ballKick { 0% { transform: rotate(0deg) scale(.2); } 70% { transform: rotate(560deg) scale(1.12); } 100% { transform: rotate(720deg) scale(1); } }
-.logo::after {
-  content: ''; position: absolute; inset: 0;
-  background: linear-gradient(115deg, transparent 42%, rgba(255,255,255,.42) 50%, transparent 58%);
-  transform: translateX(-130%); animation: logoSheen 7s ease-in-out infinite;
-}
-@keyframes logoSheen { 0%,72% { transform: translateX(-130%); } 88%,100% { transform: translateX(130%); } }
+/* logo mark (header + intro) — one canonical "split-D" mark, no idle motion */
+.mark { display: block; width: 100%; height: 100%; }
+.intro-logo .mark { animation: markIn .7s cubic-bezier(.2,.9,.3,1) .2s both; }
+@keyframes markIn { 0% { opacity: 0; transform: scale(.6) rotate(-8deg); } 100% { opacity: 1; transform: none; } }
 
 /* intro — floodlights on */
 .no-intro .intro { display: none; }
@@ -282,9 +275,8 @@ button.ghost {
 .intro-core { text-align: center; animation: coreIn .8s cubic-bezier(.2,.9,.3,1) .28s both; }
 @keyframes coreIn { from { opacity: 0; transform: translateY(10px) scale(.9); filter: blur(7px); } to { opacity: 1; transform: none; filter: blur(0); } }
 .intro-logo {
-  width: 100px; height: 100px; margin: 0 auto 18px; border-radius: 28px;
-  background: linear-gradient(140deg, #14E0C8, #0FB7A4); display: grid; place-items: center; font-size: 54px;
-  animation: logoBloom 1.4s ease .3s both;
+  width: 100px; height: 100px; margin: 0 auto 18px; display: grid; place-items: center;
+  filter: drop-shadow(0 12px 40px rgba(20,224,200,.28));
 }
 @keyframes logoBloom {
   0%   { box-shadow: 0 10px 40px rgba(20,224,200,0); }
@@ -297,19 +289,17 @@ button.ghost {
 .intro-tag { color: #9AA7B8; font-size: 13px; margin-top: 10px; letter-spacing: 2px; }
 @keyframes introOut { to { opacity: 0; transform: scale(1.05); visibility: hidden; } }
 
-/* button sheen + commit glow */
+/* commit glow — the single idle "act here" pulse, reserved for the commit CTA */
 button.cta { position: relative; overflow: hidden; }
-button.cta::after {
-  content: ''; position: absolute; top: 0; left: 0; width: 55%; height: 100%;
-  background: linear-gradient(110deg, transparent, rgba(255,255,255,.20), transparent);
-  transform: translateX(-180%) skewX(-16deg); animation: ctaSheen 5s ease-in-out infinite; pointer-events: none;
-}
-@keyframes ctaSheen { 0%,58% { transform: translateX(-180%) skewX(-16deg); } 82%,100% { transform: translateX(320%) skewX(-16deg); } }
 button.cta.commit { animation: commitPulse 3s ease-in-out infinite; }
-@keyframes commitPulse { 0%,100% { box-shadow: 0 8px 22px rgba(255,71,87,.30); } 50% { box-shadow: 0 10px 34px rgba(255,71,87,.52); } }
+@keyframes commitPulse { 0%,100% { box-shadow: 0 8px 22px rgba(200,16,46,.32); } 50% { box-shadow: 0 10px 34px rgba(200,16,46,.5); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .amb-aurora, .logo::after, button.cta::after, button.cta.commit { animation: none !important; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+  .intro { display: none !important; }
 }
 
 /* =========================================================
@@ -334,7 +324,7 @@ body.has-tabbar .tabbar { display: grid; }
 body.has-tabbar .wrap { padding-bottom: 96px; }
 .tab {
   background: none; border: none; color: var(--muted-2); font-family: inherit; cursor: pointer;
-  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0; border-radius: 12px;
+  display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; min-height: 44px; padding: 6px 0; border-radius: 12px;
   font-size: 10.5px; font-weight: 800; letter-spacing: .3px; transition: color .2s var(--snappy), transform .2s var(--snappy);
 }
 .tab .ti { font-size: 19px; line-height: 1; filter: grayscale(.4) opacity(.7); transition: filter .2s, transform .2s var(--snappy); }
@@ -361,7 +351,7 @@ body.has-tabbar .wrap { padding-bottom: 96px; }
 .sheet-handle { width: 40px; height: 4px; border-radius: 99px; background: var(--line); margin: 10px auto 2px; flex: 0 0 auto; }
 .sheet-head { padding: 6px 18px 4px; display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; }
 .sheet-head h2 { font-size: 18px; margin: 0; }
-.sheet-x { background: var(--surface-3); border: 1px solid var(--line); color: var(--muted); width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 15px; line-height: 1; }
+.sheet-x { background: var(--surface-3); border: 1px solid var(--line); color: var(--muted); width: 38px; height: 38px; border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1; }
 .sheet-body { padding: 4px 18px 14px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .sheet-foot {
   flex: 0 0 auto; padding: 12px 18px calc(14px + env(safe-area-inset-bottom));

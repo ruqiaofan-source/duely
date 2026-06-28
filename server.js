@@ -415,7 +415,7 @@ function storySvgForBet(bet) {
     badge = 'OPEN BET'; hero = outcomeLabel(bet, bet.backedOutcome);
     sub = bet.proposerName + ' is backing'; foot = 'Take the other side →';
   }
-  return cards.storySvg({ BADGE: badge, HERO: hero, SUB: sub, ACCENT: accent, HOME: bet.home, AWAY: bet.away, STAKE: sym(bet.currency) + bet.stake, FOOT: foot });
+  return cards.storySvg({ BADGE: badge, HERO: hero, SUB: sub, ACCENT: accent, HOME: bet.home, AWAY: bet.away, STAKE: sym(bet.currency) + bet.stake, FOOT: foot, ID: bet.id });
 }
 
 function serveCard(req, res, url) {
@@ -424,13 +424,14 @@ function serveCard(req, res, url) {
   const bet = db.bets[m[1]];
   if (!bet) { res.writeHead(404); return res.end('No such bet'); }
   const svg = cardSvgForBet(bet);
+  const cc = (bet.status === 'resolved' || bet.status === 'settled') ? 'public, max-age=31536000, immutable' : 'public, max-age=60';
   if (m[2] === 'svg') {
-    res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-cache' });
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': cc });
     return res.end(svg);
   }
   const png = cards.renderPng(svg);
   if (png) {
-    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' });
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': cc });
     return res.end(png);
   }
   res.writeHead(302, { Location: `/card/${m[1]}.svg` }); res.end();
@@ -455,13 +456,13 @@ function ogTextForBet(bet) {
     const winner = winnerDisplayName(bet);
     return {
       title: `${winner} called it: ${outcomeLabel(bet, bet.actualOutcome)} ⚽`,
-      desc: `${bet.owes.from} owes ${bet.owes.to} ${sym(bet.currency)}${bet.stake}. ${rivalryLine(bet)}. Back yourself on Duely.`,
+      desc: `${rivalryLine(bet)}. Bragging rights, not income — no money, no bookie. Back yourself on Duely.`,
     };
   }
   if (bet.status === 'accepted') {
     return {
       title: `${bet.proposerName} v ${bet.opponentName} — bet's on 🔒`,
-      desc: `${bet.home} v ${bet.away}: ${outcomeLabel(bet, bet.backedOutcome)} for ${sym(bet.currency)}${bet.stake}. May the best mate win.`,
+      desc: `${bet.home} v ${bet.away}: ${outcomeLabel(bet, bet.backedOutcome)} for ${sym(bet.currency)}${bet.stake}. May the best mate win. No money, no bookie.`,
     };
   }
   return {
@@ -809,7 +810,22 @@ async function handleApi(req, res, url) {
       }
       if (!OUTCOMES.includes(b.actualOutcome)) return sendJson(res, 400, { error: 'Provide the final result' });
       // manual: a participant reports, the OTHER player must confirm before it's final (anti-cheat)
+      const prev = bet.pendingResult;
+      if (prev && prev.byId !== me.id) {
+        if (prev.outcome === b.actualOutcome) {
+          // both players independently reported the same result → it's settled
+          resolveBet(bet, b.actualOutcome); delete bet.pendingResult; delete bet.disputed;
+          logEvent('bet_resolved', { id: bet.id });
+          return sendJson(res, 200, bet);
+        }
+        // the two players disagree → flag a dispute (resolved via /void, not a forced result)
+        bet.disputed = { claims: [{ outcome: prev.outcome, by: prev.by, byId: prev.byId }, { outcome: b.actualOutcome, by: me.name, byId: me.id }] };
+        bet.pendingResult = { outcome: b.actualOutcome, byId: me.id, by: me.name };
+        saveData();
+        return sendJson(res, 200, bet);
+      }
       bet.pendingResult = { outcome: b.actualOutcome, byId: me.id, by: me.name };
+      delete bet.disputed;
       saveData();
       return sendJson(res, 200, bet);
     }
@@ -831,6 +847,19 @@ async function handleApi(req, res, url) {
       if (me.id !== bet.proposerId && me.id !== bet.opponentId) return sendJson(res, 403, { error: 'Only a player in this bet can settle it.' });
       if (bet.status !== 'resolved') return sendJson(res, 409, { error: 'Not resolved yet' });
       bet.status = 'settled'; bet.settledAt = new Date().toISOString(); saveData();
+      return sendJson(res, 200, bet);
+    }
+
+    // POST /api/bets/:id/void — a participant cancels an open bet or voids a disputed one
+    // (voided bets never count toward the rivalry ledger). Can't void a settled result.
+    if (req.method === 'POST' && action === 'void') {
+      const me = authPlayer(req); if (!me) return need401();
+      if (me.id !== bet.proposerId && me.id !== bet.opponentId) return sendJson(res, 403, { error: 'Only a player in this bet can void it.' });
+      if (['resolved', 'settled', 'void'].includes(bet.status)) return sendJson(res, 409, { error: 'Nothing to void here.' });
+      bet.status = 'void'; bet.voidedAt = new Date().toISOString(); bet.voidedBy = me.id;
+      delete bet.pendingResult; delete bet.disputed;
+      logEvent('bet_voided', { id: bet.id });
+      saveData();
       return sendJson(res, 200, bet);
     }
 

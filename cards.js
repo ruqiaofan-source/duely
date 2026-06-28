@@ -42,6 +42,7 @@ const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/sv
 <linearGradient id="lBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0B0F14"/></linearGradient>
 <linearGradient id="lTeal" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#14E0C8"/><stop offset="1" stop-color="#0FB7A4"/></linearGradient>
 <radialGradient id="lGlow" cx="0.5" cy="0.2" r="0.8"><stop offset="0" stop-color="#14E0C8" stop-opacity="0.14"/><stop offset="1" stop-color="#14E0C8" stop-opacity="0"/></radialGradient>
+<linearGradient id="lDuel" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#14E0C8"/><stop offset=".5" stop-color="#14E0C8"/><stop offset=".5" stop-color="#7C3AED"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
 </defs>
 <rect width="1200" height="630" fill="#0B0F14"/>
 <rect width="1200" height="630" fill="url(#lBg)"/>
@@ -49,9 +50,7 @@ const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/sv
 <rect x="0" y="0" width="1200" height="8" fill="#14E0C8"/>
 <g opacity="0.05" stroke="#9AA7B8" stroke-width="2" fill="none"><line x1="600" y1="120" x2="600" y2="470"/><circle cx="600" cy="295" r="78"/></g>
 <g class="inter">
-<rect x="56" y="48" width="46" height="46" rx="13" fill="url(#lTeal)"/>
-<circle cx="79" cy="71" r="13" fill="none" stroke="#0B0F14" stroke-width="2.4"/>
-<path d="M79 60 L83 68 L79 72 L75 68 Z" fill="#0B0F14"/><path d="M66 71 L75 68 L79 72 L74 81 Z" fill="#0B0F14"/><path d="M92 71 L83 68 L79 72 L84 81 Z" fill="#0B0F14"/>
+<g transform="translate(56,48) scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#lDuel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
 <text x="116" y="74" class="anton" font-size="34" fill="#F5F7FA" letter-spacing="1">DUELY</text>
 <text x="118" y="92" class="inter" font-size="12.5" font-weight="700" fill="#14E0C8" letter-spacing="2">BACK YOURSELF.</text>
 </g>
@@ -70,14 +69,14 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 .anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}.inter{font-family:'Inter',system-ui,sans-serif;}</style>
 <linearGradient id="sBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0A0E13"/></linearGradient>
 <radialGradient id="sGlow" cx="50%" cy="20%" r="70%"><stop offset="0" stop-color="{{ACCENT}}" stop-opacity="0.18"/><stop offset="1" stop-color="{{ACCENT}}" stop-opacity="0"/></radialGradient>
+<linearGradient id="sDuel" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#14E0C8"/><stop offset=".5" stop-color="#14E0C8"/><stop offset=".5" stop-color="#7C3AED"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
 </defs>
 <rect width="1080" height="1920" fill="#0A0E13"/>
 <rect width="1080" height="1920" fill="url(#sBg)"/>
 <rect width="1080" height="1920" fill="url(#sGlow)"/>
 <rect x="0" y="0" width="1080" height="10" fill="{{ACCENT}}"/>
 <g class="inter">
-<rect x="72" y="100" width="78" height="78" rx="20" fill="#14E0C8"/>
-<circle cx="111" cy="139" r="22" fill="none" stroke="#0B0F14" stroke-width="4"/><polygon points="111,123 124,133 119,148 103,148 98,133" fill="#0B0F14"/>
+<g transform="translate(72,100) scale(0.78)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#sDuel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
 <text x="172" y="144" class="anton" font-size="56" fill="#F5F7FA" letter-spacing="1">DUELY</text>
 <text x="174" y="176" class="inter" font-size="20" font-weight="700" fill="#14E0C8" letter-spacing="3">BACK YOURSELF.</text>
 </g>
@@ -92,12 +91,12 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 <text x="72" y="1320" class="inter" font-size="30" font-weight="700" fill="#93A1B3">winner takes the bragging rights</text>
 <rect x="72" y="1690" width="936" height="124" rx="30" fill="{{ACCENT}}"/>
 <text x="540" y="1768" class="inter" text-anchor="middle" font-size="42" font-weight="900" fill="#06140f">{{FOOT}}</text>
-<text x="540" y="1862" class="inter" text-anchor="middle" font-size="28" font-weight="800" fill="#5E6B7C" letter-spacing="2">duely.live</text>
+<text x="540" y="1862" class="inter" text-anchor="middle" font-size="28" font-weight="800" fill="#93A1B3" letter-spacing="2">duely.live/b/{{ID}}</text>
 </svg>`;
 
 function challengeSvg(data) {
   // Per design notes: never leave the trash-talk panel hollow.
-  const d = { ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'easy money.' };
+  const d = { ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'called it.' };
   return fill(CHALLENGE_TPL, d);
 }
 function resultSvg(data) { return fill(RESULT_TPL, data); }

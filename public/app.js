@@ -25,17 +25,41 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.ad
 function haptic(p) { try { if (navigator.vibrate && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(p); } catch {} }
 function track(ev, props) { try { if (window.posthog) window.posthog.capture(ev, props || {}); } catch {} }
 
-// ---- bottom sheet ----
+// ---- bottom sheet (accessible: labelled, focus-trapped, Escape-to-close) ----
+let _sheetReturnFocus = null;
+const _sheetFocusables = (panel) => [...panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.disabled && el.offsetParent !== null);
+function _sheetKey(e) {
+  const scrim = document.getElementById('sheetScrim');
+  if (!scrim || !scrim.classList.contains('open')) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeSheet(); return; }
+  if (e.key !== 'Tab') return;
+  const f = _sheetFocusables(document.getElementById('sheetPanel'));
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
 function openSheet(html) {
   const scrim = document.getElementById('sheetScrim');
-  document.getElementById('sheetPanel').innerHTML = html;
+  const panel = document.getElementById('sheetPanel');
+  panel.innerHTML = html;
+  panel.tabIndex = -1;
+  const h = panel.querySelector('h2');
+  if (h) { if (!h.id) h.id = 'sheetTitle'; panel.setAttribute('aria-labelledby', h.id); }
+  _sheetReturnFocus = document.activeElement;
   scrim.classList.add('open'); scrim.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
+  const f = _sheetFocusables(panel);
+  (f[0] || panel).focus();
+  document.addEventListener('keydown', _sheetKey, true);
 }
 function closeSheet() {
   const scrim = document.getElementById('sheetScrim');
   scrim.classList.remove('open'); scrim.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
+  document.removeEventListener('keydown', _sheetKey, true);
+  if (_sheetReturnFocus && _sheetReturnFocus.focus) { try { _sheetReturnFocus.focus(); } catch {} }
+  _sheetReturnFocus = null;
   setTimeout(() => { const p = document.getElementById('sheetPanel'); if (p && !scrim.classList.contains('open')) p.innerHTML = ''; }, 300);
 }
 
@@ -353,7 +377,7 @@ async function renderHome() {
       <div class="cardhead"><h2>Leagues</h2><button class="linkbtn" id="newLeague">+ New / join</button></div>
       ${lg.leagues.length
         ? lg.leagues.map((l) => `
-          <div class="riv-row" data-league="${esc(l.code)}" style="cursor:pointer">
+          <div class="riv-row" data-league="${esc(l.code)}" role="button" tabindex="0" style="cursor:pointer">
             <div><div class="nm">${esc(l.name)}</div><div class="sm">${l.members} mates · ${l.rank ? 'you\'re #' + l.rank + ' of ' + l.total : 'unranked'}</div></div>
             <div class="rec ${l.rank === 1 ? 'lead' : ''}">#${l.rank || '–'}</div>
           </div>`).join('')
@@ -380,7 +404,7 @@ async function renderDuels() {
   let d = { active: [], history: [] };
   try { d = await api('/players/me/bets'); } catch {}
   const row = (b) => `
-    <div class="recent" data-bet="${b.id}" style="cursor:pointer">
+    <div class="recent" data-bet="${b.id}" role="button" tabindex="0" style="cursor:pointer">
       <span>${esc(b.home)} v ${esc(b.away)}${b.opponent ? ' · <span style="color:var(--muted)">' + esc(b.opponent) + '</span>' : ''}</span>
       <span class="res ${b.won === true ? 'w' : b.won === false ? 'l' : ''}">${statusLabel(b)}</span>
     </div>`;
@@ -421,7 +445,7 @@ async function renderProfile() {
       ? s.rivalries.map((r) => `<div class="riv-row" data-rematch="${esc(r.opponent)}" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">net ${signed(r.net, s.currency)}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
       : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
     <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b>. Play it responsibly — banter, not the bank.</div>`;
-  $('#rename').addEventListener('click', async () => { const n = prompt('What should mates call you?', m.name); if (n && n.trim()) { try { await rename(n.trim()); renderHeader(); renderProfile(); } catch (e) { toast(e.message); } } });
+  $('#rename').addEventListener('click', () => openRenameSheet(m.name));
   const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
   const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
   app.querySelectorAll('[data-rematch]').forEach((b) => b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
@@ -640,7 +664,9 @@ async function renderBet(id, opts = {}) {
 
   // ---- OPEN ----
   if (bet.status === 'open') {
-    if (role === 'proposer') {
+    // the proposer sees the SHARE view — by identity, not just device-local role,
+    // so opening your own link on any device never dead-ends into the accept screen.
+    if (role === 'proposer' || (m && bet.proposerId === m.id)) {
       app.innerHTML = `
         <div class="card">
           <div class="cardhead"><h2>Send it to your mate 📲</h2>${pill}</div>
@@ -649,19 +675,23 @@ async function renderBet(id, opts = {}) {
           <button class="cta wa" id="waBtn">Share on WhatsApp</button>
           <button class="ghost" id="shareBtn">Share card / copy link</button>
           <a class="muted-link" href="/card/${id}.png" target="_blank" rel="noopener">Save card image</a>
+          <button class="muted-link" id="cancelBet">Cancel this bet</button>
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
         <div class="banner">Waiting for your mate to take the bet…</div>`;
-      const waText = `I bet you ${outcomeLabel(bet, bet.backedOutcome)} — ${money(bet)} on it. ${bet.note ? bet.note + ' ' : ''}Take the other side 👉`;
-      $('#waBtn').addEventListener('click', () => window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'));
-      $('#shareBtn').addEventListener('click', async () => {
-        if (navigator.share) { await nativeShare(link, waText); }
-        else { try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } }
+      const waText = `${m ? m.name : 'I'} bet you ${money(bet)} that ${outcomeLabel(bet, bet.backedOutcome)}. ${bet.note ? '“' + bet.note + '” ' : ''}Tap to take the other side 👇`;
+      $('#waBtn').addEventListener('click', () => { track('share', { kind: 'whatsapp' }); window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'); });
+      $('#shareBtn').addEventListener('click', () => shareWithCard('/card/' + id + '.png', waText, link, 'challenge'));
+      $('#cancelBet').addEventListener('click', (e) => {
+        const b = e.target;
+        if (b.dataset.armed) return doVoid(id);
+        b.dataset.armed = '1'; b.textContent = 'Tap again to cancel this bet';
       });
       $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
       return;
     }
     // opponent / fresh visitor
+    track('accept_view', { id });
     const rb = await rivalryBanner(bet.proposerId, bet.proposerName);
     app.innerHTML = `
       <div class="card">
@@ -710,8 +740,8 @@ async function renderBet(id, opts = {}) {
       </div>`;
     const zone = $('#resolveZone');
     const pend = bet.pendingResult;
-    const meName = m ? m.name : '';
     const other = otherSide(bet, m);
+    const kickoffFuture = bet.utcDate && new Date(bet.utcDate).getTime() > Date.now();
     const showReportSeg = () => {
       zone.innerHTML = `
         <label>Report the final result</label>
@@ -723,18 +753,32 @@ async function renderBet(id, opts = {}) {
         <div class="banner">Your mate confirms it before it's final — keeps it honest 🤝</div>`;
       $('#resSeg').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => doResolve(id, b.dataset.o)));
     };
-    if (pend && pend.by && meName && norm(pend.by) === norm(meName)) {
+    if (bet.disputed) {
+      const claims = bet.disputed.claims || [];
+      zone.innerHTML = `
+        <div class="banner" style="margin-bottom:10px">⚖️ You two don't agree on the result.</div>
+        ${claims.map((c) => `<div class="side"><div><div class="who">${esc(c.by)}</div><div class="pick">says ${esc(outcomeLabel(bet, c.outcome))}</div></div></div>`).join('')}
+        <button class="cta" id="redoBtn" style="margin-top:12px">Report it again</button>
+        <button class="ghost" id="voidBtn">Void this bet — no result counts</button>`;
+      $('#redoBtn').addEventListener('click', showReportSeg);
+      $('#voidBtn').addEventListener('click', (e) => {
+        const b = e.target; if (b.dataset.armed) return doVoid(id);
+        b.dataset.armed = '1'; b.textContent = 'Tap again to void it';
+      });
+    } else if (pend && m && pend.byId === m.id) {
       zone.innerHTML = `
         <div class="banner" style="margin-bottom:10px">You reported <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b>. Waiting for ${esc(other)} to confirm…</div>
         <button class="ghost" id="changeBtn">Change my report</button>`;
       $('#changeBtn').addEventListener('click', showReportSeg);
-    } else if (pend && meName) {
+    } else if (pend && m) {
       zone.innerHTML = `
         <div class="banner" style="margin-bottom:10px">${esc(pend.by || 'Your mate')} says it finished: <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b></div>
         <button class="cta gold" id="confirmBtn">Confirm result ✓</button>
-        <button class="ghost" id="disputeBtn">No — report a different result</button>`;
+        <button class="ghost" id="disputeBtn">That's not right →</button>`;
       $('#confirmBtn').addEventListener('click', () => doConfirm(id));
       $('#disputeBtn').addEventListener('click', showReportSeg);
+    } else if (kickoffFuture) {
+      zone.innerHTML = `<div class="banner">🔒 Locked in — kicks off ${esc(new Date(bet.utcDate).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}. Come back after full time to settle.</div>`;
     } else if (CONFIG.live && bet.externalId) {
       zone.innerHTML = `<button class="cta" id="autoBtn">Check final result</button><div class="banner">Auto-resolves from the live feed once the match is finished.</div><button class="muted-link" id="manualBtn">Match over but the feed's not updating? Report it manually</button>`;
       $('#autoBtn').addEventListener('click', () => doResolve(id, null));
@@ -760,7 +804,7 @@ async function renderBet(id, opts = {}) {
         ${matchCard}
         <div class="banner reveal" style="margin-bottom:12px">Result: <b style="color:var(--text)">${esc(outcomeLabel(bet, bet.actualOutcome))}</b></div>
         <div class="owes reveal delay1">
-          <div class="lbl">${bet.status === 'settled' ? 'Settled up' : 'Pay up'} 👇</div>
+          <div class="lbl">${bet.status === 'settled' ? 'Sorted' : 'Sort it'} 👇</div>
           <div class="big">${esc(bet.owes.from)} → ${esc(bet.owes.to)}</div>
           <div class="amt" id="amt">${sym(bet.currency)}0</div>
         </div>
@@ -769,19 +813,22 @@ async function renderBet(id, opts = {}) {
         <div class="reveal delay3">
           ${reactionsHtml(bet)}
           <img class="cardimg" src="/card/${id}.svg" alt="Result card" loading="lazy" />
-          <button class="cta wa" id="shareResult">Share the result 📤</button>
+          ${iWon
+            ? `<button class="cta wa" id="shareResult">Brag about it 🏆</button>`
+            : (other ? `<button class="cta commit" id="rematchLoss">Demand a rematch ⚔️</button>` : '')}
           <div class="row" style="margin-top:10px">
             <button class="ghost" id="storyBtn">Story image 📲</button>
             <button class="ghost" id="copyBet">Run it back 🔁</button>
           </div>
-          ${bet.status === 'resolved' ? `<button class="cta gold" id="settleBtn" style="margin-top:10px">Mark as paid ✓</button>` : `<div class="banner" style="margin-top:14px">✓ Marked as paid${bet.settledAt ? ' · ' + new Date(bet.settledAt).toLocaleDateString() : ''}</div>`}
-          ${other ? `<button class="cta commit" id="rematchBtn" style="margin-top:10px">Rematch ${esc(other)} ⚔️</button>` : ''}
+          ${bet.status === 'resolved' ? `<button class="cta gold" id="settleBtn" style="margin-top:10px">Mark it sorted ✓</button>` : `<div class="banner" style="margin-top:14px">✓ Sorted${bet.settledAt ? ' · ' + new Date(bet.settledAt).toLocaleDateString() : ''}</div>`}
+          ${other && iWon ? `<button class="cta commit" id="rematchBtn" style="margin-top:10px">Rematch ${esc(other)} ⚔️</button>` : ''}
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
       </div>`;
-    const shareText = `${winnerNm} called it: ${outcomeLabel(bet, bet.actualOutcome)} ⚽ Settled on Duely.`;
-    const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => nativeShare(link, shareText));
-    const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => window.open('/storycard/' + id + '.png', '_blank'));
+    const shareText = `I called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? other + ' owes me the bragging rights 👑 ' : ''}Who's next?`;
+    const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => shareWithCard('/card/' + id + '.png', shareText, link, 'result'));
+    const rl = $('#rematchLoss'); if (rl) rl.addEventListener('click', () => rematchConfirm(other, bet));
+    const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => shareStory(id));
     const cb = $('#copyBet'); if (cb) cb.addEventListener('click', () => { PREFILL = { copy: { home: bet.home, away: bet.away, competition: bet.competition, backedOutcome: bet.backedOutcome, stake: bet.stake, currency: bet.currency, note: bet.note } }; renderCreate(); });
     wireReactions(id);
 
@@ -790,9 +837,21 @@ async function renderBet(id, opts = {}) {
     if (iWon) { setTimeout(() => confetti(Math.max(1, Math.min(3, bet.stake / 20))), 520); haptic([14, 50, 22]); }
 
     if (bet.status === 'resolved') $('#settleBtn').addEventListener('click', async () => {
-      try { await api('/bets/' + id + '/settle', { method: 'POST' }); toast('Nice — settled'); renderBet(id); } catch (e) { toast(e.message); }
+      try { await api('/bets/' + id + '/settle', { method: 'POST' }); toast('Nice — sorted'); renderBet(id); } catch (e) { toast(e.message); }
     });
     const rbtn = $('#rematchBtn'); if (rbtn) rbtn.addEventListener('click', () => rematchConfirm(other, bet));
+    $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+    return;
+  }
+
+  // ---- VOID (cancelled or disputed-and-voided) ----
+  if (bet.status === 'void') {
+    app.innerHTML = `
+      <div class="card">
+        <div class="cardhead"><h2>Bet called off</h2><span class="pill settled">void</span></div>
+        <p class="sub">This bet was voided — it doesn't count toward anyone's record.</p>
+        <button class="cta" id="homeLink">Back to my season</button>
+      </div>`;
     $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
     return;
   }
@@ -843,6 +902,54 @@ async function doConfirm(id) {
   try { await api('/bets/' + id + '/confirm', { method: 'POST' }); track('bet_resolved'); renderBet(id); }
   catch (e) { toast(e.message); }
 }
+async function doVoid(id) {
+  try { await api('/bets/' + id + '/void', { method: 'POST' }); toast('Bet voided'); history.pushState({}, '', '/'); route(); }
+  catch (e) { toast(e.message); }
+}
+
+// share a rendered card image (native file share where supported), else the link
+async function shareWithCard(cardUrl, text, link, kind) {
+  track('share', { kind });
+  try {
+    if (navigator.canShare) {
+      const r = await fetch(cardUrl); const blob = await r.blob();
+      const file = new File([blob], 'duely.png', { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text, url: link }); return; }
+    }
+  } catch {}
+  if (navigator.share) { try { await navigator.share({ title: 'Duely', text, url: link }); return; } catch {} }
+  try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); }
+}
+async function shareStory(id) {
+  track('share', { kind: 'story' });
+  const url = '/storycard/' + id + '.png';
+  try {
+    if (navigator.canShare) {
+      const r = await fetch(url); const blob = await r.blob();
+      const file = new File([blob], 'duely-story.png', { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: 'Settled on Duely ⚽' }); return; }
+    }
+  } catch {}
+  window.open(url, '_blank');
+}
+
+// rename via the bottom sheet (replaces the inaccessible prompt())
+function openRenameSheet(current) {
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><h2>Edit name</h2><button class="sheet-x" id="sheetClose" aria-label="Close">✕</button></div>
+    <div class="sheet-body">
+      <label for="renameInput">What should mates call you?</label>
+      <input id="renameInput" maxlength="40" value="${esc(current)}" autocomplete="off" />
+    </div>
+    <div class="sheet-foot"><button class="cta" id="renameSave">Save name →</button></div>`);
+  $('#sheetClose').addEventListener('click', closeSheet);
+  const inp = $('#renameInput'); try { inp.focus(); inp.select(); } catch {}
+  $('#renameSave').addEventListener('click', async () => {
+    const n = inp.value.trim(); if (!n) return toast('Pick a name');
+    try { await rename(n); renderHeader(); closeSheet(); renderProfile(); } catch (e) { toast(e.message); }
+  });
+}
 
 document.getElementById('tabbar')?.addEventListener('click', (e) => {
   const t = e.target.closest('.tab'); if (!t) return;
@@ -852,6 +959,13 @@ document.getElementById('tabbar')?.addEventListener('click', (e) => {
   route();
 });
 document.getElementById('sheetScrim')?.addEventListener('click', (e) => { if (e.target.id === 'sheetScrim') closeSheet(); });
+
+// Enter/Space activate keyboard-focused rows (role=button divs)
+app.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const t = e.target.closest('[role="button"][data-bet],[role="button"][data-league]');
+  if (t) { e.preventDefault(); t.click(); }
+});
 
 window.addEventListener('popstate', route);
 route();
