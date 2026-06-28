@@ -329,6 +329,11 @@ async function renderHome() {
   const streakTxt = s.streak.count ? `${s.streak.count}${s.streak.type}` : '—';
   const onFire = s.streak.type === 'W' && s.streak.count >= 2;
   const isNew = s.w === 0 && s.l === 0 && s.rivalries.length === 0 && lg.leagues.length === 0;
+  // the single most-contested rivalry — an unsettled score is an open loop you return to settle
+  const hot = s.rivalries
+    .filter((r) => Math.abs(r.w - r.l) <= 1 && (r.w + r.l) >= 2)
+    .sort((a, b) => (Math.abs(a.w - a.l) - Math.abs(b.w - b.l)) || ((b.w + b.l) - (a.w + a.l)))[0];
+  const hotLine = hot ? (hot.w === hot.l ? `Level with ${esc(hot.opponent)} — nobody's ahead` : hot.w > hot.l ? `You lead ${esc(hot.opponent)} by one` : `${esc(hot.opponent)} leads you by one`) : '';
 
   const rivalriesHtml = s.rivalries.length
     ? s.rivalries.map((r) => {
@@ -338,7 +343,7 @@ async function renderHome() {
           <div class="riv-row" data-opp="${esc(r.opponent)}">
             <div>
               <div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div>
-              <div class="sm">${verb} · net ${signed(r.net, s.currency)}</div>
+              <div class="sm">${verb} · ${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div>
             </div>
             <div style="text-align:right">
               <div class="rec ${lead}">${r.w}–${r.l}</div>
@@ -357,7 +362,20 @@ async function renderHome() {
     : '';
 
   app.innerHTML = `
-    ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)"><h2>New here? 👋</h2><p class="sub" style="margin:0">Pick this weekend's match, back your call, and fire the link to a mate — they tap, take the other side, done. No signup — Duely keeps score and builds your rivalry.</p></div>` : ''}
+    ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)">
+      <h2>Get your first rivalry going 👋</h2>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:6px">
+        <div style="display:flex;align-items:center;gap:10px;font-weight:800;color:var(--teal)"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--teal);color:#06140f;font-size:13px;font-weight:900">✓</span> Joined Duely</div>
+        <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">2</span> Back a call &amp; set the stakes</div>
+        <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">3</span> Fire the link — a mate takes the other side</div>
+      </div>
+      <button class="cta commit" id="firstBet" style="margin-top:16px">⚔️ Create your first bet</button>
+    </div>` : ''}
+    ${hot ? `<div class="card hero-duel">
+      <div class="cardhead"><h2>Unfinished business ⚔️</h2></div>
+      <div class="rivalry" style="margin-top:2px"><div><div class="vsline">${hotLine}</div><div class="sm" style="color:var(--muted);font-size:12px">${hot.w + hot.l} duels in — settle the score</div></div><div class="score ${hot.w > hot.l ? 'lead' : hot.w < hot.l ? 'trail' : 'level'}">${hot.w}–${hot.l}</div></div>
+      <button class="cta commit" data-rematch="${esc(hot.opponent)}" style="margin-top:12px">Settle it with ${esc(hot.opponent)} →</button>
+    </div>` : ''}
     <div class="card">
       <div class="cardhead"><h2>Your season</h2><span class="flame ${onFire ? 'on' : ''}">${onFire ? '🔥 ' + s.streak.count + ' in a row' : ''}</span></div>
       <div class="stats">
@@ -389,6 +407,7 @@ async function renderHome() {
     <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> this season — settle up with your mates and run it back.</div>`;
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
   app.querySelectorAll('[data-rematch]').forEach((b) =>
     b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
   $('#newLeague').addEventListener('click', () => renderLeagueHub());
@@ -626,9 +645,10 @@ async function renderCreate() {
 }
 
 // brief "locked in" seal animation between commit and next screen
-function sealThen(next) {
-  app.innerHTML = `<div class="card"><div class="sealwrap"><div class="seal">🔒</div><h2 style="text-align:center">Locked in</h2></div></div>`;
-  setTimeout(next, 720);
+function sealThen(next, sub) {
+  app.innerHTML = `<div class="card"><div class="sealwrap"><div class="seal">🔒</div><h2 style="text-align:center">Locked in</h2>${sub ? `<p class="sub" style="text-align:center;margin:8px 0 0">${sub}</p>` : ''}</div></div>`;
+  if (sub) { try { confetti(1); haptic([10, 40, 16]); } catch {} }
+  setTimeout(next, sub ? 1100 : 720);
 }
 
 // ---------------------------------------------------------------------------
@@ -679,7 +699,7 @@ async function renderBet(id, opts = {}) {
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
         <div class="banner">Waiting for your mate to take the bet…</div>`;
-      const waText = `${m ? m.name : 'I'} bet you ${money(bet)} that ${outcomeLabel(bet, bet.backedOutcome)}. ${bet.note ? '“' + bet.note + '” ' : ''}Tap to take the other side 👇`;
+      const waText = `${m ? m.name : 'I'} reckon ${outcomeLabel(bet, bet.backedOutcome)} —${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`;
       $('#waBtn').addEventListener('click', () => { track('share', { kind: 'whatsapp' }); window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'); });
       $('#shareBtn').addEventListener('click', () => shareWithCard('/card/' + id + '.png', waText, link, 'challenge'));
       $('#cancelBet').addEventListener('click', (e) => {
@@ -693,11 +713,20 @@ async function renderBet(id, opts = {}) {
     // opponent / fresh visitor
     track('accept_view', { id });
     const rb = await rivalryBanner(bet.proposerId, bet.proposerName);
+    // cold visitor with no shared history → truthful social proof about the proposer
+    const ps = bet.proposerStats || {};
+    const proof = rb ? '' : (
+      ps.streakType === 'W' && ps.streakCount >= 2
+        ? `<div class="banner" style="margin:0 0 4px">🔥 ${esc(bet.proposerName)} is on a ${ps.streakCount}-win streak — fancy stopping it?</div>`
+        : ps.duels >= 1
+          ? `<div class="banner" style="margin:0 0 4px">${esc(bet.proposerName)} has settled ${ps.duels} duel${ps.duels === 1 ? '' : 's'} on Duely.</div>`
+          : `<div class="banner" style="margin:0 0 4px">Duel #1 between you and ${esc(bet.proposerName)} — the record starts here.</div>`
+    );
     app.innerHTML = `
       <div class="card">
         <div class="cardhead"><h2>${esc(bet.proposerName)} wants to bet you 👀</h2>${pill}</div>
-        <p class="sub"><b>${esc(bet.proposerName)}</b> is backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b> for <b>${money(bet)}</b>.</p>
-        ${rb}
+        <p class="sub"><b>${esc(bet.proposerName)}</b> is backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b>. You take the other side.</p>
+        ${rb}${proof}
         ${matchCard}
         ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}
         <div class="side"><div><div class="who">You'd be backing</div><div class="pick">${esc(complementLabel(bet))}</div></div><div class="stake">${money(bet)}</div></div>
@@ -718,7 +747,9 @@ async function renderBet(id, opts = {}) {
         track('bet_accepted');
         renderHeader();
         roleStore.set(id, 'opponent');
-        sealThen(() => renderBet(id));
+        let sub = `The ${esc(bet.proposerName)} rivalry is live`;
+        try { const r = await api('/players/me/rivalry?with=' + encodeURIComponent(bet.proposerId)); if (r.games >= 1) sub = `You're ${r.aWins}–${r.bWins} with ${esc(bet.proposerName)} — live now`; } catch {}
+        sealThen(() => renderBet(id), sub);
       } catch (e) { toast(e.message); btn.disabled = false; $('.card').classList.remove('locking'); }
     });
     return;
@@ -825,7 +856,7 @@ async function renderBet(id, opts = {}) {
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
       </div>`;
-    const shareText = `I called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? other + ' owes me the bragging rights 👑 ' : ''}Who's next?`;
+    const shareText = `Called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? 'Your move, ' + other + ' 👀 ' : ''}Settle the score on Duely 👇`;
     const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => shareWithCard('/card/' + id + '.png', shareText, link, 'result'));
     const rl = $('#rematchLoss'); if (rl) rl.addEventListener('click', () => rematchConfirm(other, bet));
     const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => shareStory(id));
@@ -875,20 +906,23 @@ function norm(s) { return String(s || '').trim().toLowerCase(); }
 async function rematchConfirm(other, lastBet) {
   const m = me.get();
   const oppId = otherSideId(lastBet, m);
-  let netLine = '';
+  const iWon = m && (lastBet.winner === 'proposer' ? lastBet.proposerId : lastBet.opponentId) === m.id;
+  const lost = iWon === false;
+  track('rematch_view', { after_loss: lost }); // monitor (never optimize against) loss-triggered rematches
+  let recLine = `New rivalry vs ${esc(other)} — make it count.`;
   try {
     const r = await api('/players/me/rivalry?with=' + encodeURIComponent(oppId));
-    netLine = `You're <b>${signed(r.aNet, r.currency)}</b> vs ${esc(other)} this season · record <b>${r.aWins}–${r.bWins}</b>.`;
+    if (r.games) recLine = `Head to head vs ${esc(other)}: <b>${r.aWins}–${r.bWins}</b>${r.aWins === r.bWins ? ' — all square' : r.aWins > r.bWins ? " — you're ahead" : ''}.`;
   } catch {}
   app.innerHTML = `
     <div class="card">
-      <h2>Rematch ${esc(other)}?</h2>
-      <p class="sub">Quick gut-check before you go again.</p>
-      <div class="side"><div><div class="who">Last bet</div><div class="pick">${esc(lastBet.home)} v ${esc(lastBet.away)}</div></div><div class="stake">${money(lastBet)}</div></div>
-      <div class="resp" style="margin-top:14px;text-align:center;display:block">${netLine || 'New rivalry — make it count.'}</div>
+      <h2>${lost ? `Run it back on ${esc(other)}?` : `Rematch ${esc(other)}?`}</h2>
+      <p class="sub">${lost ? 'No rush — only when you fancy it.' : 'Quick gut-check before you go again.'}</p>
+      <div class="side"><div><div class="who">Last duel</div><div class="pick">${esc(lastBet.home)} v ${esc(lastBet.away)}</div></div></div>
+      <div class="resp" style="margin-top:14px;text-align:center;display:block">${recLine}</div>
       <div class="banner" style="margin-top:12px">Winner takes the bragging rights. Set your own stake on the next screen.</div>
-      <button class="cta commit" id="goRematch">Set up the rematch →</button>
-      <button class="muted-link" id="notNow">Not now</button>
+      <button class="cta${lost ? '' : ' commit'}" id="goRematch">Set up the rematch${lost ? '' : ' →'}</button>
+      <button class="muted-link" id="notNow">${lost ? 'Maybe later' : 'Not now'}</button>
     </div>`;
   $('#goRematch').addEventListener('click', () => { PREFILL = { opponent: other }; renderCreate(); });
   $('#notNow').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });

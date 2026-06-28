@@ -1,6 +1,6 @@
-<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely result: who won, the stake, and the banter">
+<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely result: who won and the head-to-head record">
 <title>Duely result card</title>
-<desc>A full-time football bet result showing the winner, the stake, and the trash talk.</desc>
+<desc>A full-time football bet result: the winner, the running head-to-head rivalry, and the trash talk.</desc>
 <defs>
 <style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}
 .inter{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;}</style>
@@ -14,7 +14,6 @@
 <rect width="1200" height="630" fill="url(#rGlow)"/>
 <rect x="0" y="0" width="1200" height="6" fill="#FFC83D"/>
 
-<!-- brand -->
 <g transform="translate(64,48)">
 <g transform="scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#rDuel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
 <text x="60" y="28" class="anton" font-size="30" fill="#F4F7FB" letter-spacing="1">DUELY</text>
@@ -23,20 +22,20 @@
 <g class="inter"><rect x="1000" y="52" width="136" height="40" rx="20" fill="#1E1705" stroke="#FFC83D" stroke-width="1.5"/><text x="1068" y="78" text-anchor="middle" font-size="15" font-weight="800" fill="#FFC83D" letter-spacing="2">FULL TIME</text></g>
 
 <!-- HERO: who won -->
-<text x="66" y="208" class="inter" font-size="22" font-weight="900" fill="#FFC83D" letter-spacing="7">CALLED IT</text>
-<text x="60" y="350" class="anton" font-size="138" fill="#FFC83D">{{WINNER}}</text>
-<text x="66" y="406" class="inter" font-size="27" font-weight="700" fill="#9AA7B8">{{RESULT}}  &#183;  {{LOSER}} owes the bragging rights</text>
+<text x="66" y="196" class="inter" font-size="22" font-weight="900" fill="#FFC83D" letter-spacing="7">CALLED IT</text>
+<text x="60" y="328" class="anton" font-size="132" fill="#FFC83D">{{WINNER}}</text>
 
-<rect x="64" y="452" width="1072" height="1.5" fill="#2A3340"/>
+<!-- the RECORD — the thing you come back to settle (hero of the message) -->
+<text x="66" y="388" class="inter" font-size="29" font-weight="900" fill="#14E0C8">{{RIVALRY}}</text>
+<text x="66" y="420" class="inter" font-size="22" font-weight="600" fill="#9AA7B8">called {{RESULT}} &#183; the rivalry runs on</text>
 
-<!-- the money -->
-<text x="66" y="498" class="inter" font-size="15" font-weight="900" fill="#2BD17E" letter-spacing="3">THE DAMAGE</text>
-<text x="66" y="576" class="anton" font-size="78" fill="#2BD17E">{{STAKE}}</text>
-
-<rect x="430" y="476" width="1.5" height="104" fill="#2A3340"/>
+<rect x="64" y="456" width="1072" height="1.5" fill="#2A3340"/>
 
 <!-- the banter -->
-<text x="470" y="498" class="inter" font-size="15" font-weight="900" fill="#93A1B3" letter-spacing="3">THE SHOUT</text>
-<text x="470" y="546" class="inter" font-size="32" font-weight="800" font-style="italic" fill="#F4F7FB">&#8220;{{NOTE}}&#8221;</text>
-<text x="470" y="582" class="inter" font-size="16" font-weight="600" fill="#9AA7B8">&#8212; {{WINNER}}</text>
+<text x="66" y="500" class="inter" font-size="15" font-weight="900" fill="#93A1B3" letter-spacing="3">THE SHOUT</text>
+<text x="66" y="552" class="inter" font-size="32" font-weight="800" font-style="italic" fill="#F4F7FB">&#8220;{{NOTE}}&#8221;</text>
+<text x="66" y="586" class="inter" font-size="16" font-weight="600" fill="#9AA7B8">&#8212; {{WINNER}}</text>
+
+<!-- stake: fine print, never the hero -->
+<text x="1136" y="586" text-anchor="end" class="inter" font-size="15" font-weight="700" fill="#5E6B7C">{{STAKE}} on it</text>
 </svg>

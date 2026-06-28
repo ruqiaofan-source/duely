@@ -780,7 +780,12 @@ async function handleApi(req, res, url) {
     if (!bet) return sendJson(res, 404, { error: 'Bet not found' });
     const action = parts[3];
 
-    if (req.method === 'GET' && !action) return sendJson(res, 200, bet); // public: link possession is the capability
+    if (req.method === 'GET' && !action) {
+      // public view (link possession is the capability) + lightweight social proof about the
+      // proposer for cold visitors — aggregate counts only, no private record
+      const ps = playerSummary(bet.proposerId);
+      return sendJson(res, 200, { ...bet, proposerStats: { duels: ps.w + ps.l, streakType: ps.streak.type, streakCount: ps.streak.count } });
+    }
 
     if (req.method === 'POST' && action === 'accept') {
       const me = authPlayer(req); if (!me) return need401();
