@@ -292,12 +292,12 @@ function renderOnboarding(next) {
   app.innerHTML = `
     <div class="card">
       <h2>Back yourself 🤝</h2>
-      <p class="sub">Duely turns a football argument into a bet you can settle with a mate — and a rivalry you'll want to win. We keep score. No money, no bookie.</p>
+      <p class="sub">Duely turns a football argument into a bet you settle with a mate — and a rivalry you'll want to win. We just keep score.</p>
       <label>What should mates call you?</label>
       <input id="name" placeholder="e.g. Alex" maxlength="40" />
       <div class="checkrow">
         <input type="checkbox" id="age" />
-        <label for="age">I'm 18 or over and I get that Duely is for bragging rights, not income.</label>
+        <label for="age">I'm 18 or over, and I'm here for the bragging rights.</label>
       </div>
       <button class="cta" id="go">Let's go →</button>
       <button class="muted-link" id="signin">I already have an account → sign in</button>
@@ -357,7 +357,7 @@ async function renderHome() {
     : '';
 
   app.innerHTML = `
-    ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)"><h2>New here? 👋</h2><p class="sub" style="margin:0">Pick this weekend's match, back your call, and fire the link to a mate — they tap, take the other side, done. No signup, no money. Duely just keeps score and builds your rivalry.</p></div>` : ''}
+    ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)"><h2>New here? 👋</h2><p class="sub" style="margin:0">Pick this weekend's match, back your call, and fire the link to a mate — they tap, take the other side, done. No signup — Duely keeps score and builds your rivalry.</p></div>` : ''}
     <div class="card">
       <div class="cardhead"><h2>Your season</h2><span class="flame ${onFire ? 'on' : ''}">${onFire ? '🔥 ' + s.streak.count + ' in a row' : ''}</span></div>
       <div class="stats">
@@ -386,7 +386,7 @@ async function renderHome() {
 
     ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
 
-    <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> this season. Play it responsibly — it's for the banter, not the bank.</div>`;
+    <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> this season — settle up with your mates and run it back.</div>`;
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   app.querySelectorAll('[data-rematch]').forEach((b) =>
@@ -444,7 +444,7 @@ async function renderProfile() {
     <div class="card"><h2>Rivalries</h2>${s.rivalries.length
       ? s.rivalries.map((r) => `<div class="riv-row" data-rematch="${esc(r.opponent)}" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">net ${signed(r.net, s.currency)}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
       : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
-    <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b>. Play it responsibly — banter, not the bank.</div>`;
+    <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> — settle up with your mates and run it back.</div>`;
   $('#rename').addEventListener('click', () => openRenameSheet(m.name));
   const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
   const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
@@ -557,7 +557,7 @@ async function renderCreate() {
     <div class="sheet-handle"></div>
     <div class="sheet-head"><h2>${rematchOf ? 'Rematch ' + esc(rematchOf) + ' ⚔️' : copy ? 'Run it back 🔁' : 'Start a duel 🤝'}</h2><button class="sheet-x" id="sheetClose">✕</button></div>
     <div class="sheet-body">
-      <p class="sub" style="margin:2px 0 12px">${rematchOf ? 'Winner takes the bragging rights and the lead.' : 'Set the terms, send the link. No money touches Duely.'}</p>
+      <p class="sub" style="margin:2px 0 12px">${rematchOf ? 'Winner takes the bragging rights and the lead.' : 'Set the terms, send the link — you settle up between yourselves.'}</p>
       <label>The match</label>
       <select id="matchSel"></select>
       <div id="customWrap" style="display:none"><div class="row"><div><label>Home team</label><input id="home" placeholder="Spain" maxlength="40" /></div><div><label>Away team</label><input id="away" placeholder="Uruguay" maxlength="40" /></div></div></div>
@@ -886,7 +886,7 @@ async function rematchConfirm(other, lastBet) {
       <p class="sub">Quick gut-check before you go again.</p>
       <div class="side"><div><div class="who">Last bet</div><div class="pick">${esc(lastBet.home)} v ${esc(lastBet.away)}</div></div><div class="stake">${money(lastBet)}</div></div>
       <div class="resp" style="margin-top:14px;text-align:center;display:block">${netLine || 'New rivalry — make it count.'}</div>
-      <div class="banner" style="margin-top:12px">Bragging rights, not income. Set your own stake on the next screen.</div>
+      <div class="banner" style="margin-top:12px">Winner takes the bragging rights. Set your own stake on the next screen.</div>
       <button class="cta commit" id="goRematch">Set up the rematch →</button>
       <button class="muted-link" id="notNow">Not now</button>
     </div>`;

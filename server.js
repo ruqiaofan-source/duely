@@ -456,18 +456,18 @@ function ogTextForBet(bet) {
     const winner = winnerDisplayName(bet);
     return {
       title: `${winner} called it: ${outcomeLabel(bet, bet.actualOutcome)} ⚽`,
-      desc: `${rivalryLine(bet)}. Bragging rights, not income — no money, no bookie. Back yourself on Duely.`,
+      desc: `${rivalryLine(bet)}. Settle it between yourselves. Back yourself on Duely.`,
     };
   }
   if (bet.status === 'accepted') {
     return {
       title: `${bet.proposerName} v ${bet.opponentName} — bet's on 🔒`,
-      desc: `${bet.home} v ${bet.away}: ${outcomeLabel(bet, bet.backedOutcome)} for ${sym(bet.currency)}${bet.stake}. May the best mate win. No money, no bookie.`,
+      desc: `${bet.home} v ${bet.away}: ${outcomeLabel(bet, bet.backedOutcome)} for ${sym(bet.currency)}${bet.stake}. May the best mate win.`,
     };
   }
   return {
     title: `${bet.proposerName} bets ${outcomeLabel(bet, bet.backedOutcome)} · ${sym(bet.currency)}${bet.stake} 🤝`,
-    desc: `${bet.note ? bet.note + ' — ' : ''}${bet.home} v ${bet.away}. Take the other side (${complementLabel(bet)}) on Duely. No money, no bookie.`,
+    desc: `${bet.note ? bet.note + ' — ' : ''}${bet.home} v ${bet.away}. Take the other side (${complementLabel(bet)}) on Duely.`,
   };
 }
 
