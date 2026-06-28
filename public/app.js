@@ -177,6 +177,11 @@ const roleStore = {
   get: (id) => { try { return JSON.parse(localStorage.getItem('settle_roles') || '{}')[id]; } catch { return null; } },
   set: (id, role) => { let m = {}; try { m = JSON.parse(localStorage.getItem('settle_roles') || '{}'); } catch {} m[id] = role; localStorage.setItem('settle_roles', JSON.stringify(m)); },
 };
+// local preferences (e.g. hide streaks — a humane opt-out for users who find them stressful)
+const prefs = {
+  get() { try { return JSON.parse(localStorage.getItem('settle_prefs') || '{}'); } catch { return {}; } },
+  set(k, v) { const p = prefs.get(); p[k] = v; localStorage.setItem('settle_prefs', JSON.stringify(p)); },
+};
 
 const outcomeLabel = (b, code) => code === 'HOME' ? `${b.home} win` : code === 'AWAY' ? `${b.away} win` : code === 'DRAW' ? 'Draw' : code;
 const complementLabel = (b) => b.backedOutcome === 'DRAW' ? "it's not a draw" : b.backedOutcome === 'HOME' ? `${b.home} don't win` : `${b.away} don't win`;
@@ -326,8 +331,9 @@ async function renderHome() {
   try { lg = await api('/players/me/leagues'); } catch {}
 
   const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
-  const streakTxt = s.streak.count ? `${s.streak.count}${s.streak.type}` : '—';
-  const onFire = s.streak.type === 'W' && s.streak.count >= 2;
+  const hideStreaks = prefs.get().hideStreaks;
+  const streakTxt = (!hideStreaks && s.streak.count) ? `${s.streak.count}${s.streak.type}` : '—';
+  const onFire = !hideStreaks && s.streak.type === 'W' && s.streak.count >= 2;
   const isNew = s.w === 0 && s.l === 0 && s.rivalries.length === 0 && lg.leagues.length === 0;
   // the single most-contested rivalry — an unsettled score is an open loop you return to settle
   const hot = s.rivalries
@@ -446,7 +452,8 @@ async function renderProfile() {
   try { s = await api('/players/me/summary'); }
   catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [] }; }
   const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
-  const streakTxt = s.streak.count ? `${s.streak.count}${s.streak.type}` : '—';
+  const hideStreaks = prefs.get().hideStreaks;
+  const streakTxt = (!hideStreaks && s.streak.count) ? `${s.streak.count}${s.streak.type}` : '—';
   const acct = m.email
     ? `<div class="card"><div class="cardhead"><h2>Account</h2><button class="linkbtn" id="signout">Sign out</button></div><p class="sub" style="margin:0">Signed in as <b style="color:var(--text)">${esc(m.email)}</b>${m.verified ? ' ✓' : ''}. Your record syncs to this account.</p></div>`
     : `<div class="card"><div class="cardhead"><h2>Account</h2></div><p class="sub" style="margin:0 0 10px">You're playing as a guest on this device. Save your record so it survives across devices.</p><button class="cta" id="signin">Sign in / create account</button></div>`;
@@ -460,13 +467,15 @@ async function renderProfile() {
       </div>
     </div>
     ${acct}
+    <div class="card"><div class="cardhead"><h2>Settings</h2></div><div class="checkrow" style="margin-top:6px"><input type="checkbox" id="hideStreaks" ${hideStreaks ? 'checked' : ''} /><label for="hideStreaks">Hide streaks — no flame, no pressure</label></div></div>
     <div class="card"><h2>Rivalries</h2>${s.rivalries.length
-      ? s.rivalries.map((r) => `<div class="riv-row" data-rematch="${esc(r.opponent)}" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">net ${signed(r.net, s.currency)}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
+      ? s.rivalries.map((r) => `<div class="riv-row" data-rematch="${esc(r.opponent)}" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
       : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
     <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> — settle up with your mates and run it back.</div>`;
   $('#rename').addEventListener('click', () => openRenameSheet(m.name));
   const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
   const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
+  const hs = $('#hideStreaks'); if (hs) hs.addEventListener('change', () => { prefs.set('hideStreaks', hs.checked); renderProfile(); });
   app.querySelectorAll('[data-rematch]').forEach((b) => b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
 }
 
@@ -507,7 +516,7 @@ function renderLeagueHub() {
   $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
 }
 
-async function renderLeague(code) {
+async function renderLeague(code, full) {
   app.innerHTML = '<div class="spin">Loading…</div>';
   const m = me.get();
   let lg;
@@ -535,7 +544,24 @@ async function renderLeague(code) {
   }
 
   const rows = lg.standings || [];
-  const tbl = rows.map((r) => `
+  const myIdx = rows.findIndex((r) => m && r.id === m.id);
+  // relative "your neighbourhood" view (you ±2) — an absolute table demotivates everyone
+  // outside the top few; a peer band that shows movement keeps the whole league engaged.
+  const canSlice = myIdx >= 0 && rows.length > 6;
+  let viewRows = rows;
+  if (canSlice && !full) {
+    const start = Math.max(0, Math.min(myIdx - 2, rows.length - 5));
+    viewRows = rows.slice(start, start + 5);
+  }
+  let gapLine = '';
+  if (myIdx > 0) {
+    const above = rows[myIdx - 1];
+    const wd = above.w - rows[myIdx].w;
+    gapLine = wd <= 0 ? `Level with ${esc(above.name)} for #${above.rank} — edge ahead` : `${wd} win${wd === 1 ? '' : 's'} behind ${esc(above.name)} for #${above.rank}`;
+  } else if (myIdx === 0 && rows[0].games) {
+    gapLine = `Top of the table 👑 — defend it`;
+  }
+  const tbl = viewRows.map((r) => `
     <div class="lg-row ${m && r.id === m.id ? 'me' : ''}">
       <div class="lg-rank">${r.rank}</div>
       <div class="lg-name">${esc(r.name)}${r.rank === 1 && r.games ? ' 👑' : ''}</div>
@@ -547,8 +573,10 @@ async function renderLeague(code) {
   app.innerHTML = `
     <div class="card">
       <div class="cardhead"><h2>${esc(lg.name)} 🏆</h2><span class="pill resolved">${lg.members.length} mates</span></div>
+      ${gapLine ? `<div class="banner" style="margin:2px 0 10px;border-style:solid;border-color:rgba(20,224,200,.3);color:var(--text)">${gapLine}</div>` : ''}
       <div class="lg-head"><div class="lg-rank">#</div><div class="lg-name">Player</div><div class="lg-rec">W-L</div><div class="lg-net">Net</div></div>
       ${tbl}
+      ${canSlice ? `<button class="muted-link" id="toggleTable">${full ? 'Show just my spot' : 'Show full table →'}</button>` : ''}
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
       <button class="cta wa" id="invite">Invite mates on WhatsApp</button>
       <button class="ghost" id="copyInvite">Copy invite link</button>
@@ -558,6 +586,7 @@ async function renderLeague(code) {
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   $('#invite').addEventListener('click', () => window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'));
   $('#copyInvite').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); toast('Invite copied'); } catch { toast(link); } });
+  const tt = $('#toggleTable'); if (tt) tt.addEventListener('click', () => renderLeague(code, !full));
   $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
 }
 
@@ -853,6 +882,7 @@ async function renderBet(id, opts = {}) {
           </div>
           ${bet.status === 'resolved' ? `<button class="cta gold" id="settleBtn" style="margin-top:10px">Mark it sorted ✓</button>` : `<div class="banner" style="margin-top:14px">✓ Sorted${bet.settledAt ? ' · ' + new Date(bet.settledAt).toLocaleDateString() : ''}</div>`}
           ${other && iWon ? `<button class="cta commit" id="rematchBtn" style="margin-top:10px">Rematch ${esc(other)} ⚔️</button>` : ''}
+          ${iWon ? `<button class="muted-link" id="proLink" style="color:var(--gold);margin-top:10px">⭐ Make this rivalry official — Group Pro</button>` : ''}
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
       </div>`;
@@ -871,6 +901,7 @@ async function renderBet(id, opts = {}) {
       try { await api('/bets/' + id + '/settle', { method: 'POST' }); toast('Nice — sorted'); renderBet(id); } catch (e) { toast(e.message); }
     });
     const rbtn = $('#rematchBtn'); if (rbtn) rbtn.addEventListener('click', () => rematchConfirm(other, bet));
+    const pl = $('#proLink'); if (pl) pl.addEventListener('click', () => openProSheet('result'));
     $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
     return;
   }
@@ -983,6 +1014,24 @@ function openRenameSheet(current) {
     const n = inp.value.trim(); if (!n) return toast('Pick a name');
     try { await rename(n); renderHeader(); closeSheet(); renderProfile(); } catch (e) { toast(e.message); }
   });
+}
+
+// Group Pro — surfaced only at the post-win peak, never in the create/accept flow.
+// No checkout yet (needs a payment processor); this captures demand honestly.
+function openProSheet(ctx) {
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><h2>Group Pro ⭐</h2><button class="sheet-x" id="sheetClose" aria-label="Close">✕</button></div>
+    <div class="sheet-body">
+      <p class="sub" style="margin:2px 0 12px">Make the rivalry official — one mate unlocks it for the whole group.</p>
+      <div class="side"><div><div class="who">Season stats &amp; deep history</div><div class="pick">every duel, every streak, all-time records</div></div></div>
+      <div class="side"><div><div class="who">Kits</div><div class="pick">skins for your rivalry &amp; share cards</div></div></div>
+      <div class="side"><div><div class="who">One payer, whole group</div><div class="pick">€4.99/mo unlocks it for everyone in the league</div></div></div>
+      <p class="sub" style="margin:14px 0 0">Not live yet — tap below and you'll be first to know when it opens.</p>
+    </div>
+    <div class="sheet-foot"><button class="cta gold" id="proNotify">Notify me when it's ready</button></div>`);
+  $('#sheetClose').addEventListener('click', closeSheet);
+  $('#proNotify').addEventListener('click', () => { track('pro_interest', { ctx: ctx || 'unknown' }); closeSheet(); toast("Nice — you're on the list 🙌"); });
 }
 
 document.getElementById('tabbar')?.addEventListener('click', (e) => {

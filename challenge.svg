@@ -30,20 +30,14 @@
 
 <rect x="64" y="400" width="1072" height="1.5" fill="#2A3340"/>
 
-<!-- the money -->
-<text x="66" y="446" class="inter" font-size="15" font-weight="900" fill="#2BD17E" letter-spacing="3">THE STAKE</text>
-<text x="66" y="520" class="anton" font-size="74" fill="#2BD17E">{{STAKE}}</text>
-
-<rect x="430" y="424" width="1.5" height="100" fill="#2A3340"/>
-
-<!-- the banter -->
-<text x="470" y="446" class="inter" font-size="15" font-weight="900" fill="#93A1B3" letter-spacing="3">THE SHOUT</text>
-<text x="470" y="492" class="inter" font-size="30" font-weight="800" font-style="italic" fill="#F4F7FB">&#8220;{{NOTE}}&#8221;</text>
-<text x="470" y="524" class="inter" font-size="16" font-weight="600" fill="#9AA7B8">&#8212; {{PROPOSER}}</text>
+<!-- the banter (full width — the stake is a term, not the headline) -->
+<text x="66" y="446" class="inter" font-size="15" font-weight="900" fill="#93A1B3" letter-spacing="3">THE SHOUT</text>
+<text x="66" y="500" class="inter" font-size="34" font-weight="800" font-style="italic" fill="#F4F7FB">&#8220;{{NOTE}}&#8221;</text>
+<text x="66" y="534" class="inter" font-size="16" font-weight="600" fill="#9AA7B8">&#8212; {{PROPOSER}}</text>
 
 <!-- the hook -->
 <rect x="64" y="556" width="1072" height="54" rx="14" fill="url(#cTeal)"/>
 <text x="100" y="590" class="inter" font-size="21" font-weight="900" fill="#06231F">TAKE THE OTHER SIDE</text>
 <path d="M392 583 h24 m-10 -8 l10 8 -10 8" fill="none" stroke="#06231F" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="1100" y="589" text-anchor="end" class="inter" font-size="17" font-weight="700" fill="#06231F">you'd back <tspan font-weight="900">{{COMPLEMENT}}</tspan></text>
+<text x="1100" y="589" text-anchor="end" class="inter" font-size="17" font-weight="700" fill="#06231F">you'd back <tspan font-weight="900">{{COMPLEMENT}}</tspan> &#183; <tspan font-weight="900">{{STAKE}}</tspan></text>
 </svg>
