@@ -197,7 +197,7 @@ async function fetchLiveMatches() {
   const json = await res.json();
   return (json.matches || []).map((m) => ({
     id: 'm_' + m.id, externalId: String(m.id),
-    home: m.homeTeam?.name || 'Home', away: m.awayTeam?.name || 'Away',
+    home: m.homeTeam?.shortName || m.homeTeam?.name || 'Home', away: m.awayTeam?.shortName || m.awayTeam?.name || 'Away',
     competition: m.competition?.name || '', utcDate: m.utcDate,
   }));
 }
@@ -265,15 +265,26 @@ const winnerId = (b) => (b.winner === 'proposer' ? b.proposerId : b.opponentId);
 const winnerDisplayName = (b) => (b.winner === 'proposer' ? b.proposerName : b.opponentName);
 const byRecent = (a, b) => new Date(b.resolvedAt || 0) - new Date(a.resolvedAt || 0);
 
+// nets are tracked per currency (mates can stake in £ and € across bets — summing
+// them naively is nonsense). netView collapses to a single displayable {net, currency}
+// when exactly one currency is involved, else {net: null} and the client shows the record.
+function addNet(nets, cur, delta) { const c = cur || 'EUR'; nets[c] = (nets[c] || 0) + delta; }
+function netView(nets) {
+  const keys = Object.keys(nets);
+  if (keys.length === 0) return { net: 0, currency: 'EUR' };
+  if (keys.length === 1) return { net: nets[keys[0]], currency: keys[0] };
+  return { net: null, currency: null };
+}
+
 function playerSummary(id) {
   const name = nameOf(id);
   const mine = decidedBets().filter((b) => involvesId(b, id)).sort(byRecent);
-  let w = 0, l = 0, net = 0;
+  let w = 0, l = 0; const nets = {};
   for (const b of mine) {
     if (winnerId(b) === id) w++; else l++;
     if (b.owes) {
-      if (b.owes.toId === id) net += b.owes.amount;
-      else if (b.owes.fromId === id) net -= b.owes.amount;
+      if (b.owes.toId === id) addNet(nets, b.owes.currency, b.owes.amount);
+      else if (b.owes.fromId === id) addNet(nets, b.owes.currency, -b.owes.amount);
     }
   }
   let streak = { type: null, count: 0 };
@@ -286,39 +297,43 @@ function playerSummary(id) {
   const byOpp = {};
   for (const b of mine) {
     const oid = otherId(b, id);
-    if (!byOpp[oid]) byOpp[oid] = { opponentId: oid, opponent: nameForId(b, oid), w: 0, l: 0, net: 0, games: 0 };
+    // label from the live player record (freshest), bet-denormalized name as fallback
+    if (!byOpp[oid]) byOpp[oid] = { opponentId: oid, opponent: nameOf(oid) || nameForId(b, oid), w: 0, l: 0, nets: {}, games: 0 };
     const r = byOpp[oid];
-    r.opponent = nameForId(b, oid); // keep the freshest label
     r.games++;
     if (winnerId(b) === id) r.w++; else r.l++;
     if (b.owes) {
-      if (b.owes.toId === id) r.net += b.owes.amount;
-      else if (b.owes.fromId === id) r.net -= b.owes.amount;
+      if (b.owes.toId === id) addNet(r.nets, b.owes.currency, b.owes.amount);
+      else if (b.owes.fromId === id) addNet(r.nets, b.owes.currency, -b.owes.amount);
     }
   }
   const rivalries = Object.values(byOpp)
-    .map((r) => ({ ...r, isRival: r.games >= 3 }))
+    .map((r) => { const nv = netView(r.nets); return { opponentId: r.opponentId, opponent: r.opponent, w: r.w, l: r.l, games: r.games, net: nv.net, currency: nv.currency, isRival: r.games >= 3 }; })
     .sort((a, b) => b.games - a.games);
   const recent = mine.slice(0, 8).map((b) => ({
     id: b.id, home: b.home, away: b.away, opponent: nameForId(b, otherId(b, id)),
     won: winnerId(b) === id, amount: b.owes ? b.owes.amount : b.stake,
     currency: b.currency, status: b.status,
   }));
-  return { id, name, w, l, net, currency: 'EUR', streak, rivalries, recent };
+  const nv = netView(nets);
+  return { id, name, w, l, net: nv.net, currency: nv.currency, streak, rivalries, recent };
 }
 
 function rivalry(idA, idB) {
   const both = decidedBets().filter((x) => involvesId(x, idA) && involvesId(x, idB)).sort(byRecent);
-  let aWins = 0, bWins = 0, aNet = 0, aName = nameOf(idA), bName = nameOf(idB);
+  let aWins = 0, bWins = 0; const aNets = {};
+  // live player names first; fall back to the newest bet's denormalized labels
+  const aName = nameOf(idA) || (both[0] ? nameForId(both[0], idA) : null);
+  const bName = nameOf(idB) || (both[0] ? nameForId(both[0], idB) : null);
   for (const x of both) {
-    aName = nameForId(x, idA); bName = nameForId(x, idB);
     if (winnerId(x) === idA) aWins++; else bWins++;
     if (x.owes) {
-      if (x.owes.toId === idA) aNet += x.owes.amount;
-      else if (x.owes.fromId === idA) aNet -= x.owes.amount;
+      if (x.owes.toId === idA) addNet(aNets, x.owes.currency, x.owes.amount);
+      else if (x.owes.fromId === idA) addNet(aNets, x.owes.currency, -x.owes.amount);
     }
   }
-  return { aId: idA, bId: idB, a: aName, b: bName, aWins, bWins, aNet, games: both.length, currency: 'EUR' };
+  const nv = netView(aNets);
+  return { aId: idA, bId: idB, a: aName, b: bName, aWins, bWins, aNet: nv.net, games: both.length, currency: nv.currency };
 }
 
 // Rivalry one-liner for a specific bet's two players (used on cards / OG meta).
@@ -338,17 +353,19 @@ function leagueStandings(league) {
   const ids = new Set(league.members.map((m) => m.id));
   const rel = decidedBets().filter((b) => ids.has(b.proposerId) && ids.has(b.opponentId));
   const tbl = {};
-  for (const m of league.members) tbl[m.id] = { id: m.id, name: m.name, w: 0, l: 0, net: 0, games: 0 };
+  for (const m of league.members) tbl[m.id] = { id: m.id, name: nameOf(m.id) || m.name, w: 0, l: 0, nets: {}, games: 0 };
   for (const b of rel) {
     const wk = winnerId(b), lk = otherId(b, wk);
-    if (tbl[wk]) { tbl[wk].w++; tbl[wk].games++; tbl[wk].name = nameForId(b, wk); }
-    if (tbl[lk]) { tbl[lk].l++; tbl[lk].games++; tbl[lk].name = nameForId(b, lk); }
+    if (tbl[wk]) { tbl[wk].w++; tbl[wk].games++; }
+    if (tbl[lk]) { tbl[lk].l++; tbl[lk].games++; }
     if (b.owes) {
-      if (tbl[b.owes.toId]) tbl[b.owes.toId].net += b.owes.amount;
-      if (tbl[b.owes.fromId]) tbl[b.owes.fromId].net -= b.owes.amount;
+      if (tbl[b.owes.toId]) addNet(tbl[b.owes.toId].nets, b.owes.currency, b.owes.amount);
+      if (tbl[b.owes.fromId]) addNet(tbl[b.owes.fromId].nets, b.owes.currency, -b.owes.amount);
     }
   }
-  const rows = Object.values(tbl).sort((a, b) => b.w - a.w || b.net - a.net || a.l - b.l || a.name.localeCompare(b.name));
+  const rows = Object.values(tbl)
+    .map((r) => { const nv = netView(r.nets); return { id: r.id, name: r.name, w: r.w, l: r.l, games: r.games, net: nv.net, currency: nv.currency }; })
+    .sort((a, b) => b.w - a.w || a.l - b.l || (b.net || 0) - (a.net || 0) || a.name.localeCompare(b.name));
   rows.forEach((r, i) => (r.rank = i + 1));
   return rows;
 }
@@ -381,6 +398,13 @@ function fmtDate(iso) {
 // ---------------------------------------------------------------------------
 // Share cards (SVG + PNG) and OG meta
 // ---------------------------------------------------------------------------
+// trim in Unicode code points, not UTF-16 units — a naive slice can split an emoji
+// surrogate pair and render '�' on the shared card
+const trimCp = (s, n) => { const cps = [...String(s)]; return cps.length > n ? cps.slice(0, n - 1).join('') + '…' : String(s); };
+// scale the hero line down so long names/teams never clip the card edge
+// (Anton ≈ 0.52em average advance width)
+const heroSize = (text, base, maxPx) => Math.min(base, Math.max(48, Math.floor(maxPx / (0.52 * Math.max(1, [...String(text)].length)))));
+
 function cardSvgForBet(bet) {
   const data = {
     PROPOSER: bet.proposerName, HOME: bet.home, AWAY: bet.away,
@@ -389,17 +413,33 @@ function cardSvgForBet(bet) {
     STAKE: sym(bet.currency) + bet.stake,
     BACKED: outcomeLabel(bet, bet.backedOutcome),
     COMPLEMENT: complementLabel(bet),
-    NOTE: bet.note ? (bet.note.length > 44 ? bet.note.slice(0, 43) + '…' : bet.note) : '',
+    NOTE: bet.note ? trimCp(bet.note, 44) : '',
   };
+  if (bet.status === 'void') {
+    return cards.voidSvg({ HOME: bet.home, AWAY: bet.away });
+  }
   if (bet.status === 'resolved' || bet.status === 'settled') {
     const winner = winnerDisplayName(bet);
     const loser = bet.winner === 'proposer' ? bet.opponentName : bet.proposerName;
     Object.assign(data, {
       RESULT: outcomeLabel(bet, bet.actualOutcome), WINNER: winner, LOSER: loser,
+      WINNER_SIZE: heroSize(winner, 132, 1060),
+      // a real note belongs to its author (the proposer); the synthetic
+      // "told you so." fallback belongs to the winner
+      NOTE_BY: (bet.note && bet.note.trim()) ? bet.proposerName : winner,
       OWES: `${bet.owes.from}  →  ${bet.owes.to}`, RIVALRY: rivalryLine(bet),
     });
     return cards.resultSvg(data);
   }
+  // open + accepted share the challenge chassis; the badge/CTA reflect the state
+  Object.assign(data, {
+    BACKED_SIZE: heroSize(data.BACKED, 122, 1060),
+    BADGE: bet.status === 'accepted' ? "BET'S ON" : 'OPEN BET',
+    CTA_MAIN: bet.status === 'accepted' ? 'LOCKED IN' : 'TAKE THE OTHER SIDE',
+    CTA_SUB: bet.status === 'accepted'
+      ? `${bet.proposerName} v ${bet.opponentName} · ${sym(bet.currency)}${bet.stake} on it`
+      : `you'd back ${complementLabel(bet)} · ${sym(bet.currency)}${bet.stake}`,
+  });
   return cards.challengeSvg(data);
 }
 
@@ -415,7 +455,7 @@ function storySvgForBet(bet) {
     badge = 'OPEN BET'; hero = outcomeLabel(bet, bet.backedOutcome);
     sub = bet.proposerName + ' is backing'; foot = 'Take the other side →';
   }
-  return cards.storySvg({ BADGE: badge, HERO: hero, SUB: sub, ACCENT: accent, HOME: bet.home, AWAY: bet.away, STAKE: sym(bet.currency) + bet.stake, FOOT: foot, ID: bet.id });
+  return cards.storySvg({ BADGE: badge, HERO: hero, HERO_SIZE: heroSize(hero, 120, 940), SUB: sub, ACCENT: accent, HOME: bet.home, AWAY: bet.away, STAKE: sym(bet.currency) + bet.stake, FOOT: foot, ID: bet.id });
 }
 
 function serveCard(req, res, url) {
@@ -452,6 +492,12 @@ function serveStoryCard(req, res, url) {
 const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function ogTextForBet(bet) {
+  if (bet.status === 'void') {
+    return {
+      title: `${bet.proposerName}'s bet was called off`,
+      desc: `This one didn't count. Start your own on Duely.`,
+    };
+  }
   if (bet.status === 'resolved' || bet.status === 'settled') {
     const winner = winnerDisplayName(bet);
     return {
@@ -674,6 +720,36 @@ async function handleApi(req, res, url) {
   // -------------------------------------------------------------------------
   // Login — attach a verified identity to an existing (or new) player
   // -------------------------------------------------------------------------
+
+  // Signing in to an EXISTING account from a device with an anonymous guest record must
+  // merge that record in — not silently orphan the guest's bets/rivalries/leagues.
+  function mergePlayer(from, into) {
+    for (const b of Object.values(db.bets)) {
+      if (!involvesId(b, from.id)) continue;
+      if (otherId(b, from.id) === into.id) {
+        // the guest bet against the very account they're claiming — a self-bet after
+        // merge, so it can't stand; void it rather than corrupt the ledger
+        if (b.status !== 'resolved' && b.status !== 'settled') { b.status = 'void'; b.voidedAt = new Date().toISOString(); delete b.pendingResult; delete b.disputed; }
+        continue;
+      }
+      if (b.proposerId === from.id) b.proposerId = into.id;
+      if (b.opponentId === from.id) b.opponentId = into.id;
+      if (b.owes) { if (b.owes.fromId === from.id) b.owes.fromId = into.id; if (b.owes.toId === from.id) b.owes.toId = into.id; }
+      if (b.pendingResult && b.pendingResult.byId === from.id) b.pendingResult.byId = into.id;
+      if (b.disputed && b.disputed.claims) b.disputed.claims.forEach((c) => { if (c.byId === from.id) c.byId = into.id; });
+      if (b.reactions) b.reactions.forEach((r) => { if (r.byId === from.id) r.byId = into.id; });
+    }
+    for (const l of Object.values(db.leagues)) {
+      const idx = l.members.findIndex((m) => m.id === from.id);
+      if (idx < 0) continue;
+      if (l.members.some((m) => m.id === into.id)) l.members.splice(idx, 1); // already a member — drop the dupe
+      else l.members[idx] = { id: into.id, name: into.name };
+      if (l.createdById === from.id) l.createdById = into.id;
+    }
+    if (_secretIndex) delete _secretIndex[from.secret];
+    delete db.players[from.id];
+  }
+
   if (req.method === 'POST' && parts[1] === 'auth' && parts[2] === 'google') {
     if (!GOOGLE_CLIENT_ID) return sendJson(res, 503, { error: 'Google sign-in is not configured.' });
     const b = await readBody(req);
@@ -684,6 +760,7 @@ async function handleApi(req, res, url) {
     if (p) {
       p.googleSub = info.sub; p.email = info.email; p.emailVerified = true;
       if (!p.name) p.name = info.name;
+      if (current && current.id !== p.id && !current.email && !current.googleSub) mergePlayer(current, p);
     } else if (current && !current.email && !current.googleSub) {
       p = current; p.googleSub = info.sub; p.email = info.email; p.emailVerified = true; // upgrade anon, keep record
     } else {
@@ -703,6 +780,8 @@ async function handleApi(req, res, url) {
       // existing account → log in (no length gate; a wrong guess is a wrong password, not a 400)
       if (!p.passHash) return sendJson(res, 409, { error: 'That email is linked to Google sign-in — use the Google button.' });
       if (!checkPw(pw, p.passHash)) return sendJson(res, 401, { error: 'Wrong password.' });
+      const current = authPlayer(req);
+      if (current && current.id !== p.id && !current.email && !current.googleSub) mergePlayer(current, p);
     } else {
       // new account → register (enforce a minimum password here)
       if (pw.length < 6) return sendJson(res, 400, { error: 'Pick a password with at least 6 characters.' });
@@ -791,6 +870,10 @@ async function handleApi(req, res, url) {
       const me = authPlayer(req); if (!me) return need401();
       if (bet.status !== 'open') return sendJson(res, 409, { error: 'Bet already taken' });
       if (me.id === bet.proposerId) return sendJson(res, 409, { error: "That's your own bet — send the link to a mate to take the other side." });
+      // no accepting after kickoff — otherwise a mate can wait for the result and only take winners
+      if (bet.utcDate && Date.now() > new Date(bet.utcDate).getTime()) {
+        return sendJson(res, 409, { error: 'Too late — this match has already kicked off. Start a fresh bet.' });
+      }
       bet.opponentId = me.id;
       bet.opponentName = me.name;
       bet.status = 'accepted';
@@ -803,7 +886,8 @@ async function handleApi(req, res, url) {
       const me = authPlayer(req); if (!me) return need401();
       if (me.id !== bet.proposerId && me.id !== bet.opponentId) return sendJson(res, 403, { error: 'Only a player in this bet can report the result.' });
       if (bet.status === 'open') return sendJson(res, 409, { error: 'Nobody has taken this bet yet' });
-      if (bet.status === 'resolved' || bet.status === 'settled') return sendJson(res, 409, { error: 'Already resolved' });
+      if (bet.status === 'void') return sendJson(res, 409, { error: 'This bet was voided — it no longer counts.' });
+      if (bet.status !== 'accepted') return sendJson(res, 409, { error: 'Already resolved' });
       const b = await readBody(req);
       // trusted auto-resolution when a results API is configured — no confirmation needed
       if (FOOTBALL_TOKEN && bet.externalId) {
@@ -837,10 +921,17 @@ async function handleApi(req, res, url) {
 
     if (req.method === 'POST' && action === 'confirm') {
       const me = authPlayer(req); if (!me) return need401();
-      if (bet.status === 'resolved' || bet.status === 'settled') return sendJson(res, 409, { error: 'Already resolved' });
+      if (bet.status === 'void') return sendJson(res, 409, { error: 'This bet was voided — it no longer counts.' });
+      if (bet.status !== 'accepted') return sendJson(res, 409, { error: 'Already resolved' });
       if (!bet.pendingResult || !OUTCOMES.includes(bet.pendingResult.outcome)) return sendJson(res, 409, { error: 'Nothing to confirm yet' });
       const counterpartyId = bet.pendingResult.byId === bet.proposerId ? bet.opponentId : bet.proposerId;
       if (me.id !== counterpartyId) return sendJson(res, 403, { error: 'Only the other player can confirm the result.' });
+      // the confirmer must ratify the outcome they SAW — if the report changed underneath
+      // them, force a re-render instead of silently resolving the swapped result
+      const b = await readBody(req);
+      if (b.outcome && b.outcome !== bet.pendingResult.outcome) {
+        return sendJson(res, 409, { error: 'The report changed — check the new result before confirming.' });
+      }
       resolveBet(bet, bet.pendingResult.outcome);
       delete bet.pendingResult;
       logEvent('bet_resolved', { id: bet.id });

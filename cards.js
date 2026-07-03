@@ -81,7 +81,7 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 <rect x="72" y="320" width="360" height="60" rx="30" fill="#161C26" stroke="{{ACCENT}}" stroke-width="2"/>
 <text x="252" y="360" class="inter" text-anchor="middle" font-size="26" font-weight="800" fill="{{ACCENT}}" letter-spacing="3">{{BADGE}}</text>
 <text x="72" y="580" class="inter" font-size="36" font-weight="700" fill="#93A1B3">{{SUB}}</text>
-<text x="72" y="720" class="anton" font-size="120" fill="{{ACCENT}}">{{HERO}}</text>
+<text x="72" y="720" class="anton" font-size="{{HERO_SIZE}}" fill="{{ACCENT}}">{{HERO}}</text>
 <rect x="72" y="840" width="936" height="104" rx="24" fill="#161C26" stroke="#2A3340" stroke-width="2"/>
 <text x="540" y="906" class="inter" text-anchor="middle" font-size="42" font-weight="800" fill="#F5F7FA">{{HOME}}  v  {{AWAY}}</text>
 <text x="72" y="1110" class="inter" font-size="28" font-weight="800" fill="#93A1B3" letter-spacing="2">THE STAKE</text>
@@ -93,10 +93,35 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 </svg>`;
 
 function challengeSvg(data) {
-  // Per design notes: never leave the trash-talk panel hollow.
-  const d = { ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'called it.' };
+  // Per design notes: never leave the trash-talk panel hollow. BADGE/CTA tokens
+  // default to the open-bet state when the caller doesn't provide them.
+  const d = {
+    BADGE: 'OPEN BET', CTA_MAIN: 'TAKE THE OTHER SIDE', CTA_SUB: '', BACKED_SIZE: 122,
+    ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'called it.',
+  };
   return fill(CHALLENGE_TPL, d);
 }
+
+// neutral "called off" card for voided bets — a cancelled bet must not keep
+// unfurling as an open challenge
+const VOID_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely bet called off">
+<defs>
+<style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}.inter{font-family:'Inter',system-ui,sans-serif;}</style>
+<linearGradient id="vBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10161F"/><stop offset="1" stop-color="#0A0E13"/></linearGradient>
+<linearGradient id="vDuel" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#14E0C8"/><stop offset=".5" stop-color="#14E0C8"/><stop offset=".5" stop-color="#7C3AED"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
+</defs>
+<rect width="1200" height="630" fill="#0A0E13"/><rect width="1200" height="630" fill="url(#vBg)"/>
+<rect x="0" y="0" width="1200" height="6" fill="#33414F"/>
+<g transform="translate(64,48)">
+<g transform="scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#vDuel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
+<text x="60" y="28" class="anton" font-size="30" fill="#F4F7FB" letter-spacing="1">DUELY</text>
+<text x="62" y="46" class="inter" font-size="12" font-weight="700" fill="#14E0C8" letter-spacing="2.5">BACK YOURSELF.</text>
+</g>
+<text x="60" y="330" class="anton" font-size="96" fill="#93A1B3">CALLED OFF</text>
+<text x="66" y="386" class="inter" font-size="26" font-weight="700" fill="#5E6B7C">{{HOME}} v {{AWAY}} &#183; this one didn't count</text>
+<text x="66" y="560" class="inter" font-size="20" font-weight="800" fill="#14E0C8">Start your own on duely.live &#8594;</text>
+</svg>`;
+function voidSvg(data) { return fill(VOID_TPL, data); }
 function resultSvg(data) {
   const d = { ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'told you so.' };
   return fill(RESULT_TPL, d);
@@ -116,4 +141,4 @@ function renderPng(svg) {
   } catch (e) { console.warn('card png render failed:', e.message); return null; }
 }
 
-module.exports = { challengeSvg, resultSvg, leagueSvg, storySvg, renderPng, hasRasterizer: Boolean(Resvg) };
+module.exports = { challengeSvg, resultSvg, leagueSvg, storySvg, voidSvg, renderPng, hasRasterizer: Boolean(Resvg) };

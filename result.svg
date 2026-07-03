@@ -23,7 +23,7 @@
 
 <!-- HERO: who won -->
 <text x="66" y="196" class="inter" font-size="22" font-weight="900" fill="#FFC83D" letter-spacing="7">CALLED IT</text>
-<text x="60" y="328" class="anton" font-size="132" fill="#FFC83D">{{WINNER}}</text>
+<text x="60" y="328" class="anton" font-size="{{WINNER_SIZE}}" fill="#FFC83D">{{WINNER}}</text>
 
 <!-- the RECORD — the thing you come back to settle (hero of the message) -->
 <text x="66" y="388" class="inter" font-size="29" font-weight="900" fill="#14E0C8">{{RIVALRY}}</text>
@@ -34,7 +34,7 @@
 <!-- the banter -->
 <text x="66" y="500" class="inter" font-size="15" font-weight="900" fill="#93A1B3" letter-spacing="3">THE SHOUT</text>
 <text x="66" y="552" class="inter" font-size="32" font-weight="800" font-style="italic" fill="#F4F7FB">&#8220;{{NOTE}}&#8221;</text>
-<text x="66" y="586" class="inter" font-size="16" font-weight="600" fill="#9AA7B8">&#8212; {{WINNER}}</text>
+<text x="66" y="586" class="inter" font-size="16" font-weight="600" fill="#9AA7B8">&#8212; {{NOTE_BY}}</text>
 
 <!-- stake: fine print, never the hero -->
 <text x="1136" y="586" text-anchor="end" class="inter" font-size="15" font-weight="700" fill="#5E6B7C">{{STAKE}} on it</text>

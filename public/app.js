@@ -11,13 +11,24 @@ const api = async (path, opts = {}) => {
   if (m && m.secret) headers['x-duely-secret'] = m.secret;
   const res = await fetch('/api' + path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  if (!res.ok) {
+    // a 401 while we HOLD a secret means the identity is dead server-side (store reset) —
+    // clear it so the user can re-onboard instead of being stuck "signed in" with every
+    // write failing. Auth endpoints excluded: their 401s are credential failures, not
+    // session death, and must not nuke a valid guest identity.
+    if (res.status === 401 && m && m.secret && !path.startsWith('/auth/')) { me.clear(); try { renderHeader(); } catch {} }
+    const err = new Error(data.error || 'Something went wrong');
+    err.status = res.status;
+    throw err;
+  }
   return data;
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sym = (c) => (c === 'EUR' ? '€' : c === 'GBP' ? '£' : c === 'USD' ? '$' : c + ' ');
 const money = (b) => `${sym(b.currency)}${b.stake}`;
 const signed = (n, c) => `${n >= 0 ? '+' : '−'}${sym(c)}${Math.abs(n)}`;
+// net is null when stakes span multiple currencies (summing £ and € is nonsense)
+const netTxt = (n, c) => (n == null ? '—' : signed(n, c || 'EUR'));
 const initials = (n) => String(n || '?').trim().slice(0, 2).toUpperCase();
 
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1900); }
@@ -33,9 +44,13 @@ function _sheetKey(e) {
   if (!scrim || !scrim.classList.contains('open')) return;
   if (e.key === 'Escape') { e.preventDefault(); closeSheet(); return; }
   if (e.key !== 'Tab') return;
-  const f = _sheetFocusables(document.getElementById('sheetPanel'));
+  const panel = document.getElementById('sheetPanel');
+  const f = _sheetFocusables(panel);
   if (!f.length) return;
   const first = f[0], last = f[f.length - 1];
+  // if focus escaped the sheet (e.g. the focused element was re-rendered away),
+  // clamp it back inside instead of letting Tab wander the background page
+  if (!panel.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); return; }
   if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
@@ -219,7 +234,9 @@ function confetti(intensity = 1) {
 }
 // odometer-style rolling digits (the Robinhood "premium tell")
 function countUp(el, to, prefix = '') {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = prefix + to; return; }
+  // static text for reduced-motion AND non-integer amounts (the odometer rounds —
+  // a €12.50 payout must not animate to "€13")
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !Number.isInteger(to)) { el.textContent = prefix + to; return; }
   el.innerHTML = '';
   const pre = document.createElement('span'); pre.textContent = prefix;
   const wrap = document.createElement('span'); wrap.className = 'odo';
@@ -313,10 +330,12 @@ function renderOnboarding(next) {
     if (!name) return toast('Pick a name');
     if (!$('#age').checked) return toast("Confirm you're 18+");
     const btn = $('#go'); btn.disabled = true; btn.textContent = 'Setting up…';
-    try { await register(name); renderHeader(); (next || renderHome)(); }
+    // go through the router (not the render fn directly) so setTab runs and the
+    // tab bar actually appears now that an identity exists
+    try { await register(name); renderHeader(); route(); }
     catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Let's go →"; }
   });
-  $('#signin').addEventListener('click', () => openLoginSheet(next || renderHome));
+  $('#signin').addEventListener('click', () => openLoginSheet());
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +405,7 @@ async function renderHome() {
       <div class="cardhead"><h2>Your season</h2><span class="flame ${onFire ? 'on' : ''}">${onFire ? '🔥 ' + s.streak.count + ' in a row' : ''}</span></div>
       <div class="stats">
         <div class="stat"><div class="n">${s.w}–${s.l}</div><div class="k">Record</div></div>
-        <div class="stat"><div class="n ${netClass}">${signed(s.net, s.currency)}</div><div class="k">Net</div></div>
+        <div class="stat"><div class="n ${netClass}">${netTxt(s.net, s.currency)}</div><div class="k">Net</div></div>
         <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
       </div>
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
@@ -410,7 +429,7 @@ async function renderHome() {
 
     ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
 
-    <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> this season — settle up with your mates and run it back.</div>`;
+    <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`;
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
@@ -462,7 +481,7 @@ async function renderProfile() {
       <div class="cardhead"><h2>${esc(m.name)}</h2><button class="linkbtn" id="rename">Edit name</button></div>
       <div class="stats">
         <div class="stat"><div class="n">${s.w}–${s.l}</div><div class="k">Record</div></div>
-        <div class="stat"><div class="n ${netClass}">${signed(s.net, s.currency)}</div><div class="k">Net</div></div>
+        <div class="stat"><div class="n ${netClass}">${netTxt(s.net, s.currency)}</div><div class="k">Net</div></div>
         <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
       </div>
     </div>
@@ -471,9 +490,9 @@ async function renderProfile() {
     <div class="card"><h2>Rivalries</h2>${s.rivalries.length
       ? s.rivalries.map((r) => `<div class="riv-row" data-rematch="${esc(r.opponent)}" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
       : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
-    <div class="banner">You're net <b style="color:var(--text)">${signed(s.net, s.currency)}</b> — settle up with your mates and run it back.</div>`;
+    <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b>'} — settle up with your mates and run it back.</div>`;
   $('#rename').addEventListener('click', () => openRenameSheet(m.name));
-  const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
+  const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); localStorage.removeItem('settle_roles'); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
   const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
   const hs = $('#hideStreaks'); if (hs) hs.addEventListener('change', () => { prefs.set('hideStreaks', hs.checked); renderProfile(); });
   app.querySelectorAll('[data-rematch]').forEach((b) => b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
@@ -566,7 +585,7 @@ async function renderLeague(code, full) {
       <div class="lg-rank">${r.rank}</div>
       <div class="lg-name">${esc(r.name)}${r.rank === 1 && r.games ? ' 👑' : ''}</div>
       <div class="lg-rec">${r.w}-${r.l}</div>
-      <div class="lg-net ${r.net > 0 ? 'pos' : r.net < 0 ? 'neg' : ''}">${signed(r.net, 'EUR')}</div>
+      <div class="lg-net ${r.net > 0 ? 'pos' : r.net < 0 ? 'neg' : ''}">${netTxt(r.net, r.currency)}</div>
     </div>`).join('');
   const waText = `Join our Duely league "${lg.name}" 🏆 — settle football bets, climb the table.`;
 
@@ -636,9 +655,14 @@ async function renderCreate() {
     const mm = matches.find((x) => x.id === sel.value);
     const home = mm ? mm.home : ($('#home')?.value || 'Home');
     const away = mm ? mm.away : ($('#away')?.value || 'Away');
-    $('#seg').innerHTML = [['HOME', `${home} win`], ['DRAW', 'Draw'], ['AWAY', `${away} win`]]
+    const seg = $('#seg');
+    // keyboard: the rebuild destroys the focused button — restore focus only when it
+    // was inside the seg group (never hijack focus from the team inputs while typing)
+    const hadFocus = seg.contains(document.activeElement) ? document.activeElement.dataset.o : null;
+    seg.innerHTML = [['HOME', `${home} win`], ['DRAW', 'Draw'], ['AWAY', `${away} win`]]
       .map(([code, lbl]) => `<button data-o="${code}" class="${state.backedOutcome === code ? 'active' : ''}">${esc(lbl)}</button>`).join('');
-    $('#seg').querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => { state.backedOutcome = btn.dataset.o; haptic(8); renderSeg(); }));
+    seg.querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => { state.backedOutcome = btn.dataset.o; haptic(8); renderSeg(); }));
+    if (hadFocus) seg.querySelector(`[data-o="${hadFocus}"]`)?.focus();
     updatePreview();
   };
   const onMatchChange = () => { $('#customWrap').style.display = sel.value === 'custom' ? 'block' : 'none'; renderSeg(); };
@@ -707,15 +731,16 @@ async function renderBet(id, opts = {}) {
       if (!r.games) return '';
       const lead = r.aWins > r.bWins ? 'lead' : r.aWins < r.bWins ? 'trail' : 'level';
       const verb = r.aWins > r.bWins ? 'You lead' : r.aWins < r.bWins ? 'You trail' : 'All level';
-      return `<div class="rivalry"><div><div class="vsline">${verb} ${esc(otherName)}</div><div class="sm" style="color:var(--muted);font-size:12px">net ${signed(r.aNet, r.currency)} this season</div></div><div class="score ${lead}">${r.aWins}–${r.bWins}</div></div>`;
+      return `<div class="rivalry"><div><div class="vsline">${verb} ${esc(otherName)}</div><div class="sm" style="color:var(--muted);font-size:12px">net ${netTxt(r.aNet, r.currency)} this season</div></div><div class="score ${lead}">${r.aWins}–${r.bWins}</div></div>`;
     } catch { return ''; }
   }
 
   // ---- OPEN ----
   if (bet.status === 'open') {
-    // the proposer sees the SHARE view — by identity, not just device-local role,
-    // so opening your own link on any device never dead-ends into the accept screen.
-    if (role === 'proposer' || (m && bet.proposerId === m.id)) {
+    // the proposer sees the SHARE view — identity is authoritative when signed in;
+    // the device-local role is only a hint for the signed-out case (a stale role from
+    // a previous user on a shared device must never trump the current identity).
+    if ((m && bet.proposerId === m.id) || (!m && role === 'proposer')) {
       app.innerHTML = `
         <div class="card">
           <div class="cardhead"><h2>Send it to your mate 📲</h2>${pill}</div>
@@ -728,7 +753,7 @@ async function renderBet(id, opts = {}) {
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
         <div class="banner">Waiting for your mate to take the bet…</div>`;
-      const waText = `${m ? m.name : 'I'} reckon ${outcomeLabel(bet, bet.backedOutcome)} —${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`;
+      const waText = `${m ? m.name + ' reckons' : 'I reckon'} ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`;
       $('#waBtn').addEventListener('click', () => { track('share', { kind: 'whatsapp' }); window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'); });
       $('#shareBtn').addEventListener('click', () => shareWithCard('/card/' + id + '.png', waText, link, 'challenge'));
       $('#cancelBet').addEventListener('click', (e) => {
@@ -770,9 +795,17 @@ async function renderBet(id, opts = {}) {
       const btn = $('#acceptBtn'); btn.disabled = true; $('.card').classList.add('locking'); haptic(22);
       try {
         let mm = me.get();
-        if (!mm) mm = await register(opponentName);
-        else if (norm(mm.name) !== norm(opponentName)) mm = await rename(opponentName);
-        await api('/bets/' + id + '/accept', { method: 'POST' });
+        try {
+          if (!mm) mm = await register(opponentName);
+          else if (norm(mm.name) !== norm(opponentName)) mm = await rename(opponentName);
+          await api('/bets/' + id + '/accept', { method: 'POST' });
+        } catch (e) {
+          // dead local identity (server store reset) → api() already cleared it; mint a
+          // fresh player with the typed name and retry once instead of dead-ending
+          if (e.status !== 401) throw e;
+          mm = await register(opponentName);
+          await api('/bets/' + id + '/accept', { method: 'POST' });
+        }
         track('bet_accepted');
         renderHeader();
         roleStore.set(id, 'opponent');
@@ -802,6 +835,16 @@ async function renderBet(id, opts = {}) {
     const pend = bet.pendingResult;
     const other = otherSide(bet, m);
     const kickoffFuture = bet.utcDate && new Date(bet.utcDate).getTime() > Date.now();
+    const isParticipant = m && (bet.proposerId === m.id || bet.opponentId === m.id);
+    // spectators (a third mate opening the link) get a passive status, never
+    // report/confirm controls that would just 403
+    if (!isParticipant) {
+      zone.innerHTML = pend
+        ? `<div class="banner">${esc(pend.by || 'One player')} says it finished: <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b> — waiting on the other to confirm.</div>`
+        : `<div class="banner">⏳ Waiting on ${esc(bet.proposerName)} and ${esc(bet.opponentName)} to settle this one.</div>`;
+      wireReactions(id);
+      return;
+    }
     const showReportSeg = () => {
       zone.innerHTML = `
         <label>Report the final result</label>
@@ -835,7 +878,7 @@ async function renderBet(id, opts = {}) {
         <div class="banner" style="margin-bottom:10px">${esc(pend.by || 'Your mate')} says it finished: <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b></div>
         <button class="cta gold" id="confirmBtn">Confirm result ✓</button>
         <button class="ghost" id="disputeBtn">That's not right →</button>`;
-      $('#confirmBtn').addEventListener('click', () => doConfirm(id));
+      $('#confirmBtn').addEventListener('click', () => doConfirm(id, pend.outcome));
       $('#disputeBtn').addEventListener('click', showReportSeg);
     } else if (kickoffFuture) {
       zone.innerHTML = `<div class="banner">🔒 Locked in — kicks off ${esc(new Date(bet.utcDate).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}. Come back after full time to settle.</div>`;
@@ -961,11 +1004,12 @@ async function rematchConfirm(other, lastBet) {
 
 async function doResolve(id, actualOutcome) {
   try { await api('/bets/' + id + '/resolve', { method: 'POST', body: JSON.stringify({ actualOutcome }) }); renderBet(id); }
-  catch (e) { toast(e.message); }
+  catch (e) { toast(e.message); if (e.status === 409) renderBet(id); } // stale screen (e.g. voided underneath) → self-heal
 }
-async function doConfirm(id) {
-  try { await api('/bets/' + id + '/confirm', { method: 'POST' }); track('bet_resolved'); renderBet(id); }
-  catch (e) { toast(e.message); }
+async function doConfirm(id, outcome) {
+  // send the outcome the confirmer SAW — the server 409s if the report changed underneath
+  try { await api('/bets/' + id + '/confirm', { method: 'POST', body: JSON.stringify({ outcome }) }); track('bet_resolved'); renderBet(id); }
+  catch (e) { toast(e.message); if (e.status === 409) renderBet(id); } // re-render so the changed report actually surfaces
 }
 async function doVoid(id) {
   try { await api('/bets/' + id + '/void', { method: 'POST' }); toast('Bet voided'); history.pushState({}, '', '/'); route(); }

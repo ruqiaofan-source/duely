@@ -21,11 +21,11 @@
 <text x="60" y="28" class="anton" font-size="30" fill="#F4F7FB" letter-spacing="1">DUELY</text>
 <text x="62" y="46" class="inter" font-size="12" font-weight="700" fill="#14E0C8" letter-spacing="2.5">BACK YOURSELF.</text>
 </g>
-<g class="inter"><rect x="1006" y="52" width="130" height="40" rx="20" fill="#06231F" stroke="#14E0C8" stroke-width="1.5"/><text x="1071" y="78" text-anchor="middle" font-size="15" font-weight="800" fill="#14E0C8" letter-spacing="2">OPEN BET</text></g>
+<g class="inter"><rect x="1006" y="52" width="130" height="40" rx="20" fill="#06231F" stroke="#14E0C8" stroke-width="1.5"/><text x="1071" y="78" text-anchor="middle" font-size="15" font-weight="800" fill="#14E0C8" letter-spacing="2">{{BADGE}}</text></g>
 
 <!-- HERO: the pick -->
 <text x="66" y="184" class="inter" font-size="22" font-weight="900" fill="#14E0C8" letter-spacing="6">{{PROPOSER}} IS BACKING</text>
-<text x="60" y="310" class="anton" font-size="122" fill="#14E0C8">{{BACKED}}</text>
+<text x="60" y="310" class="anton" font-size="{{BACKED_SIZE}}" fill="#14E0C8">{{BACKED}}</text>
 <text x="66" y="360" class="inter" font-size="27" font-weight="700" fill="#9AA7B8">{{HOME}}  v  {{AWAY}}</text>
 
 <rect x="64" y="400" width="1072" height="1.5" fill="#2A3340"/>
@@ -35,9 +35,8 @@
 <text x="66" y="500" class="inter" font-size="34" font-weight="800" font-style="italic" fill="#F4F7FB">&#8220;{{NOTE}}&#8221;</text>
 <text x="66" y="534" class="inter" font-size="16" font-weight="600" fill="#9AA7B8">&#8212; {{PROPOSER}}</text>
 
-<!-- the hook -->
+<!-- the hook (tokens: CTA_MAIN/CTA_SUB flex between open and accepted states) -->
 <rect x="64" y="556" width="1072" height="54" rx="14" fill="url(#cTeal)"/>
-<text x="100" y="590" class="inter" font-size="21" font-weight="900" fill="#06231F">TAKE THE OTHER SIDE</text>
-<path d="M392 583 h24 m-10 -8 l10 8 -10 8" fill="none" stroke="#06231F" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="1100" y="589" text-anchor="end" class="inter" font-size="17" font-weight="700" fill="#06231F">you'd back <tspan font-weight="900">{{COMPLEMENT}}</tspan> &#183; <tspan font-weight="900">{{STAKE}}</tspan></text>
+<text x="100" y="590" class="inter" font-size="21" font-weight="900" fill="#06231F">{{CTA_MAIN}}</text>
+<text x="1100" y="589" text-anchor="end" class="inter" font-size="17" font-weight="700" fill="#06231F">{{CTA_SUB}}</text>
 </svg>
