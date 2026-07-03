@@ -25,7 +25,8 @@ const api = async (path, opts = {}) => {
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sym = (c) => (c === 'EUR' ? '€' : c === 'GBP' ? '£' : c === 'USD' ? '$' : c + ' ');
-const money = (b) => `${sym(b.currency)}${b.stake}`;
+// what's on the line: forfeit text if set, else the money stake, else bragging rights
+const money = (b) => (b.line && b.line.trim()) ? b.line : (b.stake > 0 ? `${sym(b.currency)}${b.stake}` : 'bragging rights');
 const signed = (n, c) => `${n >= 0 ? '+' : '−'}${sym(c)}${Math.abs(n)}`;
 // net is null when stakes span multiple currencies (summing £ and € is nonsense)
 const netTxt = (n, c) => (n == null ? '—' : signed(n, c || 'EUR'));
@@ -88,6 +89,8 @@ function setTab(name) {
 function statusLabel(b) {
   if (b.status === 'open') return 'open';
   if (b.status === 'accepted') return b.pending ? 'confirm' : 'live';
+  if (b.status === 'void') return 'void';
+  if (!(b.stake > 0)) return b.won ? 'W' : 'L'; // forfeit bets settle in bragging rights
   return (b.won ? '+' : '−') + sym(b.currency) + b.stake;
 }
 
@@ -313,8 +316,8 @@ async function route() {
 function renderOnboarding(next) {
   app.innerHTML = `
     <div class="card">
-      <h2>Back yourself 🤝</h2>
-      <p class="sub">Duely turns a football argument into a bet you settle with a mate — and a rivalry you'll want to win. We just keep score.</p>
+      <h2>Think you know ball? Prove it. ⚽</h2>
+      <p class="sub">Call the match, your mate takes the other side, and the winner goes on the record. Duely keeps the score — the rivalry does the rest.</p>
       <label>What should mates call you?</label>
       <input id="name" placeholder="e.g. Alex" maxlength="40" />
       <div class="checkrow">
@@ -449,16 +452,19 @@ async function renderDuels() {
   try { d = await api('/players/me/bets'); } catch {}
   const row = (b) => `
     <div class="recent" data-bet="${b.id}" role="button" tabindex="0" style="cursor:pointer">
-      <span>${esc(b.home)} v ${esc(b.away)}${b.opponent ? ' · <span style="color:var(--muted)">' + esc(b.opponent) + '</span>' : ''}</span>
+      <span>${b.yourMove ? '<span class="pill accepted" style="margin-right:6px">your move</span>' : ''}${esc(b.home)} v ${esc(b.away)}${b.opponent ? ' · <span style="color:var(--muted)">' + esc(b.opponent) + '</span>' : ''}</span>
       <span class="res ${b.won === true ? 'w' : b.won === false ? 'l' : ''}">${statusLabel(b)}</span>
     </div>`;
+  // whatever needs YOUR action surfaces first — the open loop you came back to close
+  const active = [...d.active].sort((a, b) => (b.yourMove === true) - (a.yourMove === true));
   app.innerHTML = `
     <div class="card">
       <div class="cardhead"><h2>Active duels ⚔️</h2><button class="linkbtn" id="newBet">+ New</button></div>
-      ${d.active.length ? d.active.map(row).join('') : '<p class="sub" style="margin:8px 0 0">No live duels. Challenge a mate.</p>'}
+      ${active.length ? active.map(row).join('') : `<p class="sub" style="margin:8px 0 12px">No live duels.</p><button class="cta commit" id="emptyNewBet">⚔️ Challenge a mate</button>`}
     </div>
     ${d.history.length ? `<div class="card"><h2>Settled</h2>${d.history.map(row).join('')}</div>` : ''}`;
   $('#newBet').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  const enb = $('#emptyNewBet'); if (enb) enb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
   app.querySelectorAll('[data-bet]').forEach((el) => el.addEventListener('click', () => { history.pushState({}, '', '/b/' + el.dataset.bet); renderBet(el.dataset.bet); }));
 }
 
@@ -546,11 +552,14 @@ async function renderLeague(code, full) {
   const link = location.origin + '/l/' + code;
 
   if (!isMember) {
+    // social proof before the join wall: who invited you + the live top of the table
+    const preview = (lg.standings || []).slice(0, 3).map((r) => `
+      <div class="lg-row"><div class="lg-rank">${r.rank}</div><div class="lg-name">${esc(r.name)}${r.rank === 1 && r.games ? ' 👑' : ''}</div><div class="lg-rec">${r.w}-${r.l}</div><div class="lg-net"></div></div>`).join('');
     app.innerHTML = `
       <div class="card">
         <div class="cardhead"><h2>Join ${esc(lg.name)} 🏆</h2></div>
-        <p class="sub">${lg.members.length} mate${lg.members.length === 1 ? '' : 's'} settling football bets in one league. Climb the table.</p>
-        <img class="cardimg" src="/lcard/${code}.svg" alt="League invite" />
+        <p class="sub">${lg.createdBy ? `Started by <b style="color:var(--text)">${esc(lg.createdBy)}</b> · ` : ''}${lg.members.length} mate${lg.members.length === 1 ? '' : 's'} settling football calls in one league. Climb the table.</p>
+        ${preview ? `<div class="lg-head"><div class="lg-rank">#</div><div class="lg-name">Player</div><div class="lg-rec">W-L</div><div class="lg-net"></div></div>${preview}` : `<img class="cardimg" src="/lcard/${code}.svg" alt="League invite" />`}
         <button class="cta" id="joinBtn">Join the league 🤝</button>
         <button class="muted-link" onclick="location.href='/'">Not now</button>
       </div>`;
@@ -630,8 +639,15 @@ async function renderCreate() {
       <div id="customWrap" style="display:none"><div class="row"><div><label>Home team</label><input id="home" placeholder="Spain" maxlength="40" /></div><div><label>Away team</label><input id="away" placeholder="Uruguay" maxlength="40" /></div></div></div>
       <label>What are you backing?</label>
       <div class="seg" id="seg"></div>
-      <div class="row"><div><label>Stake</label><input id="stake" type="number" inputmode="decimal" min="0" step="1" value="${copy?.stake || 20}" /></div><div><label>Currency</label><select id="currency"><option>EUR</option><option>GBP</option><option>USD</option></select></div></div>
-      <label>Trash talk (optional)</label>
+      <label for="lineInput">What's on the line?</label>
+      <input id="lineInput" maxlength="60" placeholder="e.g. loser buys the pints" value="${copy?.line ? esc(copy.line) : (copy?.stake ? esc(sym(copy.currency || 'EUR') + copy.stake) : '')}" />
+      <div class="reacts" style="margin-top:8px">
+        <button type="button" class="react-chip" data-line="Loser buys the pints 🍺">🍺 pints</button>
+        <button type="button" class="react-chip" data-line="Loser wears the winner's shirt 👕">👕 the shirt</button>
+        <button type="button" class="react-chip" data-line="Winner picks the forfeit 😈">😈 forfeit</button>
+        <button type="button" class="react-chip" data-line="€10">€10</button>
+      </div>
+      <label for="note">Trash talk (optional)</label>
       <input id="note" placeholder="No chance they keep it close 😏" maxlength="140" value="${copy?.note ? esc(copy.note) : ''}" />
       <div class="banner" style="margin-top:14px;text-align:left"><span id="previewLine">…</span></div>
       <div class="banner" style="margin-top:8px">${live ? '🟢 Live fixtures' : '🟡 Demo fixtures'}</div>
@@ -642,14 +658,27 @@ async function renderCreate() {
   const sel = $('#matchSel');
   sel.innerHTML = matches.map((mm) => `<option value="${mm.id}">${esc(mm.home)} vs ${esc(mm.away)}${mm.competition ? ' · ' + esc(mm.competition) : ''}</option>`).join('') + '<option value="custom">+ Custom match…</option>';
 
+  // "€10" / "10 gbp" / "£5" reads as a money stake; anything else is a forfeit line
+  const parseLine = (raw) => {
+    const t = String(raw || '').trim();
+    const mny = t.match(/^([€£$]?)\s*(\d+(?:[.,]\d{1,2})?)\s*(eur|gbp|usd|euro?s?|quid|pounds?|dollars?)?$/i);
+    if (mny) {
+      const symCur = { '€': 'EUR', '£': 'GBP', '$': 'USD' }[mny[1]] || null;
+      const wordCur = mny[3] ? ({ e: 'EUR', q: 'GBP', p: 'GBP', g: 'GBP', u: 'USD', d: 'USD' }[mny[3][0].toLowerCase()] || 'EUR') : null;
+      return { stake: Number(mny[2].replace(',', '.')), currency: symCur || wordCur || 'EUR', line: '' };
+    }
+    return { stake: 0, currency: 'EUR', line: t };
+  };
   const updatePreview = () => {
     const mm = matches.find((x) => x.id === sel.value);
     const home = mm ? mm.home : ($('#home')?.value || 'Home');
     const away = mm ? mm.away : ($('#away')?.value || 'Away');
     const backedLbl = state.backedOutcome === 'HOME' ? home + ' win' : state.backedOutcome === 'AWAY' ? away + ' win' : 'Draw';
     const compl = state.backedOutcome === 'DRAW' ? 'not a draw' : state.backedOutcome === 'HOME' ? home + " don't win" : away + " don't win";
+    const p = parseLine($('#lineInput')?.value);
+    const lineLbl = p.line || (p.stake > 0 ? sym(p.currency) + p.stake : 'bragging rights');
     const el = $('#previewLine');
-    if (el) el.innerHTML = `You back <b style="color:var(--text)">${esc(backedLbl)}</b> for <b style="color:var(--green)">${sym($('#currency').value)}${esc($('#stake').value || '0')}</b> — they take <b style="color:var(--text)">${esc(compl)}</b>`;
+    if (el) el.innerHTML = `You back <b style="color:var(--text)">${esc(backedLbl)}</b> — <b style="color:var(--green)">${esc(lineLbl)}</b> on the line — they take <b style="color:var(--text)">${esc(compl)}</b>`;
   };
   const renderSeg = () => {
     const mm = matches.find((x) => x.id === sel.value);
@@ -669,10 +698,12 @@ async function renderCreate() {
   sel.addEventListener('change', onMatchChange);
   $('#home').addEventListener('input', renderSeg);
   $('#away').addEventListener('input', renderSeg);
-  ['input', 'change'].forEach((ev) => { $('#stake').addEventListener(ev, updatePreview); $('#currency').addEventListener(ev, updatePreview); });
+  $('#lineInput').addEventListener('input', updatePreview);
+  document.querySelectorAll('#sheetPanel [data-line]').forEach((chip) =>
+    chip.addEventListener('click', () => { $('#lineInput').value = chip.dataset.line; haptic(8); updatePreview(); }));
   $('#sheetClose').addEventListener('click', closeSheet);
 
-  if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; if (copy.currency) $('#currency').value = copy.currency; }
+  if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; }
   onMatchChange();
 
   $('#createBtn').addEventListener('click', async () => {
@@ -680,17 +711,17 @@ async function renderCreate() {
     const home = mm ? mm.home : $('#home').value.trim();
     const away = mm ? mm.away : $('#away').value.trim();
     if (!home || !away) return toast('Add both teams');
-    const stake = Number($('#stake').value);
-    if (!(stake > 0)) return toast('Add a stake');
+    const p = parseLine($('#lineInput').value);
+    if (!p.line && !(p.stake > 0)) return toast("Put something on the line — a forfeit or a number");
     const btn = $('#createBtn'); btn.disabled = true; btn.textContent = 'Locking in…'; haptic(22);
     try {
       const bet = await api('/bets', { method: 'POST', body: JSON.stringify({
         home, away, competition: mm ? mm.competition : (copy?.competition || ''),
         utcDate: mm ? mm.utcDate : null, externalId: mm ? mm.externalId || null : null,
-        backedOutcome: state.backedOutcome, stake, currency: $('#currency').value, note: $('#note').value.trim(), rematch: Boolean(rematchOf || copy),
+        backedOutcome: state.backedOutcome, stake: p.stake, currency: p.currency, line: p.line, note: $('#note').value.trim(), rematch: Boolean(rematchOf || copy),
       }) });
       roleStore.set(bet.id, 'proposer'); PREFILL = null;
-      track('bet_created', { stake });
+      track('bet_created', { stake: p.stake, forfeit: Boolean(p.line) });
       closeSheet();
       history.pushState({}, '', '/b/' + bet.id); renderBet(bet.id);
     } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Lock it in & get link →'; }
@@ -883,8 +914,16 @@ async function renderBet(id, opts = {}) {
     } else if (kickoffFuture) {
       zone.innerHTML = `<div class="banner">🔒 Locked in — kicks off ${esc(new Date(bet.utcDate).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}. Come back after full time to settle.</div>`;
     } else if (CONFIG.live && bet.externalId) {
-      zone.innerHTML = `<button class="cta" id="autoBtn">Check final result</button><div class="banner">Auto-resolves from the live feed once the match is finished.</div><button class="muted-link" id="manualBtn">Match over but the feed's not updating? Report it manually</button>`;
-      $('#autoBtn').addEventListener('click', () => doResolve(id, null));
+      zone.innerHTML = `<button class="cta" id="autoBtn">Check final result</button><div class="banner" id="autoState">Auto-resolves from the live feed once the match is finished.</div><button class="muted-link" id="manualBtn">Match over but the feed's not updating? Report it manually</button>`;
+      $('#autoBtn').addEventListener('click', async () => {
+        const btn = $('#autoBtn'); btn.disabled = true; btn.textContent = 'Checking…';
+        try { await api('/bets/' + id + '/resolve', { method: 'POST', body: JSON.stringify({}) }); renderBet(id); }
+        catch (e) {
+          // not finished yet → a persistent inline state, not a vanishing toast
+          const st = $('#autoState'); if (st) st.innerHTML = `⏱️ Not full time yet — we'll settle it from the feed after the whistle. Check back later.`;
+          btn.disabled = false; btn.textContent = 'Check final result';
+        }
+      });
       $('#manualBtn').addEventListener('click', showReportSeg);
     } else {
       showReportSeg();
@@ -909,7 +948,9 @@ async function renderBet(id, opts = {}) {
         <div class="owes reveal delay1">
           <div class="lbl">${bet.status === 'settled' ? 'Sorted' : 'Sort it'} 👇</div>
           <div class="big">${esc(bet.owes.from)} → ${esc(bet.owes.to)}</div>
-          <div class="amt" id="amt">${sym(bet.currency)}0</div>
+          ${bet.stake > 0
+            ? `<div class="amt" id="amt">${sym(bet.currency)}0</div>`
+            : `<div class="amt" style="font-size:22px">${esc(money(bet))}</div>`}
         </div>
         <div class="side win reveal delay2"><div><div class="who">🏆 ${esc(winnerNm)}</div><div class="pick">called it: ${esc(winPick)}</div></div></div>
         ${rb ? `<div class="reveal delay3">${rb}</div>` : ''}
@@ -923,25 +964,35 @@ async function renderBet(id, opts = {}) {
             <button class="ghost" id="storyBtn">Story image 📲</button>
             <button class="ghost" id="copyBet">Run it back 🔁</button>
           </div>
-          ${bet.status === 'resolved' ? `<button class="cta gold" id="settleBtn" style="margin-top:10px">Mark it sorted ✓</button>` : `<div class="banner" style="margin-top:14px">✓ Sorted${bet.settledAt ? ' · ' + new Date(bet.settledAt).toLocaleDateString() : ''}</div>`}
+          ${bet.status === 'resolved' ? `<button class="cta gold" id="settleBtn" style="margin-top:10px">Mark it sorted ✓</button>` : `<div class="banner" style="margin-top:14px">✓ Sorted${bet.settledByName ? ' by ' + esc(bet.settledByName) : ''}${bet.settledAt ? ' · ' + new Date(bet.settledAt).toLocaleDateString() : ''} · <button class="linkbtn" id="unsettleBtn" style="font-size:12px">undo</button></div>`}
           ${other && iWon ? `<button class="cta commit" id="rematchBtn" style="margin-top:10px">Rematch ${esc(other)} ⚔️</button>` : ''}
           ${iWon ? `<button class="muted-link" id="proLink" style="color:var(--gold);margin-top:10px">⭐ Make this rivalry official — Group Pro</button>` : ''}
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
       </div>`;
-    const shareText = `Called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? 'Your move, ' + other + ' 👀 ' : ''}Settle the score on Duely 👇`;
+    // score-led taunt when the record exists — the sender's own message is the nudge
+    let shareText = `Called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? 'Your move, ' + other + ' 👀 ' : ''}Settle the score on Duely 👇`;
+    if (iWon && other) {
+      try {
+        const rr = await api('/players/me/rivalry?with=' + encodeURIComponent(otherSideId(bet, m)));
+        if (rr.games > 1) shareText = `That's ${rr.aWins}–${rr.bWins} to me, ${other} 😏 Rematch? 👇`;
+      } catch {}
+    }
     const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => shareWithCard('/card/' + id + '.png', shareText, link, 'result'));
     const rl = $('#rematchLoss'); if (rl) rl.addEventListener('click', () => rematchConfirm(other, bet));
     const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => shareStory(id));
-    const cb = $('#copyBet'); if (cb) cb.addEventListener('click', () => { PREFILL = { copy: { home: bet.home, away: bet.away, competition: bet.competition, backedOutcome: bet.backedOutcome, stake: bet.stake, currency: bet.currency, note: bet.note } }; renderCreate(); });
+    const cb = $('#copyBet'); if (cb) cb.addEventListener('click', () => { PREFILL = { copy: { home: bet.home, away: bet.away, competition: bet.competition, backedOutcome: bet.backedOutcome, stake: bet.stake, currency: bet.currency, line: bet.line, note: bet.note } }; renderCreate(); });
     wireReactions(id);
 
     // animate the payout count-up, confetti only if *I* won
     setTimeout(() => { const el = $('#amt'); if (el) countUp(el, bet.owes.amount, sym(bet.currency)); }, 420);
-    if (iWon) { setTimeout(() => confetti(Math.max(1, Math.min(3, bet.stake / 20))), 520); haptic([14, 50, 22]); }
+    if (iWon) { setTimeout(() => confetti(Math.max(1, Math.min(3, (bet.stake || 20) / 20))), 520); haptic([14, 50, 22]); }
 
     if (bet.status === 'resolved') $('#settleBtn').addEventListener('click', async () => {
       try { await api('/bets/' + id + '/settle', { method: 'POST' }); toast('Nice — sorted'); renderBet(id); } catch (e) { toast(e.message); }
+    });
+    const ub = $('#unsettleBtn'); if (ub) ub.addEventListener('click', async () => {
+      try { await api('/bets/' + id + '/unsettle', { method: 'POST' }); renderBet(id); } catch (e) { toast(e.message); }
     });
     const rbtn = $('#rematchBtn'); if (rbtn) rbtn.addEventListener('click', () => rematchConfirm(other, bet));
     const pl = $('#proLink'); if (pl) pl.addEventListener('click', () => openProSheet('result'));
@@ -1070,7 +1121,7 @@ function openProSheet(ctx) {
       <p class="sub" style="margin:2px 0 12px">Make the rivalry official — one mate unlocks it for the whole group.</p>
       <div class="side"><div><div class="who">Season stats &amp; deep history</div><div class="pick">every duel, every streak, all-time records</div></div></div>
       <div class="side"><div><div class="who">Kits</div><div class="pick">skins for your rivalry &amp; share cards</div></div></div>
-      <div class="side"><div><div class="who">One payer, whole group</div><div class="pick">€4.99/mo unlocks it for everyone in the league</div></div></div>
+      <div class="side"><div><div class="who">Season Pass — one payer, whole group</div><div class="pick">€14.99 for the season unlocks it for everyone in the league</div></div></div>
       <p class="sub" style="margin:14px 0 0">Not live yet — tap below and you'll be first to know when it opens.</p>
     </div>
     <div class="sheet-foot"><button class="cta gold" id="proNotify">Notify me when it's ready</button></div>`);
@@ -1111,14 +1162,16 @@ route();
   }
   const spot = document.querySelector('.amb-spot');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (spot && !reduce) {
-    let lastPointer = -9999;
+  // the cursor spotlight is a fine-pointer effect — phones skip the whole system
+  // (no 60fps rAF loop burning battery for an effect touch can't see)
+  if (spot && !reduce && matchMedia('(pointer: fine)').matches) {
+    let lastPointer = -9999, rafId = null;
     window.addEventListener('pointermove', (e) => {
       lastPointer = performance.now();
       spot.style.setProperty('--mx', (e.clientX / innerWidth * 100).toFixed(1) + '%');
       spot.style.setProperty('--my', (e.clientY / innerHeight * 100).toFixed(1) + '%');
     }, { passive: true });
-    // on phones (no pointer) and when the cursor is idle, the floodlight drifts on its own
+    // when the cursor is idle, the floodlight drifts on its own — paused on hidden tabs
     const drift = (t) => {
       if (performance.now() - lastPointer > 1400) {
         const s = t / 1000;
@@ -1127,8 +1180,12 @@ route();
         spot.style.setProperty('--mx', mx.toFixed(1) + '%');
         spot.style.setProperty('--my', my.toFixed(1) + '%');
       }
-      requestAnimationFrame(drift);
+      rafId = requestAnimationFrame(drift);
     };
-    requestAnimationFrame(drift);
+    rafId = requestAnimationFrame(drift);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { if (rafId) cancelAnimationFrame(rafId); rafId = null; }
+      else if (!rafId) rafId = requestAnimationFrame(drift);
+    });
   }
 })();

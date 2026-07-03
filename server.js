@@ -212,12 +212,16 @@ async function fetchLiveResult(externalId) {
   return w === 'HOME_TEAM' ? 'HOME' : w === 'AWAY_TEAM' ? 'AWAY' : w === 'DRAW' ? 'DRAW' : null;
 }
 let _matchCache = { t: 0, data: null };
+// tournament fixtures (World Cup / Euros knockouts) pin to the top of the picker —
+// they're the highest-intent bets of the calendar; within each group, soonest first
+const isTournament = (m) => /world cup|fifa|euro/i.test(m.competition || '');
+const pinTournament = (list) => [...list].sort((a, b) => (isTournament(b) - isTournament(a)) || (new Date(a.utcDate || 0) - new Date(b.utcDate || 0)));
 async function getMatches() {
   if (FOOTBALL_TOKEN) {
     if (_matchCache.data && Date.now() - _matchCache.t < 300000) return _matchCache.data; // 5-min cache to respect the 10/min upstream limit
     try {
       const live = await fetchLiveMatches();
-      if (live.length) { _matchCache = { t: Date.now(), data: live }; return live; }
+      if (live.length) { _matchCache = { t: Date.now(), data: pinTournament(live) }; return _matchCache.data; }
     } catch (e) { console.warn('live fetch failed, using demo:', e.message); }
   }
   return demoMatches();
@@ -374,6 +378,7 @@ function leagueStandings(league) {
 function leagueView(league) {
   return {
     code: league.code, name: league.name,
+    createdBy: nameOf(league.createdById) || null, // social proof on the join view
     members: league.members.map((m) => ({ id: m.id, name: nameOf(m.id) || m.name })),
     standings: leagueStandings(league),
   };
@@ -404,13 +409,16 @@ const trimCp = (s, n) => { const cps = [...String(s)]; return cps.length > n ? c
 // scale the hero line down so long names/teams never clip the card edge
 // (Anton ≈ 0.52em average advance width)
 const heroSize = (text, base, maxPx) => Math.min(base, Math.max(48, Math.floor(maxPx / (0.52 * Math.max(1, [...String(text)].length)))));
+// what's on the line, as display text: the forfeit line if set, else the money stake,
+// else pure bragging rights
+const stakeLabel = (bet) => (bet.line && bet.line.trim()) ? trimCp(bet.line, 32) : (bet.stake > 0 ? sym(bet.currency) + bet.stake : 'bragging rights');
 
 function cardSvgForBet(bet) {
   const data = {
     PROPOSER: bet.proposerName, HOME: bet.home, AWAY: bet.away,
     HOME_ABBR: abbr(bet.home), AWAY_ABBR: abbr(bet.away),
     COMP: bet.competition || 'Match', DATE: fmtDate(bet.utcDate),
-    STAKE: sym(bet.currency) + bet.stake,
+    STAKE: stakeLabel(bet),
     BACKED: outcomeLabel(bet, bet.backedOutcome),
     COMPLEMENT: complementLabel(bet),
     NOTE: bet.note ? trimCp(bet.note, 44) : '',
@@ -437,8 +445,8 @@ function cardSvgForBet(bet) {
     BADGE: bet.status === 'accepted' ? "BET'S ON" : 'OPEN BET',
     CTA_MAIN: bet.status === 'accepted' ? 'LOCKED IN' : 'TAKE THE OTHER SIDE',
     CTA_SUB: bet.status === 'accepted'
-      ? `${bet.proposerName} v ${bet.opponentName} · ${sym(bet.currency)}${bet.stake} on it`
-      : `you'd back ${complementLabel(bet)} · ${sym(bet.currency)}${bet.stake}`,
+      ? `${bet.proposerName} v ${bet.opponentName} · ${stakeLabel(bet)} on it`
+      : `you'd back ${complementLabel(bet)} · ${stakeLabel(bet)}`,
   });
   return cards.challengeSvg(data);
 }
@@ -455,7 +463,7 @@ function storySvgForBet(bet) {
     badge = 'OPEN BET'; hero = outcomeLabel(bet, bet.backedOutcome);
     sub = bet.proposerName + ' is backing'; foot = 'Take the other side →';
   }
-  return cards.storySvg({ BADGE: badge, HERO: hero, HERO_SIZE: heroSize(hero, 120, 940), SUB: sub, ACCENT: accent, HOME: bet.home, AWAY: bet.away, STAKE: sym(bet.currency) + bet.stake, FOOT: foot, ID: bet.id });
+  return cards.storySvg({ BADGE: badge, HERO: hero, HERO_SIZE: heroSize(hero, 120, 940), SUB: sub, ACCENT: accent, HOME: bet.home, AWAY: bet.away, STAKE: stakeLabel(bet), FOOT: foot, ID: bet.id });
 }
 
 function serveCard(req, res, url) {
@@ -506,14 +514,16 @@ function ogTextForBet(bet) {
     };
   }
   if (bet.status === 'accepted') {
+    // lead with the rivalry record when there is one — the strongest cold hook
+    const rl = rivalryLine(bet);
     return {
       title: `${bet.proposerName} v ${bet.opponentName} — bet's on 🔒`,
-      desc: `${bet.home} v ${bet.away}: ${outcomeLabel(bet, bet.backedOutcome)} for ${sym(bet.currency)}${bet.stake}. May the best mate win.`,
+      desc: `${rl}. ${bet.home} v ${bet.away}: ${outcomeLabel(bet, bet.backedOutcome)} · ${stakeLabel(bet)} on the line. May the best mate win.`,
     };
   }
   return {
-    title: `${bet.proposerName} bets ${outcomeLabel(bet, bet.backedOutcome)} · ${sym(bet.currency)}${bet.stake} 🤝`,
-    desc: `${bet.note ? bet.note + ' — ' : ''}${bet.home} v ${bet.away}. Take the other side (${complementLabel(bet)}) on Duely.`,
+    title: `${bet.proposerName} calls ${outcomeLabel(bet, bet.backedOutcome)} 🤝`,
+    desc: `${bet.note ? bet.note + ' — ' : ''}${bet.home} v ${bet.away} · ${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Duely.`,
   };
 }
 
@@ -702,6 +712,12 @@ async function handleApi(req, res, url) {
         mine: b.proposerId === me.id,
         won: (b.status === 'resolved' || b.status === 'settled') ? winnerId(b) === me.id : null,
         pending: Boolean(b.pendingResult), createdAt: b.createdAt,
+        // it's YOUR move when the other player reported a result awaiting your confirm,
+        // or the match has kicked off with nothing reported yet
+        yourMove: b.status === 'accepted' && (
+          (b.pendingResult && b.pendingResult.byId !== me.id) ||
+          (!b.pendingResult && b.utcDate && Date.now() > new Date(b.utcDate).getTime())
+        ),
       });
       const active = mine.filter((b) => b.status === 'open' || b.status === 'accepted')
         .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map(map);
@@ -846,6 +862,9 @@ async function handleApi(req, res, url) {
       backedOutcome: b.backedOutcome, stake: Math.max(0, Number(b.stake) || 0),
       currency: (b.currency || 'EUR').slice(0, 4),
       note: b.note ? String(b.note).slice(0, 140) : '',
+      // hybrid stakes: an optional forfeit line ("loser buys the pints") alongside —
+      // or instead of — a numeric stake. Forfeits are the ICP-native currency.
+      line: b.line ? String(b.line).slice(0, 60) : '',
       createdAt: new Date().toISOString(),
     };
     db.bets[id] = bet;
@@ -942,7 +961,19 @@ async function handleApi(req, res, url) {
       const me = authPlayer(req); if (!me) return need401();
       if (me.id !== bet.proposerId && me.id !== bet.opponentId) return sendJson(res, 403, { error: 'Only a player in this bet can settle it.' });
       if (bet.status !== 'resolved') return sendJson(res, 409, { error: 'Not resolved yet' });
-      bet.status = 'settled'; bet.settledAt = new Date().toISOString(); saveData();
+      bet.status = 'settled'; bet.settledAt = new Date().toISOString();
+      bet.settledBy = me.id; bet.settledByName = me.name; // attribution — "You marked this sorted"
+      saveData();
+      return sendJson(res, 200, bet);
+    }
+
+    // POST /api/bets/:id/unsettle — undo an accidental "mark it sorted" (back to resolved)
+    if (req.method === 'POST' && action === 'unsettle') {
+      const me = authPlayer(req); if (!me) return need401();
+      if (me.id !== bet.proposerId && me.id !== bet.opponentId) return sendJson(res, 403, { error: 'Only a player in this bet can change that.' });
+      if (bet.status !== 'settled') return sendJson(res, 409, { error: 'Not marked sorted yet' });
+      bet.status = 'resolved'; delete bet.settledAt; delete bet.settledBy; delete bet.settledByName;
+      saveData();
       return sendJson(res, 200, bet);
     }
 
