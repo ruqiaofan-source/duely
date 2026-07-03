@@ -155,9 +155,9 @@ function openLoginSheet(onDone) {
     <div class="sheet-body">
       <p class="sub" style="margin:2px 0 12px">Save your record and pick it up on any device. Your history on this device carries over. 18+ only.</p>
       ${hasGoogle ? `<div id="gBtn" style="display:flex;justify-content:center;margin-bottom:4px"></div><div style="text-align:center;color:var(--muted);font-size:12px;margin:10px 0">or with email</div>` : ''}
-      <label>Email</label>
+      <label for="loginEmail">Email</label>
       <input id="loginEmail" type="email" inputmode="email" placeholder="you@example.com" autocomplete="email" />
-      <label>Password</label>
+      <label for="loginPw">Password</label>
       <input id="loginPw" type="password" placeholder="6+ characters" autocomplete="current-password" />
       <p class="sub" id="loginErr" style="color:var(--red);min-height:16px;margin:6px 0 0"></p>
     </div>
@@ -318,7 +318,7 @@ function renderOnboarding(next) {
     <div class="card">
       <h2>Think you know ball? Prove it. ⚽</h2>
       <p class="sub">Call the match, your mate takes the other side, and the winner goes on the record. Duely keeps the score — the rivalry does the rest.</p>
-      <label>What should mates call you?</label>
+      <label for="name">What should mates call you?</label>
       <input id="name" placeholder="e.g. Alex" maxlength="40" />
       <div class="checkrow">
         <input type="checkbox" id="age" />
@@ -368,7 +368,7 @@ async function renderHome() {
         const lead = r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : 'level';
         const verb = r.w > r.l ? 'You lead' : r.w < r.l ? 'You trail' : 'Level with';
         return `
-          <div class="riv-row" data-opp="${esc(r.opponent)}">
+          <div class="riv-row" data-rivid="${esc(r.opponentId)}" data-rivname="${esc(r.opponent)}" role="button" tabindex="0" style="cursor:pointer">
             <div>
               <div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div>
               <div class="sm">${verb} · ${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div>
@@ -403,6 +403,7 @@ async function renderHome() {
       <div class="cardhead"><h2>Unfinished business ⚔️</h2></div>
       <div class="rivalry" style="margin-top:2px"><div><div class="vsline">${hotLine}</div><div class="sm" style="color:var(--muted);font-size:12px">${hot.w + hot.l} duels in — settle the score</div></div><div class="score ${hot.w > hot.l ? 'lead' : hot.w < hot.l ? 'trail' : 'level'}">${hot.w}–${hot.l}</div></div>
       <button class="cta commit" data-rematch="${esc(hot.opponent)}" style="margin-top:12px">Settle it with ${esc(hot.opponent)} →</button>
+      ${!lg.leagues.length ? `<button class="muted-link" id="escalateLeague">Start a league with ${esc(hot.opponent)} + the group →</button>` : ''}
     </div>` : ''}
     <div class="card">
       <div class="cardhead"><h2>Your season</h2><span class="flame ${onFire ? 'on' : ''}">${onFire ? '🔥 ' + s.streak.count + ' in a row' : ''}</span></div>
@@ -436,9 +437,12 @@ async function renderHome() {
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  app.querySelectorAll('[data-rivid]').forEach((row) =>
+    row.addEventListener('click', (e) => { if (e.target.closest('[data-rematch]')) return; openRivalrySheet(row.dataset.rivid, row.dataset.rivname); }));
   app.querySelectorAll('[data-rematch]').forEach((b) =>
     b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
   $('#newLeague').addEventListener('click', () => renderLeagueHub());
+  const el2 = $('#escalateLeague'); if (el2) el2.addEventListener('click', () => renderLeagueHub(`The ${hot.opponent} derby`));
   app.querySelectorAll('[data-league]').forEach((b) =>
     b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
 }
@@ -494,30 +498,31 @@ async function renderProfile() {
     ${acct}
     <div class="card"><div class="cardhead"><h2>Settings</h2></div><div class="checkrow" style="margin-top:6px"><input type="checkbox" id="hideStreaks" ${hideStreaks ? 'checked' : ''} /><label for="hideStreaks">Hide streaks — no flame, no pressure</label></div></div>
     <div class="card"><h2>Rivalries</h2>${s.rivalries.length
-      ? s.rivalries.map((r) => `<div class="riv-row" data-rematch="${esc(r.opponent)}" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
+      ? s.rivalries.map((r) => `<div class="riv-row" data-rivid="${esc(r.opponentId)}" data-rivname="${esc(r.opponent)}" role="button" tabindex="0" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
       : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
     <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b>'} — settle up with your mates and run it back.</div>`;
   $('#rename').addEventListener('click', () => openRenameSheet(m.name));
   const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); localStorage.removeItem('settle_roles'); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
   const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
   const hs = $('#hideStreaks'); if (hs) hs.addEventListener('change', () => { prefs.set('hideStreaks', hs.checked); renderProfile(); });
-  app.querySelectorAll('[data-rematch]').forEach((b) => b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
+  app.querySelectorAll('[data-rivid]').forEach((row) =>
+    row.addEventListener('click', () => openRivalrySheet(row.dataset.rivid, row.dataset.rivname)));
 }
 
 // ---------------------------------------------------------------------------
 // Leagues — the scale layer
 // ---------------------------------------------------------------------------
-function renderLeagueHub() {
+function renderLeagueHub(prefillName) {
   const m = me.get();
   app.innerHTML = `
     <div class="card">
       <h2>Leagues 🏆</h2>
       <p class="sub">Turn your group chat into a season-long table. Every bet between members feeds one leaderboard.</p>
-      <label>Create a league</label>
-      <input id="lname" placeholder="e.g. Sunday League" maxlength="50" />
+      <label for="lname">Create a league</label>
+      <input id="lname" placeholder="e.g. Sunday League" maxlength="50" value="${prefillName ? esc(prefillName) : ''}" />
       <button class="cta" id="createLeague">Create league →</button>
       <div style="height:8px"></div>
-      <label>…or join with a code</label>
+      <label for="lcode">…or join with a code</label>
       <input id="lcode" placeholder="e.g. K7M2Q" maxlength="8" style="text-transform:uppercase" />
       <button class="ghost" id="joinByCode">Join league</button>
       <button class="muted-link" id="homeLink">Back to my season</button>
@@ -602,6 +607,7 @@ async function renderLeague(code, full) {
     <div class="card">
       <div class="cardhead"><h2>${esc(lg.name)} 🏆</h2><span class="pill resolved">${lg.members.length} mates</span></div>
       ${gapLine ? `<div class="banner" style="margin:2px 0 10px;border-style:solid;border-color:rgba(20,224,200,.3);color:var(--text)">${gapLine}</div>` : ''}
+      ${lg.banter ? `<div class="banner" style="margin:0 0 10px">⚔️ Fiercest rivalry: <b style="color:var(--text)">${esc(lg.banter.a)} v ${esc(lg.banter.b)}</b> · ${lg.banter.games} duels</div>` : ''}
       <div class="lg-head"><div class="lg-rank">#</div><div class="lg-name">Player</div><div class="lg-rec">W-L</div><div class="lg-net">Net</div></div>
       ${tbl}
       ${canSlice ? `<button class="muted-link" id="toggleTable">${full ? 'Show just my spot' : 'Show full table →'}</button>` : ''}
@@ -626,6 +632,7 @@ async function renderCreate() {
   let matches = [], live = false;
   try { const r = await api('/matches'); matches = r.matches; live = r.live; } catch {}
   const copy = PREFILL?.copy;
+  const terms = copy || PREFILL?.terms; // last duel's line/stake carry into a rematch
   const state = { backedOutcome: copy?.backedOutcome || 'HOME' };
   const rematchOf = PREFILL?.opponent;
 
@@ -634,13 +641,13 @@ async function renderCreate() {
     <div class="sheet-head"><h2>${rematchOf ? 'Rematch ' + esc(rematchOf) + ' ⚔️' : copy ? 'Run it back 🔁' : 'Start a duel 🤝'}</h2><button class="sheet-x" id="sheetClose">✕</button></div>
     <div class="sheet-body">
       <p class="sub" style="margin:2px 0 12px">${rematchOf ? 'Winner takes the bragging rights and the lead.' : 'Set the terms, send the link — you settle up between yourselves.'}</p>
-      <label>The match</label>
+      <label for="matchSel">The match</label>
       <select id="matchSel"></select>
       <div id="customWrap" style="display:none"><div class="row"><div><label>Home team</label><input id="home" placeholder="Spain" maxlength="40" /></div><div><label>Away team</label><input id="away" placeholder="Uruguay" maxlength="40" /></div></div></div>
       <label>What are you backing?</label>
       <div class="seg" id="seg"></div>
       <label for="lineInput">What's on the line?</label>
-      <input id="lineInput" maxlength="60" placeholder="e.g. loser buys the pints" value="${copy?.line ? esc(copy.line) : (copy?.stake ? esc(sym(copy.currency || 'EUR') + copy.stake) : '')}" />
+      <input id="lineInput" maxlength="60" placeholder="e.g. loser buys the pints" value="${terms?.line ? esc(terms.line) : (terms?.stake ? esc(sym(terms.currency || 'EUR') + terms.stake) : '')}" />
       <div class="reacts" style="margin-top:8px">
         <button type="button" class="react-chip" data-line="Loser buys the pints 🍺">🍺 pints</button>
         <button type="button" class="react-chip" data-line="Loser wears the winner's shirt 👕">👕 the shirt</button>
@@ -815,20 +822,32 @@ async function renderBet(id, opts = {}) {
         ${matchCard}
         ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}
         <div class="side"><div><div class="who">You'd be backing</div><div class="pick">${esc(complementLabel(bet))}</div></div><div class="stake">${money(bet)}</div></div>
-        <label>Your name</label>
-        <input id="opponentName" placeholder="e.g. Jordan" maxlength="40" value="${m ? esc(m.name) : ''}" />
+        ${m ? `<p class="sub" style="margin:12px 0 0;text-align:center">Playing as <b style="color:var(--text)">${esc(m.name)}</b></p>` : `
+        <div id="nameWrap" style="display:none">
+          <label for="opponentName">What should mates call you?</label>
+          <input id="opponentName" placeholder="e.g. Jordan" maxlength="40" />
+        </div>`}
         <button class="cta commit" id="acceptBtn">Take the bet 🤝</button>
         <button class="muted-link" onclick="location.href='/'">Nah — not this one</button>
       </div>`;
     $('#acceptBtn').addEventListener('click', async () => {
-      const opponentName = $('#opponentName').value.trim();
+      // tap-first: the commitment tap comes BEFORE the name ask — a cold visitor's
+      // first tap reveals the name field, the second locks it in
+      const mm0 = me.get();
+      const nameWrap = $('#nameWrap');
+      if (!mm0 && nameWrap && nameWrap.style.display === 'none') {
+        nameWrap.style.display = 'block';
+        $('#acceptBtn').textContent = 'Lock it in 🤝';
+        try { $('#opponentName').focus(); } catch {}
+        return;
+      }
+      const opponentName = mm0 ? mm0.name : ($('#opponentName')?.value || '').trim();
       if (!opponentName) return toast('Add your name');
       const btn = $('#acceptBtn'); btn.disabled = true; $('.card').classList.add('locking'); haptic(22);
       try {
         let mm = me.get();
         try {
           if (!mm) mm = await register(opponentName);
-          else if (norm(mm.name) !== norm(opponentName)) mm = await rename(opponentName);
           await api('/bets/' + id + '/accept', { method: 'POST' });
         } catch (e) {
           // dead local identity (server store reset) → api() already cleared it; mint a
@@ -1049,7 +1068,8 @@ async function rematchConfirm(other, lastBet) {
       <button class="cta${lost ? '' : ' commit'}" id="goRematch">Set up the rematch${lost ? '' : ' →'}</button>
       <button class="muted-link" id="notNow">${lost ? 'Maybe later' : 'Not now'}</button>
     </div>`;
-  $('#goRematch').addEventListener('click', () => { PREFILL = { opponent: other }; renderCreate(); });
+  // carry the last duel's terms into the rematch (same forfeit/stake, new fixture)
+  $('#goRematch').addEventListener('click', () => { PREFILL = { opponent: other, terms: { line: lastBet.line, stake: lastBet.stake, currency: lastBet.currency } }; renderCreate(); });
   $('#notNow').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
 }
 
@@ -1111,6 +1131,32 @@ function openRenameSheet(current) {
   });
 }
 
+// Rivalry detail — the match-by-match history that makes the head-to-head a durable
+// shared asset. Opened from any rivalry row; the resolving CTA is always the rematch.
+async function openRivalrySheet(oppId, oppName) {
+  let r;
+  try { r = await api('/players/me/rivalry?with=' + encodeURIComponent(oppId)); }
+  catch (e) { return toast(e.message); }
+  const lead = r.aWins > r.bWins ? 'lead' : r.aWins < r.bWins ? 'trail' : 'level';
+  const verb = r.aWins > r.bWins ? 'You lead' : r.aWins < r.bWins ? 'You trail' : 'All level with';
+  const rows = (r.recent || []).map((x) => `
+    <div class="recent" data-bet="${x.id}" role="button" tabindex="0" style="cursor:pointer">
+      <span>${esc(x.home)} v ${esc(x.away)}</span>
+      <span class="res ${x.aWon ? 'w' : 'l'}">${x.aWon ? 'W' : 'L'}${x.stake > 0 ? ' · ' + sym(x.currency) + x.stake : ''}</span>
+    </div>`).join('');
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><h2>${verb} ${esc(oppName)}</h2><button class="sheet-x" id="sheetClose" aria-label="Close">✕</button></div>
+    <div class="sheet-body">
+      <div class="rivalry" style="margin-top:2px"><div><div class="vsline">${esc(oppName)} rivalry</div><div class="sm" style="color:var(--muted);font-size:12px">${r.games} duel${r.games === 1 ? '' : 's'} · net ${netTxt(r.aNet, r.currency)}</div></div><div class="score ${lead}">${r.aWins}–${r.bWins}</div></div>
+      ${rows ? `<label>Last duels</label>${rows}` : ''}
+    </div>
+    <div class="sheet-foot"><button class="cta commit" id="rivRematch">Rematch ${esc(oppName)} ⚔️</button></div>`);
+  $('#sheetClose').addEventListener('click', closeSheet);
+  $('#rivRematch').addEventListener('click', () => { PREFILL = { opponent: oppName }; renderCreate(); });
+  document.querySelectorAll('#sheetPanel [data-bet]').forEach((el) => el.addEventListener('click', () => { closeSheet(); history.pushState({}, '', '/b/' + el.dataset.bet); renderBet(el.dataset.bet); }));
+}
+
 // Group Pro — surfaced only at the post-win peak, never in the create/accept flow.
 // No checkout yet (needs a payment processor); this captures demand honestly.
 function openProSheet(ctx) {
@@ -1141,7 +1187,7 @@ document.getElementById('sheetScrim')?.addEventListener('click', (e) => { if (e.
 // Enter/Space activate keyboard-focused rows (role=button divs)
 app.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
-  const t = e.target.closest('[role="button"][data-bet],[role="button"][data-league]');
+  const t = e.target.closest('[role="button"][data-bet],[role="button"][data-league],[role="button"][data-rivid]');
   if (t) { e.preventDefault(); t.click(); }
 });
 

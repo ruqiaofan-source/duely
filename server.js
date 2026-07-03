@@ -337,7 +337,13 @@ function rivalry(idA, idB) {
     }
   }
   const nv = netView(aNets);
-  return { aId: idA, bId: idB, a: aName, b: bName, aWins, bWins, aNet: nv.net, games: both.length, currency: nv.currency };
+  // last few duels between the pair — the match-by-match history that makes the
+  // rivalry a durable shared asset
+  const recent = both.slice(0, 6).map((x) => ({
+    id: x.id, home: x.home, away: x.away, resolvedAt: x.resolvedAt,
+    aWon: winnerId(x) === idA, line: x.line || '', stake: x.stake, currency: x.currency,
+  }));
+  return { aId: idA, bId: idB, a: aName, b: bName, aWins, bWins, aNet: nv.net, games: both.length, currency: nv.currency, recent };
 }
 
 // Rivalry one-liner for a specific bet's two players (used on cards / OG meta).
@@ -374,6 +380,21 @@ function leagueStandings(league) {
   return rows;
 }
 
+// the league's fiercest rivalry — the most-played pair among members (banter strip)
+function leagueBanter(league) {
+  const ids = new Set(league.members.map((m) => m.id));
+  const pairs = {};
+  for (const b of decidedBets()) {
+    if (!ids.has(b.proposerId) || !ids.has(b.opponentId)) continue;
+    const k = [b.proposerId, b.opponentId].sort().join('|');
+    if (!pairs[k]) pairs[k] = { a: b.proposerId, b: b.opponentId, games: 0 };
+    pairs[k].games++;
+  }
+  const top = Object.values(pairs).sort((x, y) => y.games - x.games)[0];
+  if (!top || top.games < 2) return null;
+  return { a: nameOf(top.a) || '?', b: nameOf(top.b) || '?', games: top.games };
+}
+
 // shape a league for the API (denormalize member names off their player records)
 function leagueView(league) {
   return {
@@ -381,6 +402,7 @@ function leagueView(league) {
     createdBy: nameOf(league.createdById) || null, // social proof on the join view
     members: league.members.map((m) => ({ id: m.id, name: nameOf(m.id) || m.name })),
     standings: leagueStandings(league),
+    banter: leagueBanter(league),
   };
 }
 
@@ -406,6 +428,11 @@ function fmtDate(iso) {
 // trim in Unicode code points, not UTF-16 units — a naive slice can split an emoji
 // surrogate pair and render '�' on the shared card
 const trimCp = (s, n) => { const cps = [...String(s)]; return cps.length > n ? cps.slice(0, n - 1).join('') + '…' : String(s); };
+// mask severe profanity in user text that becomes a PUBLIC shareable image (cards/OG).
+// Deliberately conservative — banter like "you're getting schooled" must survive;
+// only the words that make a card unshareable in a work chat get starred out.
+const PROFANITY = /\b(fuck\w*|cunts?|niggers?|niggas?|faggots?|retards?|kankers?\w*)\b/gi;
+const maskProfanity = (s) => String(s || '').replace(PROFANITY, (w) => w[0] + '*'.repeat(Math.max(1, w.length - 2)) + w[w.length - 1]);
 // scale the hero line down so long names/teams never clip the card edge
 // (Anton ≈ 0.52em average advance width)
 const heroSize = (text, base, maxPx) => Math.min(base, Math.max(48, Math.floor(maxPx / (0.52 * Math.max(1, [...String(text)].length)))));
@@ -421,7 +448,7 @@ function cardSvgForBet(bet) {
     STAKE: stakeLabel(bet),
     BACKED: outcomeLabel(bet, bet.backedOutcome),
     COMPLEMENT: complementLabel(bet),
-    NOTE: bet.note ? trimCp(bet.note, 44) : '',
+    NOTE: bet.note ? maskProfanity(trimCp(bet.note, 44)) : '',
   };
   if (bet.status === 'void') {
     return cards.voidSvg({ HOME: bet.home, AWAY: bet.away });
@@ -523,7 +550,7 @@ function ogTextForBet(bet) {
   }
   return {
     title: `${bet.proposerName} calls ${outcomeLabel(bet, bet.backedOutcome)} 🤝`,
-    desc: `${bet.note ? bet.note + ' — ' : ''}${bet.home} v ${bet.away} · ${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Duely.`,
+    desc: `${bet.note ? maskProfanity(bet.note) + ' — ' : ''}${bet.home} v ${bet.away} · ${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Duely.`,
   };
 }
 
