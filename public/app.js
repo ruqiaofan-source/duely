@@ -468,6 +468,7 @@ async function renderHome() {
         <div class="stat"><div class="n ${netClass}">${netTxt(s.net, s.currency)}</div><div class="k">Net</div></div>
         <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
       </div>
+      ${!hideStreaks && s.platformRecord ? `<div class="banner" style="margin:10px 0 0;border-style:solid;border-color:rgba(255,200,61,.3)">🏆 Duely record: <b style="color:var(--gold)">${esc(s.platformRecord.name)}'s ${s.platformRecord.count}-win streak</b>${s.streak.type === 'W' && s.streak.count >= s.platformRecord.count ? " — that's you. Defend it." : ' — beat it.'}</div>` : ''}
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
     </div>
 
@@ -496,7 +497,7 @@ async function renderHome() {
             <div><div class="nm">${esc(l.name)}</div><div class="sm">${l.members} mates · ${l.rank ? 'you\'re #' + l.rank + ' of ' + l.total : 'unranked'}</div></div>
             <div class="rec ${l.rank === 1 ? 'lead' : ''}">#${l.rank || '–'}</div>
           </div>`).join('')
-        : `<p class="sub" style="margin:8px 0 0">No leagues yet — turn your group chat into a season-long table. 🏆</p>`}
+        : `<p class="sub" style="margin:8px 0 0">One table for your whole group chat — every duel between members counts. Winner walks tall all season. 🏆</p><button class="cta" id="startLeague" style="margin-top:12px">Start a group league →</button>`}
     </div>
 
     ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
@@ -512,6 +513,7 @@ async function renderHome() {
   app.querySelectorAll('[data-rematch]').forEach((b) =>
     b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
   $('#newLeague').addEventListener('click', () => renderLeagueHub());
+  const sl = $('#startLeague'); if (sl) sl.addEventListener('click', () => renderLeagueHub());
   const el2 = $('#escalateLeague'); if (el2) el2.addEventListener('click', () => renderLeagueHub(`The ${hot.opponent} derby`));
   app.querySelectorAll('[data-league]').forEach((b) =>
     b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));

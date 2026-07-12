@@ -117,6 +117,16 @@ try {
   r = await j('/api/leagues/' + code);
   ok(r.data.banter && r.data.banter.games === 2, 'league banter: fiercest pair (void excluded)');
 
+  // platform streak record (real, beatable) — give Ana back-to-back wins
+  for (let i = 0; i < 2; i++) {
+    const bb = (await j('/api/bets', { method: 'POST', body: JSON.stringify({ home: 'S', away: 'T', backedOutcome: 'HOME', stake: 1, currency: 'EUR' }) }, A.secret)).data;
+    await j('/api/bets/' + bb.id + '/accept', { method: 'POST' }, Bp.secret);
+    await j('/api/bets/' + bb.id + '/resolve', { method: 'POST', body: JSON.stringify({ actualOutcome: 'HOME' }) }, Bp.secret);
+    await j('/api/bets/' + bb.id + '/resolve', { method: 'POST', body: JSON.stringify({ actualOutcome: 'HOME' }) }, A.secret);
+  }
+  r = await j('/api/players/me/summary', {}, A.secret);
+  ok(r.data.platformRecord && r.data.platformRecord.name === 'Ana' && r.data.platformRecord.count >= 2, 'platform streak record surfaces (real wins only)');
+
   // cards render to PNG; profanity masked on public surfaces only
   for (const [label, url] of [['challenge', `/card/${b3}.png`], ['result', `/card/${b1}.png`], ['story', `/storycard/${b1}.png`], ['league', `/lcard/${code}.png`]]) {
     const res = await fetch(B + url); const buf = await res.arrayBuffer();

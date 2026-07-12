@@ -327,6 +327,24 @@ function netView(nets) {
   return { net: null, currency: null };
 }
 
+// the highest win streak ANY player has hit — a real, beatable platform record
+function platformRecord() {
+  const byPlayer = {};
+  for (const b of decidedBets()) {
+    for (const pid of [b.proposerId, b.opponentId]) {
+      if (pid) (byPlayer[pid] = byPlayer[pid] || []).push(b);
+    }
+  }
+  let best = null;
+  for (const [pid, bets] of Object.entries(byPlayer)) {
+    bets.sort((a, b) => new Date(a.resolvedAt || 0) - new Date(b.resolvedAt || 0));
+    let run = 0, max = 0;
+    for (const b of bets) { run = winnerId(b) === pid ? run + 1 : 0; if (run > max) max = run; }
+    if (max >= 2 && (!best || max > best.count)) best = { name: nameOf(pid) || '?', count: max };
+  }
+  return best;
+}
+
 function playerSummary(id) {
   const name = nameOf(id);
   const mine = decidedBets().filter((b) => involvesId(b, id)).sort(byRecent);
@@ -780,7 +798,7 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, selfPlayer(me));
     }
     if (req.method === 'GET' && !parts[3]) return sendJson(res, 200, selfPlayer(me));
-    if (req.method === 'GET' && parts[3] === 'summary') return sendJson(res, 200, playerSummary(me.id));
+    if (req.method === 'GET' && parts[3] === 'summary') return sendJson(res, 200, { ...playerSummary(me.id), platformRecord: platformRecord() });
     if (req.method === 'GET' && parts[3] === 'leagues') {
       const mine = Object.values(db.leagues).filter((l) => l.members.some((m) => m.id === me.id));
       const leagues = mine.map((l) => {
