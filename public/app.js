@@ -124,6 +124,22 @@ async function doReact(id, emoji) {
   catch (e) { toast(e.message); }
 }
 
+// press-and-hold commit — micro-friction as ceremony (the deliberate inverse of
+// one-click betting: we ADD a beat of intent at the money moment)
+function armHold(btn, onCommit, holdMs = 650) {
+  if (!btn) return;
+  let t = null, done = false;
+  btn.style.position = 'relative'; btn.style.overflow = 'hidden';
+  const fill = document.createElement('span');
+  fill.style.cssText = 'position:absolute;inset:0;background:rgba(255,255,255,.25);transform:scaleX(0);transform-origin:left;pointer-events:none;transition:transform ' + holdMs + 'ms linear;border-radius:inherit';
+  btn.appendChild(fill);
+  const start = (e) => { if (done || btn.disabled) return; e.preventDefault(); haptic(8); requestAnimationFrame(() => { fill.style.transform = 'scaleX(1)'; }); t = setTimeout(() => { done = true; haptic([15, 30, 15]); onCommit(); }, holdMs); };
+  const cancel = () => { if (done || t === null) return; clearTimeout(t); t = null; fill.style.transition = 'transform 180ms ease-out'; fill.style.transform = 'scaleX(0)'; setTimeout(() => { fill.style.transition = 'transform ' + holdMs + 'ms linear'; }, 200); toast('Hold to lock it in'); };
+  btn.addEventListener('pointerdown', (e) => { t = null; start(e); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, cancel));
+  btn.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && !done) { e.preventDefault(); done = true; onCommit(); } });
+}
+
 // ---- the terrace: comments on a bet (real players + the clearly-labeled Pundit) ----
 function commentsHtml(bet) {
   const cs = (bet.comments || []).slice(-6);
@@ -760,7 +776,7 @@ async function renderCreate() {
       <div class="banner" style="margin-top:14px;text-align:left"><span id="previewLine">…</span></div>
       <div class="banner" id="fixSrc" style="margin-top:8px">⏳ Loading fixtures…</div>
     </div>
-    <div class="sheet-foot"><button class="cta commit" id="createBtn">Lock it in & get link →</button></div>
+    <div class="sheet-foot"><button class="cta commit" id="createBtn">Lock it in & get link →</button><div style="text-align:center;font-size:11.5px;color:var(--muted-2);margin-top:8px">Hold to lock — no backing out after.</div></div>
   `);
 
   // banter chips — tap-to-talk suggestions (rotates daily; tap fills the note)
@@ -835,7 +851,7 @@ async function renderCreate() {
     onMatchChange();
   });
 
-  $('#createBtn').addEventListener('click', async () => {
+  const doCreate = async () => {
     const mm = matches.find((x) => x.id === sel.value);
     const home = mm ? mm.home : $('#home').value.trim();
     const away = mm ? mm.away : $('#away').value.trim();
@@ -850,11 +866,13 @@ async function renderCreate() {
         backedOutcome: state.backedOutcome, stake: p.stake, currency: p.currency, line: p.line, note: $('#note').value.trim(), rematch: Boolean(rematchOf || copy),
       }) });
       roleStore.set(bet.id, 'proposer'); PREFILL = null;
+      try { sessionStorage.setItem('duely_stamp', bet.id); } catch {}
       track('bet_created', { stake: p.stake, forfeit: Boolean(p.line) });
       closeSheet();
       history.pushState({}, '', '/b/' + bet.id); renderBet(bet.id);
     } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Lock it in & get link →'; }
-  });
+  };
+  armHold($('#createBtn'), doCreate);
 }
 
 // brief "locked in" seal animation between commit and next screen
@@ -913,8 +931,11 @@ async function renderBet(id, opts = {}) {
         <div class="card">
           <div class="cardhead"><h2>Send it to your mate 📲</h2>${pill}</div>
           <p class="sub">You're backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b> for <b>${money(bet)}</b>. They take the other side (${esc(complementLabel(bet))}).</p>
-          <img class="cardimg" src="/card/${id}.svg" alt="Your bet card" loading="eager" />
-          <button class="cta wa" id="waBtn">Share on WhatsApp</button>
+          <div style="position:relative">
+            <img class="cardimg" src="/card/${id}.svg" alt="Your bet card" loading="eager" />
+            ${(() => { try { if (sessionStorage.getItem('duely_stamp') === id) { sessionStorage.removeItem('duely_stamp'); return '<div class="stamp">ON THE RECORD</div>'; } } catch {} return ''; })()}
+          </div>
+          <button class="cta wa" id="waBtn">SEND THE CHALLENGE 📲</button>
           <button class="ghost" id="shareBtn">Share card / copy link</button>
           <a class="muted-link" href="/card/${id}.png" target="_blank" rel="noopener">Save card image</a>
           ${commentsHtml(bet)}
@@ -953,11 +974,15 @@ async function renderBet(id, opts = {}) {
         ${rb}${proof}
         ${matchCard}
         ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}
-        <div class="side"><div><div class="who">You'd be backing</div><div class="pick">${esc(complementLabel(bet))}</div></div><div class="stake">${money(bet)}</div></div>
-        ${m ? `<p class="sub" style="margin:12px 0 0;text-align:center">Playing as <b style="color:var(--text)">${esc(m.name)}</b></p>` : `
+        <div class="tape">
+          <div><div class="t-av">${initials(bet.proposerName)}</div><div class="t-nm teal">${esc(bet.proposerName)}</div><div class="t-pick">${esc(outcomeLabel(bet, bet.backedOutcome))}</div></div>
+          <div><div class="vs-big">VS</div><div class="t-stake">${esc(bet.line ? bet.line : (bet.stake > 0 ? sym(bet.currency) + bet.stake : 'bragging rights'))}</div></div>
+          <div><div class="t-av pu">${m ? initials(m.name) : 'YOU'}</div><div class="t-nm purple">${m ? esc(m.name) : 'You'}</div><div class="t-pick">${esc(complementLabel(bet))}</div></div>
+        </div>
+        ${m ? '' : `
         <div id="nameWrap" style="display:none">
-          <label for="opponentName">What should mates call you?</label>
-          <input id="opponentName" placeholder="e.g. Jordan" maxlength="40" />
+          <label for="opponentName">Sign the fight card — this goes on the record</label>
+          <input id="opponentName" placeholder="Your name" maxlength="40" autocapitalize="words" />
         </div>`}
         <button class="cta commit" id="acceptBtn">Take the bet 🤝</button>
         <button class="muted-link" onclick="location.href='/'">Nah — not this one</button>
@@ -1134,7 +1159,10 @@ async function renderBet(id, opts = {}) {
     // score-led taunt when the record exists — reuses the banner's fetch (no await:
     // an await here would leave the screen painted but dead until it resolved)
     let shareText = `Called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? 'Your move, ' + other + ' 👀 ' : ''}Settle the score on Duely 👇`;
-    if (iWon && other && rivData && rivData.games > 1) shareText = `That's ${rivData.aWins}–${rivData.bWins} to me, ${other} 😏 Rematch? 👇`;
+    if (iWon && other && rivData && rivData.games > 1) {
+      const strip = (rivData.recent || []).slice().reverse().map((x) => (x.aWon ? '🟩' : '🟥')).join('');
+      shareText = `That's ${rivData.aWins}–${rivData.bWins} to me, ${other} 😏${strip ? `\nUs, on the record: ${strip}` : ''}\nRematch? 👇`;
+    }
     const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => shareWithCard('/card/' + id + '.png', shareText, link, 'result'));
     const rl = $('#rematchLoss'); if (rl) rl.addEventListener('click', () => rematchConfirm(other, bet));
     const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => shareStory(id));

@@ -100,7 +100,7 @@ input:focus, select:focus { border-color: var(--teal); }
 .seg button.active {
   background: linear-gradient(140deg, var(--teal), var(--teal-dim));
   border-color: transparent; color: #06140f; transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(20, 224, 200, 0.3);
+  box-shadow: 0 8px 22px rgba(20, 224, 200, 0.45);
 }
 
 /* ---------- buttons ---------- */
@@ -108,11 +108,11 @@ button.cta {
   width: 100%; border: none; border-radius: 14px; padding: 16px; font-size: 16px; font-weight: 800;
   cursor: pointer; margin-top: 20px; letter-spacing: -0.2px; font-family: inherit;
   background: linear-gradient(140deg, var(--teal), var(--teal-dim)); color: #06140f;
-  transition: transform .08s, box-shadow .2s; box-shadow: 0 8px 22px rgba(20, 224, 200, 0.28);
+  transition: transform .08s, box-shadow .2s; box-shadow: 0 10px 30px rgba(20, 224, 200, 0.45);
 }
-button.cta.commit { background: linear-gradient(140deg, var(--red), var(--red-deep)); color: #fff; box-shadow: 0 8px 22px rgba(200, 16, 46, 0.34); }
-button.cta.gold { background: linear-gradient(140deg, #FFD976, var(--gold)); color: #2a1d00; box-shadow: 0 8px 22px rgba(255, 200, 61, 0.3); }
-button.cta.wa { background: #25D366; color: #04241a; box-shadow: 0 8px 22px rgba(37, 211, 102, 0.28); }
+button.cta.commit { background: linear-gradient(140deg, var(--red), var(--red-deep)); color: #fff; box-shadow: 0 10px 30px rgba(225, 29, 46, 0.5); }
+button.cta.gold { background: linear-gradient(140deg, #FFD976, var(--gold)); color: #2a1d00; box-shadow: 0 10px 30px rgba(255, 200, 61, 0.45); }
+button.cta.wa { background: #25D366; color: #04241a; box-shadow: 0 10px 30px rgba(37, 211, 102, 0.42); }
 button.cta:active { transform: translateY(2px); }
 button.cta:disabled { opacity: .55; cursor: default; }
 button.ghost {
@@ -124,23 +124,46 @@ button.ghost {
 
 /* ---------- pills / status ---------- */
 .pill { display: inline-block; font-size: 11px; font-weight: 800; padding: 4px 11px; border-radius: 999px; text-transform: uppercase; letter-spacing: .5px; }
-.pill.open { background: rgba(20,224,200,.15); color: var(--teal); }
-.pill.accepted { background: rgba(255,200,61,.16); color: var(--gold); }
-.pill.resolved { background: rgba(46,213,115,.16); color: var(--green); }
+.pill.open { background: rgba(20,224,200,.24); color: var(--teal); }
+.pill.accepted { background: rgba(255,200,61,.24); color: var(--gold); }
+.pill.resolved { background: rgba(46,213,115,.24); color: var(--green); }
 .pill.settled { background: rgba(154,167,184,.16); color: var(--muted); }
 
 /* ---------- match card ---------- */
-.match { text-align: center; padding: 18px 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; margin: 8px 0 4px; }
+.match { text-align: center; padding: 18px 12px; background: repeating-linear-gradient(135deg, rgba(255,255,255,0.028) 0 1px, transparent 1px 7px), var(--surface-2); border: 1px solid var(--line); border-radius: 14px; margin: 8px 0 4px; }
 .match .teams { font-size: 20px; font-weight: 800; letter-spacing: -0.4px; }
 .match .vs { color: var(--muted); font-weight: 700; margin: 0 9px; font-size: 13px; font-family: "Anton", sans-serif; letter-spacing: 1px; }
 .match .meta { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+
+/* "ON THE RECORD" stamp — slams onto the freshly printed ticket */
+.stamp { position: absolute; top: 50%; left: 50%; translate: -50% -50%; rotate: -8deg;
+  font-family: "Anton", sans-serif; font-size: 24px; letter-spacing: 2px; color: var(--teal-bright);
+  border: 3px double var(--teal-bright); border-radius: 10px; padding: 8px 16px;
+  background: rgba(10,14,19,.55); text-shadow: 0 0 18px rgba(20,224,200,.6);
+  animation: stampIn 240ms cubic-bezier(.34,1.56,.64,1) both; pointer-events: none; }
+@keyframes stampIn { from { scale: 1.7; opacity: 0; } to { scale: 1; opacity: 1; } }
+
+/* ---------- tale of the tape (accept screen) ---------- */
+.tape { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; background: repeating-linear-gradient(135deg, rgba(255,255,255,0.028) 0 1px, transparent 1px 7px), #10161F; border: 1px solid var(--line); border-radius: 16px; padding: 16px 10px; margin: 10px 0 4px; text-align: center; }
+.tape .t-av { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 6px; font-weight: 900; font-size: 15px; color: #06140f; background: linear-gradient(140deg, var(--teal), var(--teal-dim)); box-shadow: 0 0 0 2px rgba(20,224,200,.35); }
+.tape .t-av.pu { background: linear-gradient(140deg, #9F67FF, var(--purple)); color: #fff; box-shadow: 0 0 0 2px rgba(124,58,237,.4); }
+.tape .t-nm { font-family: "Anton", sans-serif; font-size: 17px; letter-spacing: .5px; }
+.tape .t-nm.teal { color: var(--teal-bright); } .tape .t-nm.purple { color: #B79BF5; }
+.tape .t-pick { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.3; }
+.tape .vs-big { font-family: "Anton", sans-serif; font-size: 28px; color: #fff; }
+.tape .t-stake { font-family: "Anton", sans-serif; font-size: 14px; color: var(--gold); margin-top: 4px; max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* signature-line name input ("sign the fight card") */
+#nameWrap input { background: transparent; border: none; border-bottom: 2px solid var(--teal); border-radius: 0; font-style: italic; font-size: 20px; text-align: center; padding: 8px 6px; }
+#nameWrap label { text-align: center; }
 
 /* ---------- sides ---------- */
 .side { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); margin-top: 10px; }
 .side .who { font-weight: 800; font-size: 14.5px; }
 .side .pick { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
-.side .stake { font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
-.side.win { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold), 0 0 24px rgba(255,200,61,.12); background: linear-gradient(140deg, rgba(255,200,61,.08), transparent); }
+.side .stake { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; background: linear-gradient(180deg, #1A222C, #10161D); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; color: var(--teal-bright); max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side.win { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold), 0 0 28px rgba(255,200,61,.18); background: linear-gradient(140deg, rgba(255,200,61,.1), transparent); position: relative; overflow: hidden; }
+.side.win::after { content: ''; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 25%, rgba(247,226,126,.5) 38%, rgba(20,224,200,.45) 46%, rgba(124,58,237,.4) 54%, rgba(247,226,126,.5) 62%, transparent 78%); background-size: 240% 240%; mix-blend-mode: color-dodge; filter: brightness(.55); animation: foil 4.5s ease-in-out infinite; pointer-events: none; }
+@keyframes foil { 0%,100% { background-position: 0% 0%; } 50% { background-position: 100% 100%; } }
 
 /* ---------- rivalry banner ---------- */
 .rivalry {
@@ -183,7 +206,7 @@ button.ghost {
 .riv-row .sm { font-size: 11.5px; color: var(--muted); font-weight: 600; }
 .tag-rival { font-size: 9.5px; background: rgba(124,58,237,.25); color: #c9b4ff; padding: 2px 7px; border-radius: 999px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; }
 
-.linkbtn { background: none; border: none; color: var(--teal); font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; padding: 0; }
+.linkbtn { background: none; border: none; color: var(--teal-bright); font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; padding: 0; }
 
 .lg-head, .lg-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 58px 82px; align-items: center; gap: 6px; padding: 11px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .lg-head { color: var(--muted); font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
@@ -293,7 +316,7 @@ button.ghost {
 /* commit glow — the single idle "act here" pulse, reserved for the commit CTA */
 button.cta { position: relative; overflow: hidden; }
 button.cta.commit { animation: commitPulse 3s ease-in-out infinite; }
-@keyframes commitPulse { 0%,100% { box-shadow: 0 8px 22px rgba(200,16,46,.32); } 50% { box-shadow: 0 10px 34px rgba(200,16,46,.5); } }
+@keyframes commitPulse { 0%,100% { box-shadow: 0 8px 22px rgba(225,29,46,.36); } 50% { box-shadow: 0 12px 40px rgba(225,29,46,.62); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
