@@ -44,6 +44,7 @@ try {
 
   const A = await mk('Ana'), Bp = await mk('Ben');
   ok(A.id && A.secret && Bp.id !== A.id, 'register mints distinct id+secret');
+  ok(A.seq >= 1 && Bp.seq === A.seq + 1, 'founder seq increments with join order');
 
   r = await j('/api/players/me/summary');
   ok(r.status === 401, 'me/* without secret → 401');

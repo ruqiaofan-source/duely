@@ -207,6 +207,28 @@ const complementLabel = (b) => b.backedOutcome === 'DRAW' ? "it's not a draw" : 
 let CONFIG = { brand: 'Duely', live: false };
 let PREFILL = null; // for rematch
 
+// rank fixtures for the Home "Big games" spotlight: tournament > big competition,
+// big-club bonus, near-kickoff bonus. Threshold keeps filler fixtures out.
+const COMP_W = [[/world cup|fifa|\bwc\b/i, 100], [/champions league/i, 80], [/europa/i, 55], [/premier league/i, 50], [/la ?liga/i, 45], [/serie a/i, 42], [/bundesliga/i, 42], [/eredivisie/i, 40], [/ligue 1/i, 38]];
+const BIG_CLUBS = /man(chester)? (city|united)|liverpool|arsenal|chelsea|tottenham|newcastle|real madrid|barcelona|atl[ée]tico|bayern|dortmund|leverkusen|psg|paris|inter|ac milan|juventus|napoli|ajax|psv|feyenoord|benfica|porto|celtic|rangers|galatasaray|boca|river|flamengo/i;
+function pickBigGames(matches, n = 3) {
+  const now = Date.now(), soon = 3 * 86400000;
+  return (matches || [])
+    .map((mm) => {
+      let sc = 0;
+      for (const [re, w] of COMP_W) if (re.test(mm.competition || '')) { sc += w; break; }
+      if (BIG_CLUBS.test(mm.home)) sc += 25;
+      if (BIG_CLUBS.test(mm.away)) sc += 25;
+      const t = new Date(mm.utcDate || 0).getTime();
+      if (t > now && t - now < soon) sc += 10;
+      return { ...mm, _score: sc };
+    })
+    .filter((mm) => mm._score >= 60)
+    .sort((a, b) => (b._score - a._score) || (new Date(a.utcDate || 0) - new Date(b.utcDate || 0)))
+    .slice(0, n);
+}
+const kickoffTxt = (iso) => { try { return new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
+
 // ---------------------------------------------------------------------------
 // Confetti (tiny, zero-dep) + count-up
 // ---------------------------------------------------------------------------
@@ -329,6 +351,7 @@ function renderOnboarding(next) {
       <button class="cta" id="go">Let's go →</button>
       <button class="muted-link" id="signin">I already have an account → sign in</button>
     </div>
+    <div class="banner" style="border-style:solid;border-color:rgba(255,200,61,.35);color:var(--text)">🔰 Early days — join now and you're a <b style="color:var(--gold)">Founder</b>: your number's stamped on your profile and your perks carry over when Pro launches.</div>
     <div class="banner">Quick start needs just a name. Sign in (Google or email) to save your record across devices.</div>`;
   $('#go').addEventListener('click', async () => {
     const name = $('#name').value.trim();
@@ -348,11 +371,14 @@ function renderOnboarding(next) {
 // ---------------------------------------------------------------------------
 async function renderHome() {
   const m = me.get();
+  const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
   let s;
   try { s = await api('/players/me/summary'); }
   catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] }; }
   let lg = { leagues: [] };
   try { lg = await api('/players/me/leagues'); } catch {}
+  let big = [];
+  try { const mr = await matchP; if (mr) big = pickBigGames(mr.matches); } catch {}
 
   const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
   const hideStreaks = prefs.get().hideStreaks;
@@ -417,6 +443,18 @@ async function renderHome() {
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
     </div>
 
+    ${big.length ? `<div class="card">
+      <div class="cardhead"><h2>Big games coming up 🔥</h2></div>
+      ${big.map((g) => `
+        <div class="riv-row" data-callit="${esc(g.id)}" role="button" tabindex="0" style="cursor:pointer">
+          <div>
+            <div class="nm">${esc(g.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(g.away)}</div>
+            <div class="sm">${esc(g.competition || 'Match')} · ${kickoffTxt(g.utcDate)}</div>
+          </div>
+          <button class="linkbtn" data-callit="${esc(g.id)}" style="font-weight:800">Call it →</button>
+        </div>`).join('')}
+    </div>` : ''}
+
     <div class="card">
       <h2>Rivalries</h2>
       ${rivalriesHtml}
@@ -439,6 +477,8 @@ async function renderHome() {
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  app.querySelectorAll('[data-callit]').forEach((el) =>
+    el.addEventListener('click', (e) => { e.stopPropagation(); track('big_game_tap', { match: el.dataset.callit }); PREFILL = { matchId: el.dataset.callit }; renderCreate(); }));
   app.querySelectorAll('[data-rivid]').forEach((row) =>
     row.addEventListener('click', (e) => { if (e.target.closest('[data-rematch]')) return; openRivalrySheet(row.dataset.rivid, row.dataset.rivname); }));
   app.querySelectorAll('[data-rematch]').forEach((b) =>
@@ -478,7 +518,9 @@ async function renderDuels() {
 // Profile tab — record, rivalries, identity
 // ---------------------------------------------------------------------------
 async function renderProfile() {
-  const m = me.get();
+  let m = me.get();
+  // players saved before founder numbers existed → refresh once to pick up seq
+  if (m && m.seq == null) { try { const p = await api('/players/me'); me.save(p); m = p; } catch {} }
   let s;
   try { s = await api('/players/me/summary'); }
   catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [] }; }
@@ -490,7 +532,7 @@ async function renderProfile() {
     : `<div class="card"><div class="cardhead"><h2>Account</h2></div><p class="sub" style="margin:0 0 10px">You're playing as a guest on this device. Save your record so it survives across devices.</p><button class="cta" id="signin">Sign in / create account</button></div>`;
   app.innerHTML = `
     <div class="card">
-      <div class="cardhead"><h2>${esc(m.name)}</h2><button class="linkbtn" id="rename">Edit name</button></div>
+      <div class="cardhead"><h2>${esc(m.name)} ${m.seq ? `<span class="tag-rival" style="background:rgba(255,200,61,.18);color:var(--gold)">🔰 FOUNDER #${m.seq}</span>` : ''}</h2><button class="linkbtn" id="rename">Edit name</button></div>
       <div class="stats">
         <div class="stat"><div class="n">${s.w}–${s.l}</div><div class="k">Record</div></div>
         <div class="stat"><div class="n ${netClass}">${netTxt(s.net, s.currency)}</div><div class="k">Net</div></div>
@@ -713,6 +755,8 @@ async function renderCreate() {
   $('#sheetClose').addEventListener('click', closeSheet);
 
   if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; }
+  // one-tap from the Home "Big games" card → land with that fixture pre-picked
+  if (PREFILL?.matchId && matches.some((x) => x.id === PREFILL.matchId)) sel.value = PREFILL.matchId;
   onMatchChange();
 
   $('#createBtn').addEventListener('click', async () => {
@@ -1189,7 +1233,7 @@ document.getElementById('sheetScrim')?.addEventListener('click', (e) => { if (e.
 // Enter/Space activate keyboard-focused rows (role=button divs)
 app.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
-  const t = e.target.closest('[role="button"][data-bet],[role="button"][data-league],[role="button"][data-rivid]');
+  const t = e.target.closest('[role="button"][data-bet],[role="button"][data-league],[role="button"][data-rivid],[role="button"][data-callit]');
   if (t) { e.preventDefault(); t.click(); }
 });
 

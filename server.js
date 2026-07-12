@@ -92,6 +92,10 @@ async function initData() {
   if (!db.leagues) db.leagues = {};
   if (!db.events) db.events = [];
   if (!db.stats) db.stats = {};
+  // backfill founder seq for players created before it existed (join order)
+  const ps = Object.values(db.players);
+  let maxSeq = Math.max(0, ...ps.map((p) => p.seq || 0));
+  ps.filter((p) => !p.seq).sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)).forEach((p) => { p.seq = ++maxSeq; });
   rebuildSecretIndex();
   seedHistory();
 }
@@ -136,7 +140,9 @@ function authPlayer(req) {
 }
 function createPlayer(name) {
   const id = newId();
-  const p = { id, secret: newSecret(), name: String(name || '').slice(0, 40) || 'Player', createdAt: new Date().toISOString() };
+  // seq = honest join order ("Founder #N") — never reused, never faked
+  const seq = Math.max(0, ...Object.values(db.players).map((x) => x.seq || 0)) + 1;
+  const p = { id, secret: newSecret(), name: String(name || '').slice(0, 40) || 'Player', seq, createdAt: new Date().toISOString() };
   db.players[id] = p;
   if (_secretIndex) _secretIndex[p.secret] = id;
   return p;
@@ -145,7 +151,7 @@ const playerByEmail = (email) => Object.values(db.players).find((p) => p.email &
 const playerByGoogle = (sub) => Object.values(db.players).find((p) => p.googleSub === sub) || null;
 const nameOf = (id) => (db.players[id] ? db.players[id].name : null);
 // what the owner gets back (includes the secret); everyone else gets publicPlayer
-const selfPlayer = (p) => ({ id: p.id, name: p.name, secret: p.secret, email: p.email || null, verified: Boolean(p.emailVerified), hasPassword: Boolean(p.passHash), google: Boolean(p.googleSub) });
+const selfPlayer = (p) => ({ id: p.id, name: p.name, secret: p.secret, seq: p.seq || null, email: p.email || null, verified: Boolean(p.emailVerified), hasPassword: Boolean(p.passHash), google: Boolean(p.googleSub) });
 
 function hashPw(pw) {
   const salt = crypto.randomBytes(16).toString('hex');
