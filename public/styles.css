@@ -271,8 +271,9 @@ button.ghost {
   100% { transform: translate3d(-2%,2%,0) scale(1.04);   opacity: .8; }
 }
 .amb-spot {
-  background: radial-gradient(340px 340px at var(--mx,50%) var(--my,12%), rgba(20,224,200,.12), transparent 72%);
-  transition: background .12s linear;
+  position: fixed; top: 0; left: 0; width: 680px; height: 680px;
+  background: radial-gradient(340px 340px at center, rgba(20,224,200,.14), transparent 72%);
+  will-change: transform; transform: translate3d(calc(50vw - 340px), -280px, 0); pointer-events: none;
 }
 .amb-grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -315,7 +316,8 @@ button.ghost {
 
 /* commit glow — the single idle "act here" pulse, reserved for the commit CTA */
 button.cta { position: relative; overflow: hidden; }
-button.cta.commit { animation: commitPulse 3s ease-in-out infinite; }
+/* draw the eye a few times, then rest — no perpetual box-shadow repaint on idle */
+button.cta.commit { animation: commitPulse 3s ease-in-out 3; }
 @keyframes commitPulse { 0%,100% { box-shadow: 0 8px 22px rgba(225,29,46,.36); } 50% { box-shadow: 0 12px 40px rgba(225,29,46,.62); } }
 
 @media (prefers-reduced-motion: reduce) {

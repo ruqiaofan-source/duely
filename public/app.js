@@ -120,8 +120,36 @@ function wireReactions(id) {
 async function doReact(id, emoji) {
   const m = me.get(); if (!m) return toast('Add your name first');
   haptic(10);
-  try { await api('/bets/' + id + '/react', { method: 'POST', body: JSON.stringify({ emoji }) }); renderBet(id); }
-  catch (e) { toast(e.message); }
+  // optimistic: toggle my reaction locally and repaint just the strip (no full-screen
+  // spinner wipe, no scroll jump). Reconcile against the server's authoritative bet.
+  const bet = _betCache[id];
+  const container = document.querySelector('.reacts')?.parentElement;
+  if (bet && container) {
+    bet.reactions = bet.reactions || [];
+    const i = bet.reactions.findIndex((r) => r.byId === m.id && r.emoji === emoji);
+    if (i >= 0) bet.reactions.splice(i, 1); else bet.reactions.push({ byId: m.id, by: m.name, emoji });
+    repaintReacts(id, bet);
+  }
+  try {
+    const fresh = await api('/bets/' + id + '/react', { method: 'POST', body: JSON.stringify({ emoji }) });
+    _betCache[id] = fresh;
+    if (container) repaintReacts(id, fresh);
+  } catch (e) {
+    toast(e.message);
+    if (bet && container) { // revert
+      const i = bet.reactions.findIndex((r) => r.byId === m.id && r.emoji === emoji);
+      if (i >= 0) bet.reactions.splice(i, 1); else bet.reactions.push({ byId: m.id, by: m.name, emoji });
+      repaintReacts(id, bet);
+    }
+  }
+}
+function repaintReacts(id, bet) {
+  const old = document.querySelector('.reacts'); if (!old) return;
+  const pop = document.getElementById('reactPop');
+  const wrap = document.createElement('div'); wrap.innerHTML = reactionsHtml(bet);
+  old.replaceWith(wrap.firstElementChild);
+  if (pop) pop.replaceWith(wrap.lastElementChild);
+  wireReactions(id);
 }
 
 // press-and-hold commit — micro-friction as ceremony (the deliberate inverse of
@@ -255,6 +283,8 @@ const complementLabel = (b) => b.backedOutcome === 'DRAW' ? "it's not a draw" : 
 let CONFIG = { brand: 'Duely', live: false };
 let PREFILL = null; // for rematch
 let RECWIN = 'week'; // high-scores window: week | all
+const _betCache = {}; // last-fetched bet per id (optimistic reactions reconcile against it)
+let _gen = 0; // render generation — a newer render invalidates a slower older one
 
 // rank fixtures for the Home "Big games" spotlight: tournament > big competition,
 // big-club bonus, near-kickoff bonus. Threshold keeps filler fixtures out.
@@ -419,6 +449,7 @@ function renderOnboarding(next) {
 // Home dashboard — the rivalry hub
 // ---------------------------------------------------------------------------
 async function renderHome() {
+  const my = ++_gen; const live = () => my === _gen;
   const m = me.get();
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
   const recP = api('/records?window=' + RECWIN).catch(() => null);
@@ -429,6 +460,7 @@ async function renderHome() {
   try { const mr = await matchP; if (mr) big = pickBigGames(mr.matches); } catch {}
   let rec = null;
   try { rec = await recP; } catch {}
+  if (!live()) return; // superseded by a newer navigation
   const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
   const recHtml = rec ? [
     prefs.get().hideStreaks ? '' : recRow('🔥', 'Hot streak', rec.streak && `${esc(rec.streak.name)} · ${rec.streak.count}W`),
@@ -559,6 +591,7 @@ async function renderHome() {
 // Duels tab — all your bets
 // ---------------------------------------------------------------------------
 async function renderDuels() {
+  const my = ++_gen; const live = () => my === _gen;
   const m = me.get();
   let d = { active: [], history: [] };
   try { d = await api('/players/me/bets'); } catch {}
@@ -584,6 +617,7 @@ async function renderDuels() {
 // Profile tab — record, rivalries, identity
 // ---------------------------------------------------------------------------
 async function renderProfile() {
+  const my = ++_gen; const live = () => my === _gen;
   let m = me.get();
   // players saved before founder numbers existed → refresh once to pick up seq
   if (m && m.seq == null) { try { const p = await api('/players/me'); me.save(p); m = p; } catch {} }
@@ -657,6 +691,7 @@ function renderLeagueHub(prefillName) {
 }
 
 async function renderLeague(code, full) {
+  const my = ++_gen; const live = () => my === _gen;
   app.innerHTML = '<div class="spin">Loading…</div>';
   const m = me.get();
   let lg;
@@ -812,7 +847,11 @@ async function renderCreate() {
     const p = parseLine($('#lineInput')?.value);
     const lineLbl = p.line || (p.stake > 0 ? sym(p.currency) + p.stake : 'bragging rights');
     const el = $('#previewLine');
-    if (el) el.innerHTML = `You back <b style="color:var(--text)">${esc(backedLbl)}</b> — <b style="color:var(--green)">${esc(lineLbl)}</b> on the line — they take <b style="color:var(--text)">${esc(compl)}</b>`;
+    // both outcomes, honestly — real books only ever show the upside; showing the
+    // downside too is DSA-safe AND funnier (the forfeit is half the banter)
+    if (el) el.innerHTML =
+      `<span style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span style="width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none"></span> You back <b style="color:var(--text)">${esc(backedLbl)}</b></span>`
+      + `<span style="display:flex;gap:8px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:var(--purple);flex:none"></span> They take <b style="color:var(--text)">${esc(compl)}</b> · <b style="color:var(--green)">${esc(lineLbl)}</b> on it</span>`;
   };
   const renderSeg = () => {
     const mm = matches.find((x) => x.id === sel.value);
@@ -886,15 +925,19 @@ function sealThen(next, sub) {
 // A specific bet
 // ---------------------------------------------------------------------------
 async function renderBet(id, opts = {}) {
+  const my = ++_gen; const live = () => my === _gen;
   app.innerHTML = '<div class="spin">Loading…</div>';
   let bet;
   try { bet = await api('/bets/' + id); }
   catch (e) {
+    if (!live()) return; // a newer navigation superseded this render
     if (e.status === 404) { app.innerHTML = `<div class="card"><h2>Bet not found</h2><p class="sub">This link looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
     app.innerHTML = `<div class="card"><h2>Can't reach Duely</h2><p class="sub">Looks like a connection blip — the bet's still there.</p><button class="cta" id="retryBet">Try again</button></div>`;
     $('#retryBet').addEventListener('click', () => renderBet(id));
     return;
   }
+  if (!live()) return; // stale render — a newer view already won
+  _betCache[id] = bet;
 
   const role = roleStore.get(id);
   const m = me.get();
@@ -1386,17 +1429,16 @@ route();
     let lastPointer = -9999, rafId = null;
     window.addEventListener('pointermove', (e) => {
       lastPointer = performance.now();
-      spot.style.setProperty('--mx', (e.clientX / innerWidth * 100).toFixed(1) + '%');
-      spot.style.setProperty('--my', (e.clientY / innerHeight * 100).toFixed(1) + '%');
+      spot.style.transform = 'translate3d(' + (e.clientX - 340) + 'px,' + (e.clientY - 340) + 'px,0)';
     }, { passive: true });
-    // when the cursor is idle, the floodlight drifts on its own — paused on hidden tabs
+    // when the cursor is idle, the floodlight drifts on its own — paused on hidden tabs.
+    // writes only transform (compositor-only, no layout/paint) on a fixed-size blob.
     const drift = (t) => {
       if (performance.now() - lastPointer > 1400) {
         const s = t / 1000;
-        const mx = 50 + Math.sin(s * 0.16) * 32 + Math.sin(s * 0.07) * 8;
-        const my = 24 + Math.cos(s * 0.12) * 18;
-        spot.style.setProperty('--mx', mx.toFixed(1) + '%');
-        spot.style.setProperty('--my', my.toFixed(1) + '%');
+        const mx = (50 + Math.sin(s * 0.16) * 32 + Math.sin(s * 0.07) * 8) / 100 * innerWidth;
+        const my = (24 + Math.cos(s * 0.12) * 18) / 100 * innerHeight;
+        spot.style.transform = 'translate3d(' + (mx - 340) + 'px,' + (my - 340) + 'px,0)';
       }
       rafId = requestAnimationFrame(drift);
     };
