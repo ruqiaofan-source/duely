@@ -16,7 +16,7 @@ const api = async (path, opts = {}) => {
     // clear it so the user can re-onboard instead of being stuck "signed in" with every
     // write failing. Auth endpoints excluded: their 401s are credential failures, not
     // session death, and must not nuke a valid guest identity.
-    if (res.status === 401 && m && m.secret && !path.startsWith('/auth/')) { me.clear(); try { renderHeader(); } catch {} }
+    if (res.status === 401 && m && m.secret && !path.startsWith('/auth/')) { me.clear(); try { renderHeader(); } catch {} setTimeout(() => { try { route(); } catch {} }, 0); }
     const err = new Error(data.error || 'Something went wrong');
     err.status = res.status;
     throw err;
@@ -39,6 +39,7 @@ function track(ev, props) { try { if (window.posthog) window.posthog.capture(ev,
 
 // ---- bottom sheet (accessible: labelled, focus-trapped, Escape-to-close) ----
 let _sheetReturnFocus = null;
+let _sheetURL = null;
 const _sheetFocusables = (panel) => [...panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.disabled && el.offsetParent !== null);
 function _sheetKey(e) {
   const scrim = document.getElementById('sheetScrim');
@@ -63,6 +64,7 @@ function openSheet(html) {
   const h = panel.querySelector('h2');
   if (h) { if (!h.id) h.id = 'sheetTitle'; panel.setAttribute('aria-labelledby', h.id); }
   _sheetReturnFocus = document.activeElement;
+  _sheetURL = location.href;
   scrim.classList.add('open'); scrim.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
   const f = _sheetFocusables(panel);
@@ -155,8 +157,8 @@ function wireComments(id) {
 // identity (server-authoritative: id is public, secret is the bearer token)
 const me = {
   get() { try { return JSON.parse(localStorage.getItem('settle_me') || 'null'); } catch { return null; } },
-  save(p) { if (p && p.id && p.secret) localStorage.setItem('settle_me', JSON.stringify(p)); },
-  clear() { localStorage.removeItem('settle_me'); },
+  save(p) { try { if (p && p.id && p.secret) localStorage.setItem('settle_me', JSON.stringify(p)); } catch {} },
+  clear() { try { localStorage.removeItem('settle_me'); } catch {} },
 };
 // mint a player on first use, or rename (id + secret stay stable across renames)
 async function register(name) { const p = await api('/players', { method: 'POST', body: JSON.stringify({ name }) }); me.save(p); return p; }
@@ -189,7 +191,7 @@ function openLoginSheet(onDone) {
       <input id="loginEmail" type="email" inputmode="email" placeholder="you@example.com" autocomplete="email" />
       <label for="loginPw">Password</label>
       <input id="loginPw" type="password" placeholder="6+ characters" autocomplete="current-password" />
-      <p class="sub" id="loginErr" style="color:var(--red);min-height:16px;margin:6px 0 0"></p>
+      <p class="sub" id="loginErr" style="color:#FF9AA6;min-height:16px;margin:6px 0 0"></p>
     </div>
     <div class="sheet-foot"><button class="cta commit" id="loginBtn">Continue with email →</button></div>
   `);
@@ -223,12 +225,12 @@ function openLoginSheet(onDone) {
 }
 const roleStore = {
   get: (id) => { try { return JSON.parse(localStorage.getItem('settle_roles') || '{}')[id]; } catch { return null; } },
-  set: (id, role) => { let m = {}; try { m = JSON.parse(localStorage.getItem('settle_roles') || '{}'); } catch {} m[id] = role; localStorage.setItem('settle_roles', JSON.stringify(m)); },
+  set: (id, role) => { let m = {}; try { m = JSON.parse(localStorage.getItem('settle_roles') || '{}'); } catch {} m[id] = role; try { localStorage.setItem('settle_roles', JSON.stringify(m)); } catch {} },
 };
 // local preferences (e.g. hide streaks — a humane opt-out for users who find them stressful)
 const prefs = {
   get() { try { return JSON.parse(localStorage.getItem('settle_prefs') || '{}'); } catch { return {}; } },
-  set(k, v) { const p = prefs.get(); p[k] = v; localStorage.setItem('settle_prefs', JSON.stringify(p)); },
+  set(k, v) { const p = prefs.get(); p[k] = v; try { localStorage.setItem('settle_prefs', JSON.stringify(p)); } catch {} },
 };
 
 const outcomeLabel = (b, code) => code === 'HOME' ? `${b.home} win` : code === 'AWAY' ? `${b.away} win` : code === 'DRAW' ? 'Draw' : code;
@@ -236,6 +238,7 @@ const complementLabel = (b) => b.backedOutcome === 'DRAW' ? "it's not a draw" : 
 
 let CONFIG = { brand: 'Duely', live: false };
 let PREFILL = null; // for rematch
+let RECWIN = 'week'; // high-scores window: week | all
 
 // rank fixtures for the Home "Big games" spotlight: tournament > big competition,
 // big-club bonus, near-kickoff bonus. Threshold keeps filler fixtures out.
@@ -318,7 +321,7 @@ function renderHeader() {
   if (!h) return;
   h.innerHTML = m ? `<div class="idchip" id="idchip"><span class="av">${initials(m.name)}</span>${esc(m.name)}</div>` : '';
   const chip = $('#idchip');
-  if (chip) chip.addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+  if (chip) chip.addEventListener('click', () => { if (location.pathname !== '/') history.pushState({}, '', '/'); route(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -402,11 +405,22 @@ function renderOnboarding(next) {
 async function renderHome() {
   const m = me.get();
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
+  const recP = api('/records?window=' + RECWIN).catch(() => null);
   const [sRes, lgRes] = await Promise.allSettled([api('/players/me/summary'), api('/players/me/leagues')]);
   const s = sRes.status === 'fulfilled' ? sRes.value : { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] };
   const lg = lgRes.status === 'fulfilled' ? lgRes.value : { leagues: [] };
   let big = [];
   try { const mr = await matchP; if (mr) big = pickBigGames(mr.matches); } catch {}
+  let rec = null;
+  try { rec = await recP; } catch {}
+  const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
+  const recHtml = rec ? [
+    prefs.get().hideStreaks ? '' : recRow('🔥', 'Hot streak', rec.streak && `${esc(rec.streak.name)} · ${rec.streak.count}W`),
+    recRow('⚔️', 'Most duels', rec.mostDuels && `${esc(rec.mostDuels.name)} · ${rec.mostDuels.duels}`),
+    recRow('🎯', 'Best record', rec.bestRecord && `${esc(rec.bestRecord.name)} · ${rec.bestRecord.w}-${rec.bestRecord.l}`),
+    recRow('😅', 'Biggest bottle', rec.biggestBottle && `${esc(rec.biggestBottle.name)} · ${rec.biggestBottle.l} Ls`),
+    recRow('🥊', 'Fiercest rivalry', rec.fiercest && `${esc(rec.fiercest.a)} v ${esc(rec.fiercest.b)} · ${rec.fiercest.games}`),
+  ].join('') : '';
 
   const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
   const hideStreaks = prefs.get().hideStreaks;
@@ -484,6 +498,11 @@ async function renderHome() {
         </div>`).join('')}
     </div>` : ''}
 
+    ${recHtml ? `<div class="card">
+      <div class="cardhead"><h2>High scores 🏆</h2><button class="linkbtn" id="recWin">${RECWIN === 'week' ? 'This week ▾' : 'All time ▾'}</button></div>
+      ${recHtml}
+    </div>` : ''}
+
     <div class="card">
       <h2>Rivalries</h2>
       ${rivalriesHtml}
@@ -514,6 +533,7 @@ async function renderHome() {
     b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
   $('#newLeague').addEventListener('click', () => renderLeagueHub());
   const sl = $('#startLeague'); if (sl) sl.addEventListener('click', () => renderLeagueHub());
+  const rw = $('#recWin'); if (rw) rw.addEventListener('click', () => { RECWIN = RECWIN === 'week' ? 'all' : 'week'; renderHome(); });
   const el2 = $('#escalateLeague'); if (el2) el2.addEventListener('click', () => renderLeagueHub(`The ${hot.opponent} derby`));
   app.querySelectorAll('[data-league]').forEach((b) =>
     b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
@@ -1298,7 +1318,8 @@ document.getElementById('tabbar')?.addEventListener('click', (e) => {
   const t = e.target.closest('.tab'); if (!t) return;
   haptic(8);
   const tab = t.dataset.tab;
-  history.pushState({}, '', tab === 'home' ? '/' : tab === 'league' ? '/leagues' : '/' + tab);
+  const target = tab === 'home' ? '/' : tab === 'league' ? '/leagues' : '/' + tab;
+  if (location.pathname !== target) history.pushState({}, '', target);
   route();
 });
 document.getElementById('sheetScrim')?.addEventListener('click', (e) => { if (e.target.id === 'sheetScrim') closeSheet(); });
@@ -1310,7 +1331,11 @@ app.addEventListener('keydown', (e) => {
   if (t) { e.preventDefault(); t.click(); }
 });
 
-window.addEventListener('popstate', route);
+window.addEventListener('popstate', () => {
+  const scrim = document.getElementById('sheetScrim');
+  if (scrim && scrim.classList.contains('open')) { closeSheet(); if (_sheetURL) history.pushState({}, '', _sheetURL); return; }
+  route();
+});
 route();
 
 // floodlights intro + ambient spotlight that tracks the pointer

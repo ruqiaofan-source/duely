@@ -63,6 +63,7 @@ if (DATABASE_URL) {
 }
 
 let db = { players: {}, bets: {}, leagues: {}, events: [], stats: {} };
+let _decided = null; // memoized decided-bets list; invalidated on every save
 
 // serialized write-through (latest state always wins, writes never overlap)
 let _writing = false, _dirty = false;
@@ -74,6 +75,7 @@ async function pgSave() {
   finally { _writing = false; if (_dirty) { _dirty = false; pgSave(); } }
 }
 function saveData() {
+  _decided = null;
   if (pool) { pgSave(); return; }
   const tmp = `${DATA_FILE}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
@@ -226,10 +228,21 @@ const pinTournament = (list) => [...list].sort((a, b) => (isTournament(b) - isTo
 async function getMatches() {
   if (FOOTBALL_TOKEN) {
     if (_matchCache.data && Date.now() - _matchCache.t < 300000) return _matchCache.data; // 5-min cache to respect the 10/min upstream limit
-    try {
-      const live = await fetchLiveMatches();
-      if (live.length) { _matchCache = { t: Date.now(), data: pinTournament(live) }; return _matchCache.data; }
-    } catch (e) { console.warn('live fetch failed, using demo:', e.message); }
+    if (Date.now() - (_matchCache.failT || 0) < 60000) return _matchCache.data || demoMatches(); // failure negative-cache
+    if (_matchCache.pending) return _matchCache.pending; // stampede guard: one upstream fetch at a time
+    _matchCache.pending = (async () => {
+      try {
+        const live = await fetchLiveMatches();
+        if (live.length) { _matchCache.t = Date.now(); _matchCache.data = pinTournament(live); return _matchCache.data; }
+        _matchCache.failT = Date.now();
+        return _matchCache.data || demoMatches(); // stale real fixtures beat demo ones
+      } catch (e) {
+        console.warn('live fetch failed:', e.message);
+        _matchCache.failT = Date.now();
+        return _matchCache.data || demoMatches();
+      } finally { _matchCache.pending = null; }
+    })();
+    return _matchCache.pending;
   }
   return demoMatches();
 }
@@ -308,7 +321,7 @@ function addPundit(bet, phase) {
 // ---------------------------------------------------------------------------
 // Stats engine (records computed by player id; names are display only)
 // ---------------------------------------------------------------------------
-const decidedBets = () => Object.values(db.bets).filter((b) => b.status === 'resolved' || b.status === 'settled');
+const decidedBets = () => (_decided ||= Object.values(db.bets).filter((b) => b.status === 'resolved' || b.status === 'settled'));
 const involvesId = (b, id) => b.proposerId === id || b.opponentId === id;
 const otherId = (b, id) => (b.proposerId === id ? b.opponentId : b.proposerId);
 const nameForId = (b, id) => (b.proposerId === id ? b.proposerName : b.opponentName); // display name straight off the bet
@@ -767,6 +780,42 @@ async function handleApi(req, res, url) {
         resolveRate: accepted ? +(resolved / accepted).toFixed(2) : 0,
       },
       stats: s,
+    });
+  }
+
+  // GET /api/records?window=week|all — the high-scores board: many small crowns,
+  // time-windowed so the race resets and anyone can hold one THIS week.
+  if (req.method === 'GET' && parts[1] === 'records') {
+    const win = url.searchParams.get('window') === 'all' ? 'all' : 'week';
+    const since = win === 'week' ? Date.now() - 7 * 86400000 : 0;
+    const rel = decidedBets().filter((b) => new Date(b.resolvedAt || 0).getTime() >= since);
+    const agg = {};
+    for (const b of rel) for (const pid of [b.proposerId, b.opponentId]) {
+      if (!pid) continue;
+      const a = (agg[pid] = agg[pid] || { w: 0, l: 0 });
+      if (winnerId(b) === pid) a.w++; else a.l++;
+    }
+    const rows = Object.entries(agg).map(([pid, a]) => ({ name: nameOf(pid) || '?', w: a.w, l: a.l, duels: a.w + a.l }));
+    const byP = {};
+    for (const b of [...rel].sort((a, c) => new Date(a.resolvedAt || 0) - new Date(c.resolvedAt || 0)))
+      for (const pid of [b.proposerId, b.opponentId]) {
+        if (!pid) continue;
+        const st = (byP[pid] = byP[pid] || { run: 0, max: 0 });
+        if (winnerId(b) === pid) { st.run++; if (st.run > st.max) st.max = st.run; } else st.run = 0;
+      }
+    let streak = null;
+    for (const [pid, st] of Object.entries(byP)) if (st.max >= 2 && (!streak || st.max > streak.count)) streak = { name: nameOf(pid) || '?', count: st.max };
+    const pairs = {};
+    for (const b of rel) { const k = [b.proposerId, b.opponentId].sort().join('|'); pairs[k] = (pairs[k] || 0) + 1; }
+    const fp = Object.entries(pairs).sort((x, y) => y[1] - x[1])[0];
+    const fiercest = fp && fp[1] >= 2 ? { a: nameOf(fp[0].split('|')[0]) || '?', b: nameOf(fp[0].split('|')[1]) || '?', games: fp[1] } : null;
+    const sortTop = (key, min) => rows.filter((r) => r[key] > 0 && r.duels >= (min || 1)).sort((x, y) => y[key] - x[key])[0] || null;
+    return sendJson(res, 200, {
+      window: win, streak,
+      mostDuels: sortTop('duels'),
+      bestRecord: rows.filter((r) => r.duels >= 3).sort((x, y) => (y.w / y.duels) - (x.w / x.duels))[0] || null,
+      biggestBottle: sortTop('l', 2),
+      fiercest,
     });
   }
 

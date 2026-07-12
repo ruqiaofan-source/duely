@@ -127,6 +127,10 @@ try {
   r = await j('/api/players/me/summary', {}, A.secret);
   ok(r.data.platformRecord && r.data.platformRecord.name === 'Ana' && r.data.platformRecord.count >= 2, 'platform streak record surfaces (real wins only)');
 
+  // high-scores board (windowed crowns, real data only)
+  r = await j('/api/records?window=all');
+  ok(r.status === 200 && r.data.streak && r.data.streak.name === 'Ana' && r.data.mostDuels && r.data.biggestBottle, 'high-scores board computes windowed crowns');
+
   // cards render to PNG; profanity masked on public surfaces only
   for (const [label, url] of [['challenge', `/card/${b3}.png`], ['result', `/card/${b1}.png`], ['story', `/storycard/${b1}.png`], ['league', `/lcard/${code}.png`]]) {
     const res = await fetch(B + url); const buf = await res.arrayBuffer();

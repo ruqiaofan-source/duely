@@ -93,7 +93,8 @@ input:focus, select:focus { border-color: var(--teal); }
 .seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .seg button {
   background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
-  border-radius: 14px; padding: 13px 6px; font-size: 13.5px; font-weight: 700; cursor: pointer;
+  border-radius: 14px; padding: 11px 5px; font-size: 13px; font-weight: 700; cursor: pointer;
+  white-space: normal; line-height: 1.2; min-height: 44px;
   transition: all .14s ease;
 }
 .seg button.active {
@@ -171,7 +172,7 @@ button.ghost {
 /* ---------- dashboard stats ---------- */
 .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 4px 0 6px; }
 .stat { background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; padding: 14px 10px; text-align: center; }
-.stat .n { font-family: "Anton", sans-serif; font-size: 26px; letter-spacing: .5px; font-variant-numeric: tabular-nums; line-height: 1; }
+.stat .n { font-family: "Anton", sans-serif; font-size: clamp(19px, 6.8vw, 26px); letter-spacing: .5px; font-variant-numeric: tabular-nums; line-height: 1; }
 .stat .k { color: var(--muted); font-size: 11px; margin-top: 6px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700; }
 .stat .n.pos { color: var(--green); } .stat .n.neg { color: var(--loss); } .stat .n.gold { color: var(--gold); }
 
@@ -221,7 +222,7 @@ button.ghost {
 
 #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 
-.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 11px 18px; border-radius: 999px; font-weight: 800; font-size: 13.5px; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 70; }
+.toast { position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 11px 18px; border-radius: 999px; font-weight: 800; font-size: 13.5px; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 70; }
 .toast.show { opacity: 1; }
 
 .foot { text-align: center; color: var(--muted-2); font-size: 11.5px; margin-top: 24px; line-height: 1.6; }
