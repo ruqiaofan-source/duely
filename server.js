@@ -28,6 +28,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const crypto = require('crypto');
 const cards = require('./cards');
 
@@ -648,6 +649,9 @@ function readBody(req) {
   });
 }
 const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+// cache policy: the HTML shell must stay fresh (it's re-served with OG meta on share
+// routes), but app.js/styles.css can be briefly cached and the favicon for a day.
+const STATIC_CACHE = { '.css': 'public, max-age=300', '.js': 'public, max-age=300', '.svg': 'public, max-age=86400', '.ico': 'public, max-age=86400', '.html': 'no-cache' };
 function serveStatic(req, res) {
   let urlPath = req.url.split('?')[0];
   if (urlPath === '/') urlPath = '/index.html';
@@ -655,7 +659,17 @@ function serveStatic(req, res) {
   if (!filePath.startsWith(PUBLIC)) { res.writeHead(403); return res.end('Forbidden'); }
   fs.readFile(filePath, (err, buf) => {
     if (err) { res.writeHead(404); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': STATIC_TYPES[path.extname(filePath)] || 'application/octet-stream' });
+    const ext = path.extname(filePath);
+    const type = STATIC_TYPES[ext] || 'application/octet-stream';
+    const headers = { 'Content-Type': type, 'Cache-Control': STATIC_CACHE[ext] || 'no-cache' };
+    // gzip text assets when the client accepts it (app.js ~77KB → ~20KB on the wire)
+    const isText = /^(text\/|image\/svg|application\/(javascript|json))/.test(type);
+    if (isText && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+      headers['Content-Encoding'] = 'gzip';
+      headers['Vary'] = 'Accept-Encoding';
+      buf = zlib.gzipSync(buf);
+    }
+    res.writeHead(200, headers);
     res.end(buf);
   });
 }

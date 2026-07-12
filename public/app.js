@@ -294,13 +294,15 @@ async function route() {
   const id = getBetId();
   const code = getLeagueCode();
   app.innerHTML = '<div class="spin">Loading…</div>';
-  try { CONFIG = await api('/config'); } catch {}
+  // config off the critical path: only the bet view needs it before first render
+  // (auto-resolve UI reads CONFIG.live); everything else reads it lazily later
+  const cfgP = api('/config').then((c) => (CONFIG = c)).catch(() => {});
   // migrate any pre-accounts identity ({name, token}) to a server-issued player
   let _me = me.get();
   if (_me && (!_me.id || !_me.secret)) { try { _me = await register(_me.name || 'Player'); } catch { me.clear(); _me = null; } }
   renderHeader();
   if (_me && window.posthog) { try { posthog.identify(_me.id, { name: _me.name, email: _me.email || undefined }); } catch {} }
-  if (id) { setTab(null); return renderBet(id); }
+  if (id) { setTab(null); await cfgP; return renderBet(id); }
   if (code) { setTab('league'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
   if (!me.get()) { setTab(null); return renderOnboarding(); }
   const path = location.pathname;

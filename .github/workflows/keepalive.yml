@@ -1,0 +1,18 @@
+# Keeps the Render free-tier instance warm so visitors never hit the ~50s cold start.
+# Render spins the service down after ~15 min without traffic; this pings /healthz
+# every 10 minutes (GitHub cron can lag a few minutes — still well inside the window).
+# /healthz touches no data and costs nothing. Public repo → Actions minutes are free.
+# Delete this file if the service moves to a paid Render plan (no spin-down there).
+name: keep-warm
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping duely.live
+        # first attempt may BE the cold start — give the retry a longer timeout
+        run: curl -fsS --max-time 25 https://duely.live/healthz || curl -fsS --max-time 90 https://duely.live/healthz

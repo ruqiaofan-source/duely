@@ -5,7 +5,8 @@
   "description": "Scorekeeper MVP — settle a football bet with a mate. No money held, no commission.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/api-checks.mjs"
   },
   "engines": {
     "node": ">=18"
