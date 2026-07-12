@@ -64,6 +64,15 @@ try {
   r = await j('/api/bets/' + b1 + '/accept', { method: 'POST' }, Bp.secret);
   ok(r.status === 200 && r.data.opponentId === Bp.id, 'accept stamps opponentId');
 
+  // the terrace: Pundit house-bot + real comments
+  ok((r.data.comments || []).filter((c) => c.bot).length >= 2, 'Pundit (labeled bot) commented on create + accept');
+  r = await j('/api/bets/' + b1 + '/comment', { method: 'POST', body: JSON.stringify({ text: 'get in!' }) });
+  ok(r.status === 401, 'comment without secret → 401');
+  r = await j('/api/bets/' + b1 + '/comment', { method: 'POST', body: JSON.stringify({ text: 'get in!' }) }, A.secret);
+  ok(r.status === 200 && r.data.comments.some((c) => c.by === 'Ana' && c.text === 'get in!'), 'player comment lands on the terrace');
+  r = await j('/api/bets/' + b1 + '/comment', { method: 'POST', body: JSON.stringify({ text: 'x'.repeat(300) }) }, A.secret);
+  ok(r.status === 400, 'comment over 280 chars rejected');
+
   r = await j('/api/bets/' + b1 + '/resolve', { method: 'POST', body: JSON.stringify({ actualOutcome: 'HOME' }) }, Bp.secret);
   ok(r.status === 200 && r.data.pendingResult && r.data.pendingResult.byId === Bp.id, 'report → pendingResult');
   r = await j('/api/bets/' + b1 + '/confirm', { method: 'POST' }, Bp.secret);

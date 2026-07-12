@@ -198,7 +198,7 @@ async function fetchLiveMatches() {
   const from = new Date().toISOString().slice(0, 10);
   const to = new Date(Date.now() + 10 * day).toISOString().slice(0, 10);
   const res = await fetch(`https://api.football-data.org/v4/matches?dateFrom=${from}&dateTo=${to}`, {
-    headers: { 'X-Auth-Token': FOOTBALL_TOKEN },
+    headers: { 'X-Auth-Token': FOOTBALL_TOKEN }, signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`football-data ${res.status}`);
   const json = await res.json();
@@ -210,7 +210,7 @@ async function fetchLiveMatches() {
 }
 async function fetchLiveResult(externalId) {
   const res = await fetch(`https://api.football-data.org/v4/matches/${externalId}`, {
-    headers: { 'X-Auth-Token': FOOTBALL_TOKEN },
+    headers: { 'X-Auth-Token': FOOTBALL_TOKEN }, signal: AbortSignal.timeout(3000),
   });
   if (!res.ok) throw new Error(`football-data ${res.status}`);
   const json = await res.json();
@@ -262,7 +262,47 @@ function resolveBet(bet, actualOutcome) {
   // owes carries ids (the ledger key) plus denormalized names (for cards/OG)
   bet.owes = { fromId: loserPid, toId: winnerPid, from: loserNm, to: winnerNm, amount: bet.stake, currency: bet.currency };
   bet.resolvedAt = new Date().toISOString();
+  addPundit(bet, 'resolved');
   return bet;
+}
+
+// ---------------------------------------------------------------------------
+// The Pundit — the house banter bot. ALWAYS labeled as a bot in the UI (bot:true);
+// it gives every bet a voice from minute one without ever pretending to be a user.
+// ---------------------------------------------------------------------------
+const PUNDIT_POOLS = {
+  created: [
+    '{P} is backing {BACKED}. Big words. Someone take the other side before it goes to their head.',
+    '{BACKED}, says {P}. The terrace awaits a challenger…',
+    "Fresh duel on the board: {HOME} v {AWAY}. {P}'s called {BACKED} — who's got the minerals?",
+    '{P} puts {STAKE} on {BACKED}. Talk is cheap until someone locks in.',
+  ],
+  accepted: [
+    "It's ON. {P} says {BACKED}, {O} says no chance. {STAKE} on the line.",
+    '{O} steps in. 90 minutes will sort this out. 🍿',
+    'Handshakes done — {HOME} v {AWAY} just got personal.',
+    'Locked: {P} vs {O}. The loser lives with it.',
+  ],
+  resolved: [
+    'FT: {RESULT}. {WINNER} called it — {LOSER}, the terrace remembers. 📋',
+    '{WINNER} takes it. {RIV}. Rematch, {LOSER}?',
+    'Scenes. {WINNER} read it like a programme. {LOSER} owes the bragging rights.',
+    'Full time: {RESULT}. {WINNER} eats first tonight. 🍽️',
+  ],
+};
+function addPundit(bet, phase) {
+  const pool = PUNDIT_POOLS[phase]; if (!pool) return;
+  const winner = bet.winner === 'proposer' ? bet.proposerName : bet.opponentName;
+  const loser = bet.winner === 'proposer' ? bet.opponentName : bet.proposerName;
+  const ctx = {
+    P: bet.proposerName, O: bet.opponentName || 'someone', HOME: bet.home, AWAY: bet.away,
+    BACKED: outcomeLabel(bet, bet.backedOutcome), RESULT: bet.actualOutcome ? outcomeLabel(bet, bet.actualOutcome) : '',
+    STAKE: stakeLabel(bet), WINNER: winner || '', LOSER: loser || '',
+    RIV: (bet.proposerId && bet.opponentId) ? rivalryLine(bet) : '',
+  };
+  const pick = pool[(parseInt(bet.id.slice(0, 4), 16) + phase.length) % pool.length];
+  if (!bet.comments) bet.comments = [];
+  bet.comments.push({ byId: '__pundit', by: 'The Pundit', bot: true, text: pick.replace(/\{(\w+)\}/g, (_, k) => ctx[k] ?? ''), t: new Date().toISOString() });
 }
 
 // ---------------------------------------------------------------------------
@@ -915,6 +955,7 @@ async function handleApi(req, res, url) {
       createdAt: new Date().toISOString(),
     };
     db.bets[id] = bet;
+    addPundit(bet, 'created');
     logEvent('bet_created', { id, rematch: Boolean(b.rematch) });
     return sendJson(res, 201, bet);
   }
@@ -944,6 +985,7 @@ async function handleApi(req, res, url) {
       bet.opponentName = me.name;
       bet.status = 'accepted';
       bet.acceptedAt = new Date().toISOString();
+      addPundit(bet, 'accepted');
       logEvent('bet_accepted', { id: bet.id });
       return sendJson(res, 200, bet);
     }
@@ -1033,6 +1075,22 @@ async function handleApi(req, res, url) {
       bet.status = 'void'; bet.voidedAt = new Date().toISOString(); bet.voidedBy = me.id;
       delete bet.pendingResult; delete bet.disputed;
       logEvent('bet_voided', { id: bet.id });
+      saveData();
+      return sendJson(res, 200, bet);
+    }
+
+    // POST /api/bets/:id/comment — the terrace: real players talking. Anyone signed-in
+    // who holds the link can chip in (bets live in group chats; the audience is the mates).
+    if (req.method === 'POST' && action === 'comment') {
+      const me = authPlayer(req); if (!me) return need401();
+      const b = await readBody(req);
+      const text = String(b.text || '').trim();
+      if (!text) return sendJson(res, 400, { error: 'Say something.' });
+      if ([...text].length > 280) return sendJson(res, 400, { error: 'Keep it under 280.' });
+      if (!bet.comments) bet.comments = [];
+      if (bet.comments.length >= 200) return sendJson(res, 409, { error: 'The terrace is full for this one.' });
+      bet.comments.push({ byId: me.id, by: me.name, text, t: new Date().toISOString() });
+      logEvent('comment', { id: bet.id }, false);
       saveData();
       return sendJson(res, 200, bet);
     }

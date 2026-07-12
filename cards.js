@@ -135,7 +135,7 @@ function renderPng(svg) {
     const r = new Resvg(svg, {
       background: '#0B0F14',
       fitTo: { mode: 'width', value: 1200 },
-      font: { fontDirs: [FONTS], loadSystemFonts: true, defaultFontFamily: 'Inter' },
+      font: { fontDirs: [FONTS], loadSystemFonts: false, defaultFontFamily: 'Inter' },
     });
     return r.render().asPng();
   } catch (e) { console.warn('card png render failed:', e.message); return null; }

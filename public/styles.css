@@ -150,7 +150,7 @@ button.ghost {
 }
 .rivalry .vsline { font-weight: 800; font-size: 14.5px; }
 .rivalry .score { font-family: "Anton", sans-serif; font-size: 22px; letter-spacing: 1px; }
-.rivalry .lead { color: var(--teal); } .rivalry .trail { color: var(--loss); } .rivalry .level { color: var(--muted); }
+.lead { color: var(--teal); } .trail { color: var(--loss); } .level { color: var(--muted); }
 
 /* ---------- owes / payoff ---------- */
 .owes { text-align: center; padding: 22px 14px; border-radius: 16px; margin: 8px 0; background: linear-gradient(140deg, rgba(46,213,115,.14), rgba(20,224,200,.05)); border: 1px solid rgba(46,213,115,.3); }
@@ -184,13 +184,13 @@ button.ghost {
 
 .linkbtn { background: none; border: none; color: var(--teal); font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; padding: 0; }
 
-.lg-head, .lg-row { display: grid; grid-template-columns: 34px 1fr 58px 82px; align-items: center; gap: 6px; padding: 11px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.lg-head, .lg-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 58px 82px; align-items: center; gap: 6px; padding: 11px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .lg-head { color: var(--muted); font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
 .lg-row:last-child { border-bottom: none; }
 .lg-row.me { background: rgba(20,224,200,.08); border-radius: 10px; }
 .lg-rank { font-family: "Anton", sans-serif; font-size: 18px; color: var(--muted); text-align: center; }
 .lg-row.me .lg-rank { color: var(--teal); }
-.lg-name { font-weight: 800; font-size: 14.5px; }
+.lg-name { font-weight: 800; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lg-rec { font-weight: 700; font-size: 13.5px; text-align: center; color: var(--muted); }
 .lg-net { font-weight: 800; font-size: 14px; text-align: right; }
 .lg-net.pos { color: var(--green); } .lg-net.neg { color: var(--loss); }

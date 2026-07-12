@@ -122,6 +122,36 @@ async function doReact(id, emoji) {
   catch (e) { toast(e.message); }
 }
 
+// ---- the terrace: comments on a bet (real players + the clearly-labeled Pundit) ----
+function commentsHtml(bet) {
+  const cs = (bet.comments || []).slice(-6);
+  const mm = me.get();
+  const rows = cs.map((c) => `
+    <div style="padding:8px 2px;border-bottom:1px solid var(--line)">
+      <span style="font-weight:800;font-size:12.5px;color:${c.bot ? 'var(--purple)' : 'var(--teal)'}">${esc(c.by)}${c.bot ? ' <span class="tag-rival">house bot 🤖</span>' : ''}</span>
+      <div style="font-size:14px;margin-top:2px;line-height:1.45">${esc(c.text)}</div>
+    </div>`).join('');
+  return `<div id="terrace" style="margin-top:14px">
+    <label style="margin-top:0">The terrace 🗣️</label>
+    ${rows || '<p class="sub" style="margin:4px 0 8px">No noise yet — get it started.</p>'}
+    ${mm ? `<div class="linkbox"><input id="cmtIn" maxlength="280" placeholder="Talk your talk…" aria-label="Add a comment" /><button id="cmtSend">Send</button></div>` : ''}
+  </div>`;
+}
+function wireComments(id) {
+  const send = $('#cmtSend'); if (!send) return;
+  const go = async () => {
+    const inp = $('#cmtIn'); const text = (inp.value || '').trim(); if (!text) return;
+    send.disabled = true;
+    try {
+      const b = await api('/bets/' + id + '/comment', { method: 'POST', body: JSON.stringify({ text }) });
+      track('comment', { id });
+      const t = $('#terrace'); if (t) { t.outerHTML = commentsHtml(b); wireComments(id); const ni = $('#cmtIn'); if (ni) ni.focus(); }
+    } catch (e) { toast(e.message); send.disabled = false; }
+  };
+  send.addEventListener('click', go);
+  $('#cmtIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+}
+
 // identity (server-authoritative: id is public, secret is the bearer token)
 const me = {
   get() { try { return JSON.parse(localStorage.getItem('settle_me') || 'null'); } catch { return null; } },
@@ -372,11 +402,9 @@ function renderOnboarding(next) {
 async function renderHome() {
   const m = me.get();
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
-  let s;
-  try { s = await api('/players/me/summary'); }
-  catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] }; }
-  let lg = { leagues: [] };
-  try { lg = await api('/players/me/leagues'); } catch {}
+  const [sRes, lgRes] = await Promise.allSettled([api('/players/me/summary'), api('/players/me/leagues')]);
+  const s = sRes.status === 'fulfilled' ? sRes.value : { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] };
+  const lg = lgRes.status === 'fulfilled' ? lgRes.value : { leagues: [] };
   let big = [];
   try { const mr = await matchP; if (mr) big = pickBigGames(mr.matches); } catch {}
 
@@ -595,7 +623,12 @@ async function renderLeague(code, full) {
   const m = me.get();
   let lg;
   try { lg = await api('/leagues/' + code); }
-  catch { app.innerHTML = `<div class="card"><h2>League not found</h2><p class="sub">This invite looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
+  catch (e) {
+    if (e.status === 404) { app.innerHTML = `<div class="card"><h2>League not found</h2><p class="sub">This invite looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
+    app.innerHTML = `<div class="card"><h2>Can't reach Duely</h2><p class="sub">Looks like a connection blip — the league's still there.</p><button class="cta" id="retryLg">Try again</button></div>`;
+    $('#retryLg').addEventListener('click', () => renderLeague(code, full));
+    return;
+  }
 
   const isMember = m && lg.members.some((x) => x.id === m.id);
   const link = location.origin + '/l/' + code;
@@ -673,8 +706,9 @@ async function renderLeague(code, full) {
 // ---------------------------------------------------------------------------
 async function renderCreate() {
   const m = me.get();
+  // the sheet opens INSTANTLY; fixtures stream in (the primary tap must never feel dead)
   let matches = [], live = false;
-  try { const r = await api('/matches'); matches = r.matches; live = r.live; } catch {}
+  const matchesP = api('/matches').catch(() => null);
   const copy = PREFILL?.copy;
   const terms = copy || PREFILL?.terms; // last duel's line/stake carry into a rematch
   const state = { backedOutcome: copy?.backedOutcome || 'HOME' };
@@ -699,15 +733,26 @@ async function renderCreate() {
         <button type="button" class="react-chip" data-line="€10">€10</button>
       </div>
       <label for="note">Trash talk (optional)</label>
+      <div class="reacts" id="banterChips" style="margin:0 0 8px"></div>
       <input id="note" placeholder="No chance they keep it close 😏" maxlength="140" value="${copy?.note ? esc(copy.note) : ''}" />
       <div class="banner" style="margin-top:14px;text-align:left"><span id="previewLine">…</span></div>
-      <div class="banner" style="margin-top:8px">${live ? '🟢 Live fixtures' : '🟡 Demo fixtures'}</div>
+      <div class="banner" id="fixSrc" style="margin-top:8px">⏳ Loading fixtures…</div>
     </div>
     <div class="sheet-foot"><button class="cta commit" id="createBtn">Lock it in & get link →</button></div>
   `);
 
+  // banter chips — tap-to-talk suggestions (rotates daily; tap fills the note)
+  const BANTER = ["no chance they keep it close", "you know nothing about ball", "printing bragging rights today", "your lot bottle it every time", "easy work. always has been", "I'll even give you a head start", "book the excuses now", "study the game, then come back"];
+  const bc = $('#banterChips');
+  if (bc) {
+    const d0 = new Date().getDate() % BANTER.length;
+    bc.innerHTML = [0, 1, 2].map((i) => BANTER[(d0 + i) % BANTER.length]).map((c) => `<button type="button" class="react-chip" data-chip="${esc(c)}">${esc(c)}</button>`).join('');
+    bc.querySelectorAll('[data-chip]').forEach((b) => b.addEventListener('click', () => { const n = $('#note'); if (n) { n.value = b.dataset.chip; haptic(6); } }));
+  }
+
   const sel = $('#matchSel');
-  sel.innerHTML = matches.map((mm) => `<option value="${mm.id}">${esc(mm.home)} vs ${esc(mm.away)}${mm.competition ? ' · ' + esc(mm.competition) : ''}</option>`).join('') + '<option value="custom">+ Custom match…</option>';
+  const CUSTOM_OPT = '<option value="custom">+ Custom match…</option>';
+  sel.innerHTML = '<option value="" disabled selected>⏳ Loading fixtures…</option>' + CUSTOM_OPT;
 
   // "€10" / "10 gbp" / "£5" reads as a money stake; anything else is a forfeit line
   const parseLine = (raw) => {
@@ -755,9 +800,18 @@ async function renderCreate() {
   $('#sheetClose').addEventListener('click', closeSheet);
 
   if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; }
-  // one-tap from the Home "Big games" card → land with that fixture pre-picked
-  if (PREFILL?.matchId && matches.some((x) => x.id === PREFILL.matchId)) sel.value = PREFILL.matchId;
   onMatchChange();
+  matchesP.then((r) => {
+    if (!document.getElementById('matchSel')) return; // sheet closed meanwhile
+    if (r) { matches = r.matches; live = r.live; }
+    const keep = sel.value === 'custom' ? 'custom' : null;
+    sel.innerHTML = matches.map((mm) => `<option value="${mm.id}">${esc(mm.home)} vs ${esc(mm.away)}${mm.competition ? ' · ' + esc(mm.competition) : ''}</option>`).join('') + CUSTOM_OPT;
+    if (keep) sel.value = keep;
+    else if (PREFILL?.matchId && matches.some((x) => x.id === PREFILL.matchId)) sel.value = PREFILL.matchId;
+    const src = $('#fixSrc'); if (src) src.textContent = live ? '🟢 Live fixtures' : '🟡 Demo fixtures';
+    // one-tap from the Home "Big games" card → land with that fixture pre-picked
+    onMatchChange();
+  });
 
   $('#createBtn').addEventListener('click', async () => {
     const mm = matches.find((x) => x.id === sel.value);
@@ -795,7 +849,12 @@ async function renderBet(id, opts = {}) {
   app.innerHTML = '<div class="spin">Loading…</div>';
   let bet;
   try { bet = await api('/bets/' + id); }
-  catch { app.innerHTML = `<div class="card"><h2>Bet not found</h2><p class="sub">This link looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
+  catch (e) {
+    if (e.status === 404) { app.innerHTML = `<div class="card"><h2>Bet not found</h2><p class="sub">This link looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
+    app.innerHTML = `<div class="card"><h2>Can't reach Duely</h2><p class="sub">Looks like a connection blip — the bet's still there.</p><button class="cta" id="retryBet">Try again</button></div>`;
+    $('#retryBet').addEventListener('click', () => renderBet(id));
+    return;
+  }
 
   const role = roleStore.get(id);
   const m = me.get();
@@ -807,11 +866,14 @@ async function renderBet(id, opts = {}) {
     </div>`;
   const pill = `<span class="pill ${bet.status}">${bet.status}</span>`;
 
-  // helper: rivalry banner between me and the other player (if history exists)
+  // helper: rivalry banner between me and the other player (if history exists).
+  // Stashes the data so later code (share taunts) reuses it — never a second fetch.
+  let rivData = null;
   async function rivalryBanner(otherPid, otherName) {
     if (!m || !otherPid || otherPid === m.id) return '';
     try {
       const r = await api('/players/me/rivalry?with=' + encodeURIComponent(otherPid));
+      rivData = r;
       if (!r.games) return '';
       const lead = r.aWins > r.bWins ? 'lead' : r.aWins < r.bWins ? 'trail' : 'level';
       const verb = r.aWins > r.bWins ? 'You lead' : r.aWins < r.bWins ? 'You trail' : 'All level';
@@ -833,6 +895,7 @@ async function renderBet(id, opts = {}) {
           <button class="cta wa" id="waBtn">Share on WhatsApp</button>
           <button class="ghost" id="shareBtn">Share card / copy link</button>
           <a class="muted-link" href="/card/${id}.png" target="_blank" rel="noopener">Save card image</a>
+          ${commentsHtml(bet)}
           <button class="muted-link" id="cancelBet">Cancel this bet</button>
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
@@ -845,6 +908,7 @@ async function renderBet(id, opts = {}) {
         if (b.dataset.armed) return doVoid(id);
         b.dataset.armed = '1'; b.textContent = 'Tap again to cancel this bet';
       });
+      wireComments(id);
       $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
       return;
     }
@@ -875,6 +939,7 @@ async function renderBet(id, opts = {}) {
         </div>`}
         <button class="cta commit" id="acceptBtn">Take the bet 🤝</button>
         <button class="muted-link" onclick="location.href='/'">Nah — not this one</button>
+        ${commentsHtml(bet)}
       </div>`;
     $('#acceptBtn').addEventListener('click', async () => {
       // tap-first: the commitment tap comes BEFORE the name ask — a cold visitor's
@@ -908,8 +973,13 @@ async function renderBet(id, opts = {}) {
         let sub = `The ${esc(bet.proposerName)} rivalry is live`;
         try { const r = await api('/players/me/rivalry?with=' + encodeURIComponent(bet.proposerId)); if (r.games >= 1) sub = `You're ${r.aWins}–${r.bWins} with ${esc(bet.proposerName)} — live now`; } catch {}
         sealThen(() => renderBet(id), sub);
-      } catch (e) { toast(e.message); btn.disabled = false; $('.card').classList.remove('locking'); }
+      } catch (e) {
+        toast(e.message);
+        if (e.status === 409) return renderBet(id); // taken underneath us → show real state
+        btn.disabled = false; $('.card').classList.remove('locking');
+      }
     });
+    wireComments(id);
     return;
   }
 
@@ -926,6 +996,7 @@ async function renderBet(id, opts = {}) {
         <div class="side"><div><div class="who">${esc(bet.opponentName)}</div><div class="pick">${esc(complementLabel(bet))}</div></div><div class="stake">${money(bet)}</div></div>
         <div id="resolveZone"></div>
         ${reactionsHtml(bet)}
+        ${commentsHtml(bet)}
       </div>`;
     const zone = $('#resolveZone');
     const pend = bet.pendingResult;
@@ -939,6 +1010,7 @@ async function renderBet(id, opts = {}) {
         ? `<div class="banner">${esc(pend.by || 'One player')} says it finished: <b style="color:var(--text)">${esc(outcomeLabel(bet, pend.outcome))}</b> — waiting on the other to confirm.</div>`
         : `<div class="banner">⏳ Waiting on ${esc(bet.proposerName)} and ${esc(bet.opponentName)} to settle this one.</div>`;
       wireReactions(id);
+      wireComments(id);
       return;
     }
     const showReportSeg = () => {
@@ -994,6 +1066,7 @@ async function renderBet(id, opts = {}) {
       showReportSeg();
     }
     wireReactions(id);
+    wireComments(id);
     return;
   }
 
@@ -1021,6 +1094,7 @@ async function renderBet(id, opts = {}) {
         ${rb ? `<div class="reveal delay3">${rb}</div>` : ''}
         <div class="reveal delay3">
           ${reactionsHtml(bet)}
+          ${commentsHtml(bet)}
           <img class="cardimg" src="/card/${id}.svg" alt="Result card" loading="lazy" />
           ${iWon
             ? `<button class="cta wa" id="shareResult">Brag about it 🏆</button>`
@@ -1035,19 +1109,16 @@ async function renderBet(id, opts = {}) {
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
       </div>`;
-    // score-led taunt when the record exists — the sender's own message is the nudge
+    // score-led taunt when the record exists — reuses the banner's fetch (no await:
+    // an await here would leave the screen painted but dead until it resolved)
     let shareText = `Called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? 'Your move, ' + other + ' 👀 ' : ''}Settle the score on Duely 👇`;
-    if (iWon && other) {
-      try {
-        const rr = await api('/players/me/rivalry?with=' + encodeURIComponent(otherSideId(bet, m)));
-        if (rr.games > 1) shareText = `That's ${rr.aWins}–${rr.bWins} to me, ${other} 😏 Rematch? 👇`;
-      } catch {}
-    }
+    if (iWon && other && rivData && rivData.games > 1) shareText = `That's ${rivData.aWins}–${rivData.bWins} to me, ${other} 😏 Rematch? 👇`;
     const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => shareWithCard('/card/' + id + '.png', shareText, link, 'result'));
     const rl = $('#rematchLoss'); if (rl) rl.addEventListener('click', () => rematchConfirm(other, bet));
     const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => shareStory(id));
     const cb = $('#copyBet'); if (cb) cb.addEventListener('click', () => { PREFILL = { copy: { home: bet.home, away: bet.away, competition: bet.competition, backedOutcome: bet.backedOutcome, stake: bet.stake, currency: bet.currency, line: bet.line, note: bet.note } }; renderCreate(); });
     wireReactions(id);
+    wireComments(id);
 
     // animate the payout count-up, confetti only if *I* won
     setTimeout(() => { const el = $('#amt'); if (el) countUp(el, bet.owes.amount, sym(bet.currency)); }, 420);
