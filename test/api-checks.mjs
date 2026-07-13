@@ -166,6 +166,21 @@ try {
   r = await j('/api/auth/email', { method: 'POST', body: JSON.stringify({ email: 'a@x.com', password: 'wrong' }) });
   ok(r.status === 401, 'wrong password → 401');
 
+  // SEO / GEO surfaces
+  let sres = await fetch(B + '/robots.txt'); let stxt = await sres.text();
+  ok(sres.ok && /Sitemap:/i.test(stxt) && /GPTBot|ClaudeBot|PerplexityBot/.test(stxt), 'robots.txt: sitemap + AI crawlers allowed');
+  sres = await fetch(B + '/sitemap.xml'); stxt = await sres.text();
+  ok(sres.ok && (sres.headers.get('content-type') || '').includes('xml') && /duely\.live\/about/.test(stxt), 'sitemap.xml lists /about');
+  sres = await fetch(B + '/about'); stxt = await sres.text();
+  ok(sres.ok && /settle a bet with a friend|Settle football bets|Duely is a/i.test(stxt) && /no money/i.test(stxt), 'about page: crawlable prose + no-money framing');
+  ok(/rel="canonical" href="https:\/\/duely\.live\/about"/.test(stxt), 'about page has canonical');
+  const home = await (await fetch(B + '/')).text();
+  ok(/application\/ld\+json/.test(home) && /FAQPage/.test(home) && /WebApplication/.test(home), 'homepage has JSON-LD (WebApplication + FAQPage) for GEO');
+  ok(/<section class="seo-hero">/.test(home) && /How it works/.test(home), 'homepage serves crawlable hero content (not just Loading…)');
+  ok(/rel="canonical" href="https:\/\/duely\.live\/"/.test(home), 'homepage has canonical');
+  const ogh = await fetch(B + '/og-home.png'); const oghBuf = await ogh.arrayBuffer();
+  ok(ogh.ok && (ogh.headers.get('content-type') || '').includes('png') && oghBuf.byteLength > 3000, 'home OG card renders to PNG');
+
   // static serving: gzip + cache tiers
   const gz = await fetch(B + '/app.js', { headers: { 'Accept-Encoding': 'gzip' } });
   ok(gz.headers.get('cache-control') === 'public, max-age=300', 'app.js cache-control 300s');

@@ -4,8 +4,49 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0B0F14" />
-  <title>Duely — settle it. On the record.</title>
-  <meta name="description" content="Turn football arguments into rivalries. Call the match, your mate takes the other side, and the winner goes on the record. Just bragging rights." />
+  <title>Duely — settle football bets with friends. On the record.</title>
+  <meta name="description" content="Duely is the free app to settle football bets with friends. Call the match, your mate takes the other side, and the winner goes on the record — with a rivalry table and a shareable card. No money held, just bragging rights." />
+  <meta name="keywords" content="settle a bet with a friend, football bet app, keep score of bets, bet tracker, friendly wager app, who won the bet, sports bet scorekeeper, rivalry tracker, bragging rights app" />
+  <meta name="author" content="Duely" />
+  <link rel="canonical" href="https://duely.live/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Duely" />
+  <meta property="og:title" content="Duely — settle football bets with friends. On the record." />
+  <meta property="og:description" content="Call the match, your mate takes the other side, the winner goes on the record. A shareable card, a rivalry table, no money held — just bragging rights." />
+  <meta property="og:url" content="https://duely.live/" />
+  <meta property="og:image" content="https://duely.live/og-home.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Duely — settle football bets with friends" />
+  <meta name="twitter:description" content="Call it, share the link, the winner goes on the record. Just bragging rights." />
+  <meta name="twitter:image" content="https://duely.live/og-home.png" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "name": "Duely",
+        "url": "https://duely.live/",
+        "applicationCategory": "SportsApplication",
+        "operatingSystem": "Web, iOS, Android",
+        "description": "A free app to settle football bets with friends. Call the match, your mate takes the other side, and the winner goes on the record with a rivalry table and a shareable card. No money is held — it is for bragging rights.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+        "audience": { "@type": "Audience", "audienceType": "football fans, friend groups, fantasy leagues", "suggestedMinAge": 18 }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          { "@type": "Question", "name": "How do you settle a bet with a friend?", "acceptedAnswer": { "@type": "Answer", "text": "With Duely: you call a match outcome, your friend takes the other side, and once the match finishes both confirm the result. The winner goes on the record and Duely keeps a running rivalry table. Duely holds no money — friends settle any stake between themselves." } },
+          { "@type": "Question", "name": "Is Duely free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Creating bets, sharing challenge links, and tracking your record are free. Duely never takes or holds money." } },
+          { "@type": "Question", "name": "Does Duely handle money or gambling?", "acceptedAnswer": { "@type": "Answer", "text": "No. Duely is a scorekeeper for friendly bets. It does not process payments, hold stakes, or take a cut. Any stake is settled privately between friends. It is for players 18 and over." } },
+          { "@type": "Question", "name": "What can you bet on with Duely?", "acceptedAnswer": { "@type": "Answer", "text": "Any football match outcome — who wins, a draw, or a custom call — plus the forfeit or bragging rights on the line. You can also run a friends league where every duel between members counts toward a season table." } }
+        ]
+      }
+    ]
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://eu-assets.i.posthog.com" crossorigin />
@@ -54,7 +95,20 @@
     </header>
 
     <main id="app">
-      <div class="spin">Loading…</div>
+      <!-- Server-visible content for crawlers and AI answer engines that don't run
+           JS. The app replaces this on load (progressive enhancement). -->
+      <section class="seo-hero">
+        <h2>Settle football bets with your mates — on the record.</h2>
+        <p>Duely is the free app to settle a bet with a friend. Call the match, your mate takes the other side, and when it finishes the winner goes on the record. You get a shareable challenge card, a running rivalry table, and season-long bragging rights. Duely holds no money — you settle any stake between yourselves. 18+.</p>
+        <h3>How it works</h3>
+        <ol>
+          <li><strong>Call it.</strong> Pick a match and back your outcome — who wins, a draw, or your own custom call.</li>
+          <li><strong>Send the link.</strong> Share a challenge link on WhatsApp; your mate taps it and takes the other side.</li>
+          <li><strong>Settle it.</strong> After full time you both confirm the result. The winner goes on the record and the rivalry table updates.</li>
+        </ol>
+        <p><a href="/about">What is Duely? Read more →</a></p>
+        <div class="spin" aria-hidden="true">Loading…</div>
+      </section>
     </main>
 
     <div class="foot">

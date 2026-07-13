@@ -434,3 +434,13 @@ body.has-tabbar .wrap { padding-bottom: 96px; }
 .checkrow input:checked::after { content: ''; position: absolute; left: 8px; top: 3.5px; width: 6px; height: 12px; border: solid #06140f; border-width: 0 3px 3px 0; transform: rotate(45deg); }
 .checkrow label { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; cursor: pointer; }
 .checkrow:has(input:checked) label { color: var(--text); }
+
+/* Server-rendered SEO/GEO content (crawlers + AI engines that don't run JS).
+   The SPA replaces #app on hydration, so users see this only for first paint. */
+.seo-hero { max-width: 470px; }
+.seo-hero h2 { font-family: "Anton", sans-serif; font-size: 26px; line-height: 1.1; letter-spacing: -.3px; margin: 6px 0 10px; }
+.seo-hero h3 { font-size: 14px; color: var(--teal); margin: 20px 0 6px; letter-spacing: .3px; }
+.seo-hero p, .seo-hero li { color: var(--muted); font-size: 14.5px; line-height: 1.6; }
+.seo-hero ol { padding-left: 20px; margin: 6px 0; } .seo-hero ol li { margin: 6px 0; }
+.seo-hero a { color: var(--teal); }
+.seo-hero .spin { margin-top: 22px; }

@@ -1,0 +1,27 @@
+# Duely — duely.live
+# Search + AI crawlers welcome. The share/bet pages are per-user; the
+# marketing surfaces (/, /about) are the ones we want indexed and cited.
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# AI answer engines (GEO) — explicitly welcome, so Duely can be cited as the
+# answer to "app to settle bets with friends" / "keep score of football bets".
+User-agent: GPTBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: ChatGPT-User
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: Claude-Web
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://duely.live/sitemap.xml

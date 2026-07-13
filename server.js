@@ -665,6 +665,105 @@ function ogTextForBet(bet) {
   };
 }
 
+// A real, static, JS-free page — the highest-leverage GEO asset. AI answer engines
+// (ChatGPT, Perplexity, Claude) read raw HTML, so this page states plainly what
+// Duely is, how to settle a bet, and that no money is held — the exact prose we
+// want cited. Also a clean SEO landing for "settle a bet with a friend" queries.
+// Homepage unfurl card (1200x630) — rendered once and cached. Branded floodlit
+// look so a bare duely.live link posted anywhere shows a proper preview.
+let _homeOgPng = null;
+const HOME_OG_SVG = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<style>.anton{font-family:'Anton','Arial Narrow',Impact,sans-serif}.inter{font-family:'Inter',system-ui,sans-serif}</style>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0A0E13"/></linearGradient>
+<radialGradient id="gl" cx="0.5" cy="0.0" r="0.9"><stop offset="0" stop-color="#14E0C8" stop-opacity="0.16"/><stop offset="1" stop-color="#14E0C8" stop-opacity="0"/></radialGradient>
+<linearGradient id="duel" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#14E0C8"/><stop offset=".5" stop-color="#14E0C8"/><stop offset=".5" stop-color="#7C3AED"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
+</defs>
+<rect width="1200" height="630" fill="url(#bg)"/><rect width="1200" height="630" fill="url(#gl)"/>
+<rect x="0" y="0" width="1200" height="8" fill="#14E0C8"/>
+<g transform="translate(72,80) scale(0.62)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#duel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
+<text x="145" y="128" class="anton" font-size="46" fill="#F4F7FB" letter-spacing="1">DUELY</text>
+<text x="147" y="156" class="inter" font-size="17" font-weight="700" fill="#14E0C8" letter-spacing="3">BACK YOURSELF.</text>
+<text x="72" y="290" class="anton" font-size="82" fill="#F4F7FB">SETTLE THE BET.</text>
+<text x="72" y="378" class="anton" font-size="82" fill="#14E0C8">ON THE RECORD.</text>
+<text x="72" y="452" class="inter" font-size="27" font-weight="600" fill="#C7D0DB">Call the match · your mate takes the other side ·</text>
+<text x="72" y="490" class="inter" font-size="27" font-weight="600" fill="#C7D0DB">the winner goes on the record.</text>
+<rect x="72" y="536" width="360" height="60" rx="14" fill="#14E0C8"/>
+<text x="252" y="575" class="inter" text-anchor="middle" font-size="23" font-weight="900" fill="#06140f">Start a duel  →</text>
+<text x="470" y="574" class="inter" font-size="20" font-weight="700" fill="#7C8A9C">Free · no money held · 18+</text>
+</svg>`;
+function serveHomeOg(req, res) {
+  if (!_homeOgPng) _homeOgPng = cards.renderPng(HOME_OG_SVG);
+  if (_homeOgPng) { res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' }); return res.end(_homeOgPng); }
+  res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }); res.end(HOME_OG_SVG);
+}
+
+function serveAbout(req, res) {
+  const html = `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>What is Duely? Settle football bets with friends — on the record</title>
+<meta name="description" content="Duely is a free app to settle football bets with friends. Call a match, your mate takes the other side, and the winner goes on the record. No money is held — just bragging rights. Here's how it works." />
+<link rel="canonical" href="https://duely.live/about" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="What is Duely? Settle football bets with friends" />
+<meta property="og:description" content="Call a match, your mate takes the other side, the winner goes on the record. Free, no money held, just bragging rights." />
+<meta property="og:url" content="https://duely.live/about" />
+<meta property="og:image" content="https://duely.live/og-home.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0A0E13; color:#F4F7FB; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; line-height:1.65; }
+  .wrap { max-width:720px; margin:0 auto; padding:48px 20px 80px; }
+  h1 { font-size:30px; line-height:1.15; letter-spacing:-.5px; margin:0 0 8px; }
+  h2 { font-size:21px; margin:36px 0 10px; letter-spacing:-.3px; }
+  h3 { font-size:16px; margin:22px 0 6px; color:#14E0C8; }
+  p, li { color:#C7D0DB; font-size:16px; }
+  a { color:#14E0C8; }
+  .lede { font-size:18px; color:#E8EDF4; }
+  .cta { display:inline-block; margin:26px 0; background:#14E0C8; color:#06140f; font-weight:800; text-decoration:none; padding:14px 22px; border-radius:12px; }
+  ol li, ul li { margin:6px 0; }
+  .foot { margin-top:48px; padding-top:20px; border-top:1px solid #33414F; color:#7C8A9C; font-size:13px; }
+  .tag { color:#14E0C8; font-weight:700; letter-spacing:2px; font-size:12px; text-transform:uppercase; }
+</style>
+</head><body>
+<div class="wrap">
+  <div class="tag">DUELY · duely.live</div>
+  <h1>Settle football bets with your mates — on the record.</h1>
+  <p class="lede">Duely turns "I bet you Arsenal win" into a proper, tracked rivalry. Call the match, your friend takes the other side, and the winner goes on the record. Free, no money held, just bragging rights.</p>
+  <a class="cta" href="/">Start a duel →</a>
+
+  <h2>How to settle a bet with a friend</h2>
+  <ol>
+    <li><strong>Call it.</strong> Pick a football match and back an outcome — a team to win, a draw, or your own custom call — and name what's on the line (a forfeit, first round, or just bragging rights).</li>
+    <li><strong>Send the link.</strong> Duely gives you a challenge link with a share card. Drop it in the group chat; your mate taps it and takes the other side.</li>
+    <li><strong>Settle it.</strong> After full time you both confirm the result. If you disagree, the bet is voided — nobody can cheat the record. The winner goes on the record and your head-to-head rivalry table updates.</li>
+  </ol>
+
+  <h2>Does Duely handle money?</h2>
+  <p>No. Duely is a <strong>scorekeeper</strong>, not a bookmaker. It never processes payments, holds stakes, or takes a cut. Any stake is settled privately between friends. Duely is for players aged 18 and over and is designed for friendly bets and bragging rights — not gambling.</p>
+
+  <h2>What makes it stick</h2>
+  <ul>
+    <li><strong>Rivalries.</strong> Every settled bet feeds a running head-to-head record with each mate — the score you actually argue about.</li>
+    <li><strong>Friends leagues.</strong> Turn a group chat into a season table where every duel between members counts.</li>
+    <li><strong>Shareable cards.</strong> Each bet and result renders a card built to be posted on WhatsApp, Instagram Stories, and X.</li>
+    <li><strong>High scores.</strong> Weekly and all-time crowns — longest win streak, most duels, best record — so there's always something to chase.</li>
+  </ul>
+
+  <h2>Who it's for</h2>
+  <p>Football fans and friend groups who are always betting on matches but never keep track — five-a-side teams, fantasy-league mini-leagues, office rivalries, and family group chats. If your mates argue about who called it right, Duely settles it.</p>
+
+  <a class="cta" href="/">Back yourself — start a duel →</a>
+  <div class="foot">Duely keeps score and holds no money — you and your mates settle up between yourselves. For the bragging rights. 18+. · <a href="/">duely.live</a></div>
+</div>
+</body></html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+  res.end(html);
+}
+
 function serveShareHtml(req, res, id) {
   fs.readFile(path.join(PUBLIC, 'index.html'), 'utf8', (err, html) => {
     if (err) { res.writeHead(404); return res.end('Not found'); }
@@ -747,7 +846,7 @@ function readBody(req) {
     req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch { resolve({}); } });
   });
 }
-const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 // cache policy: the HTML shell must stay fresh (it's re-served with OG meta on share
 // routes), but app.js/styles.css can be briefly cached and the favicon for a day.
 const STATIC_CACHE = { '.css': 'public, max-age=300', '.js': 'public, max-age=300', '.svg': 'public, max-age=86400', '.ico': 'public, max-age=86400', '.html': 'no-cache' };
@@ -1241,6 +1340,8 @@ const server = http.createServer(async (req, res) => {
     catch (e) { console.error(e); sendJson(res, 500, { error: 'Server error' }); }
     return;
   }
+  if (url.pathname === '/about') return serveAbout(req, res);
+  if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
   if (url.pathname.startsWith('/card/')) return serveCard(req, res, url);
   if (url.pathname.startsWith('/storycard/')) return serveStoryCard(req, res, url);
   if (url.pathname.startsWith('/lcard/')) return serveLeagueCard(req, res, url);
