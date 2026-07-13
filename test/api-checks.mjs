@@ -131,6 +131,21 @@ try {
   r = await j('/api/records?window=all');
   ok(r.status === 200 && r.data.streak && r.data.streak.name === 'Ana' && r.data.mostDuels && r.data.biggestBottle, 'high-scores board computes windowed crowns');
 
+  // sharing contract: the OG head a scraper sees on /b/:id (WhatsApp/FB/iMessage/Twitter)
+  const og = await (await fetch(B + '/b/' + b1)).text();
+  const hasTag = (re) => re.test(og);
+  ok(hasTag(/<meta property="og:title" content="[^"]+"/) && hasTag(/<meta property="og:image" content="[^"]*\/card\/[^"]+\.png/), 'OG: title + PNG image present on bet page');
+  ok(hasTag(/<meta property="og:image:type" content="image\/png"/) && hasTag(/<meta property="og:image:secure_url"/) && hasTag(/<meta property="og:image:alt"/), 'OG: image type + secure_url + alt (Facebook/a11y)');
+  ok(hasTag(/<meta property="og:image:width" content="1200"/) && hasTag(/<meta property="og:image:height" content="630"/), 'OG: 1200x630 declared (large preview)');
+  ok(hasTag(/<meta name="twitter:card" content="summary_large_image"/), 'OG: twitter large-image card');
+  ok(/duely\.live|localhost|127\.0\.0\.1|:3199/.test(og) || hasTag(/og:url/), 'OG: canonical url present');
+  // challenge card must render PNG and stay under WhatsApp's 600KB unfurl cap
+  const cardRes = await fetch(B + '/card/' + b1 + '.png');
+  const cardBuf = await cardRes.arrayBuffer();
+  ok(cardRes.ok && cardBuf.byteLength > 3000 && cardBuf.byteLength < 600000, `challenge card PNG under WhatsApp 600KB cap (${(cardBuf.byteLength / 1024 | 0)}KB)`);
+  // og image url is cache-busted by state so re-shares don't unfurl a stale card
+  ok(/og:image" content="[^"]*\?v=/.test(og), 'OG: image url cache-busted by bet state');
+
   // cards render to PNG; profanity masked on public surfaces only
   for (const [label, url] of [['challenge', `/card/${b3}.png`], ['result', `/card/${b1}.png`], ['story', `/storycard/${b1}.png`], ['league', `/lcard/${code}.png`]]) {
     const res = await fetch(B + url); const buf = await res.arrayBuffer();

@@ -383,13 +383,21 @@ function getLeagueCode() {
   return p ? p[1].toUpperCase() : null;
 }
 
-async function nativeShare(link, text) {
+// LINK-FIRST share — for invites/challenges/results where the tappable link is
+// the whole point. The link auto-unfurls into the rich card on WhatsApp,
+// Messenger, iMessage, Telegram, Discord, Slack, Twitter/X and Facebook, AND
+// stays tappable so the mate can accept. We deliberately DON'T attach the image
+// file here: on WhatsApp/Messenger a file-share can drop the URL, killing the loop.
+async function shareLink(link, text) {
   if (navigator.share) {
-    try { await navigator.share({ title: 'Duely', text, url: link }); return true; } catch { return false; }
+    try { await navigator.share({ title: 'Duely', text, url: link }); return true; }
+    catch (e) { if (e && e.name === 'AbortError') return true; } // user cancelled — not a failure
   }
-  window.open('https://wa.me/?text=' + encodeURIComponent(text + ' ' + link), '_blank');
-  return true;
+  // desktop / no Web Share: WhatsApp web deep-link (unfurls the card there too)
+  try { window.open('https://wa.me/?text=' + encodeURIComponent(text + ' ' + link), '_blank', 'noopener'); return true; }
+  catch { try { await navigator.clipboard.writeText(link); toast('Link copied — paste it to your mate'); } catch { toast(link); } return true; }
 }
+const nativeShare = shareLink; // back-comaptible alias
 
 async function route() {
   const id = getBetId();
@@ -979,16 +987,22 @@ async function renderBet(id, opts = {}) {
             ${(() => { try { if (sessionStorage.getItem('duely_stamp') === id) { sessionStorage.removeItem('duely_stamp'); return '<div class="stamp">ON THE RECORD</div>'; } } catch {} return ''; })()}
           </div>
           <button class="cta wa" id="waBtn">SEND THE CHALLENGE 📲</button>
-          <button class="ghost" id="shareBtn">Share card / copy link</button>
-          <a class="muted-link" href="/card/${id}.png" target="_blank" rel="noopener">Save card image</a>
+          <div class="row" style="margin-top:10px">
+            <button class="ghost" id="shareBtn">More apps</button>
+            <button class="ghost" id="storyBtn">Story / IG 📸</button>
+          </div>
+          <button class="muted-link" id="copyLink">Copy link</button>
           ${commentsHtml(bet)}
           <button class="muted-link" id="cancelBet">Cancel this bet</button>
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
         <div class="banner">Waiting for your mate to take the bet…</div>`;
       const waText = `${m ? m.name + ' reckons' : 'I reckon'} ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`;
-      $('#waBtn').addEventListener('click', () => { track('share', { kind: 'whatsapp' }); window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'); });
-      $('#shareBtn').addEventListener('click', () => shareWithCard('/card/' + id + '.png', waText, link, 'challenge'));
+      // primary: WhatsApp deep-link (unfurls the card AND keeps the link tappable)
+      $('#waBtn').addEventListener('click', () => { track('share', { kind: 'whatsapp' }); shareLink(link, waText); });
+      $('#shareBtn').addEventListener('click', () => shareLink(link, waText)); // native sheet, link-first
+      $('#storyBtn').addEventListener('click', () => shareImage('/storycard/' + id + '.png', waText, 'challenge_story'));
+      $('#copyLink').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } });
       $('#cancelBet').addEventListener('click', (e) => {
         const b = e.target;
         if (b.dataset.armed) return doVoid(id);
@@ -1298,30 +1312,32 @@ async function doVoid(id) {
 }
 
 // share a rendered card image (native file share where supported), else the link
+// LINK-first for cards too: the challenge/result link unfurls the card image
+// automatically on every messaging app while staying tappable. This replaces the
+// old file-first path that could strip the URL on WhatsApp/Messenger.
 async function shareWithCard(cardUrl, text, link, kind) {
   track('share', { kind });
+  return shareLink(link, text);
+}
+// IMAGE-first — for Instagram Stories / Snap / WhatsApp Status, which do NOT
+// unfurl links at all: the only way onto those surfaces is the image itself.
+// The card has duely.live/b/<id> printed on it, so viewers can still find the bet.
+async function shareImage(imgUrl, text, kind) {
+  track('share', { kind: kind || 'image' });
   try {
     if (navigator.canShare) {
-      const r = await fetch(cardUrl); const blob = await r.blob();
-      const file = new File([blob], 'duely.png', { type: 'image/png' });
-      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text, url: link }); return; }
+      const r = await fetch(imgUrl); const blob = await r.blob();
+      const file = new File([blob], 'duely.png', { type: blob.type || 'image/png' });
+      if (navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], text }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; }
+      }
     }
   } catch {}
-  if (navigator.share) { try { await navigator.share({ title: 'Duely', text, url: link }); return; } catch {} }
-  try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); }
+  // no file-share support (most desktops) → open the image so they can save/post it
+  try { window.open(imgUrl, '_blank', 'noopener'); } catch { toast('Could not open the image'); }
 }
-async function shareStory(id) {
-  track('share', { kind: 'story' });
-  const url = '/storycard/' + id + '.png';
-  try {
-    if (navigator.canShare) {
-      const r = await fetch(url); const blob = await r.blob();
-      const file = new File([blob], 'duely-story.png', { type: 'image/png' });
-      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: 'Settled on Duely ⚽' }); return; }
-    }
-  } catch {}
-  window.open(url, '_blank');
-}
+async function shareStory(id) { return shareImage('/storycard/' + id + '.png', 'Settled on Duely ⚽', 'story'); }
 
 // rename via the bottom sheet (replaces the inaccessible prompt())
 function openRenameSheet(current) {

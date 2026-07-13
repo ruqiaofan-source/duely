@@ -584,6 +584,9 @@ function serveCard(req, res, url) {
   }
   const png = cards.renderPng(svg);
   if (png) {
+    // WhatsApp/Meta hard-cap the unfurl image at 600KB — over it, no preview shows.
+    // Warn loudly if we ever approach it so a card redesign can't silently break shares.
+    if (png.length > 500000) console.warn(`⚠️ card ${m[1]} PNG is ${(png.length / 1024 | 0)}KB — nearing WhatsApp's 600KB unfurl cap`);
     res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': cc });
     return res.end(png);
   }
@@ -603,6 +606,34 @@ function serveStoryCard(req, res, url) {
 }
 
 const escHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// One source of truth for unfurl tags — every scraper (WhatsApp, Facebook,
+// Messenger, iMessage, Telegram, Discord, Slack, Twitter/X, LinkedIn) reads
+// some subset of these, so we emit the full set. `img` is a PNG URL; alt is the
+// human description of the card; `stamp` busts scraper caches when state changes.
+function ogMeta({ title, desc, img, pageUrl, alt, stamp }) {
+  const secure = img.replace(/^http:/, 'https:');
+  const t = escHtml(title), d = escHtml(desc), a = escHtml(alt || title);
+  return `
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Duely" />
+    <meta property="og:title" content="${t}" />
+    <meta property="og:description" content="${d}" />
+    <meta property="og:image" content="${escHtml(img)}" />
+    <meta property="og:image:secure_url" content="${escHtml(secure)}" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="${a}" />
+    <meta property="og:url" content="${escHtml(pageUrl)}" />${stamp ? `\n    <meta property="og:updated_time" content="${escHtml(stamp)}" />` : ''}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${t}" />
+    <meta name="twitter:description" content="${d}" />
+    <meta name="twitter:image" content="${escHtml(secure)}" />
+    <meta name="twitter:image:alt" content="${a}" />
+    <meta name="theme-color" content="#0A0E13" />
+`;
+}
 
 function ogTextForBet(bet) {
   if (bet.status === 'void') {
@@ -627,8 +658,10 @@ function ogTextForBet(bet) {
     };
   }
   return {
-    title: `${bet.proposerName} calls ${outcomeLabel(bet, bet.backedOutcome)} 🤝`,
-    desc: `${bet.note ? maskProfanity(bet.note) + ' — ' : ''}${bet.home} v ${bet.away} · ${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Duely.`,
+    // title carries the full hook: iMessage/Apple render ONLY og:title + og:image
+    // (they drop og:description), so the matchup lives here, not just in desc.
+    title: `${bet.proposerName} calls ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.home} v ${bet.away} 🤝`,
+    desc: `${bet.note ? maskProfanity(bet.note) + ' — ' : ''}${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Duely.`,
   };
 }
 
@@ -641,22 +674,11 @@ function serveShareHtml(req, res, id) {
       const proto = req.headers['x-forwarded-proto'] || 'http';
       const origin = `${proto}://${req.headers.host}`;
       const { title, desc } = ogTextForBet(bet);
-      const img = `${origin}/card/${id}.png`;
-      const pageUrl = `${origin}/b/${id}`;
-      const meta = `
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Duely" />
-    <meta property="og:title" content="${escHtml(title)}" />
-    <meta property="og:description" content="${escHtml(desc)}" />
-    <meta property="og:image" content="${escHtml(img)}" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:url" content="${escHtml(pageUrl)}" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="${escHtml(title)}" />
-    <meta name="twitter:description" content="${escHtml(desc)}" />
-    <meta name="twitter:image" content="${escHtml(img)}" />
-`;
+      // cache-bust the image URL when the bet changes state, so a re-share after
+      // accept/resolve unfurls the NEW card instead of a scraper's stale copy
+      const v = encodeURIComponent(bet.status + (bet.resolvedAt || bet.acceptedAt || bet.createdAt || ''));
+      const img = `${origin}/card/${id}.png?v=${v}`;
+      const meta = ogMeta({ title, desc, img, pageUrl: `${origin}/b/${id}`, alt: `${bet.home} v ${bet.away} — ${title}`, stamp: bet.resolvedAt || bet.acceptedAt || bet.createdAt });
       html = html.replace('</head>', meta + '  </head>');
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1201,21 +1223,8 @@ function serveLeagueHtml(req, res, code) {
       const origin = `${proto}://${req.headers.host}`;
       const title = `Join ${league.name} on Duely 🏆`;
       const desc = `${league.members.length} mate${league.members.length === 1 ? '' : 's'} settling football bets. Tap to join the league.`;
-      const img = `${origin}/lcard/${code}.png`;
-      const meta = `
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Duely" />
-    <meta property="og:title" content="${escHtml(title)}" />
-    <meta property="og:description" content="${escHtml(desc)}" />
-    <meta property="og:image" content="${escHtml(img)}" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:url" content="${escHtml(origin + '/l/' + code)}" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="${escHtml(title)}" />
-    <meta name="twitter:description" content="${escHtml(desc)}" />
-    <meta name="twitter:image" content="${escHtml(img)}" />
-`;
+      const img = `${origin}/lcard/${code}.png?v=${league.members.length}`;
+      const meta = ogMeta({ title, desc, img, pageUrl: `${origin}/l/${code}`, alt: `${league.name} — friends football league on Duely` });
       html = html.replace('</head>', meta + '  </head>');
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
