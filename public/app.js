@@ -1321,7 +1321,7 @@ async function shareWithCard(cardUrl, text, link, kind) {
 }
 // IMAGE-first — for Instagram Stories / Snap / WhatsApp Status, which do NOT
 // unfurl links at all: the only way onto those surfaces is the image itself.
-// The card has duely.live/b/<id> printed on it, so viewers can still find the bet.
+// The card has clashly.live/b/<id> printed on it, so viewers can still find the bet.
 async function shareImage(imgUrl, text, kind) {
   track('share', { kind: kind || 'image' });
   try {

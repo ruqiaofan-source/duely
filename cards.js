@@ -89,7 +89,7 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 <text x="72" y="1320" class="inter" font-size="30" font-weight="700" fill="#93A1B3">winner takes the bragging rights</text>
 <rect x="72" y="1690" width="936" height="124" rx="30" fill="{{ACCENT}}"/>
 <text x="540" y="1768" class="inter" text-anchor="middle" font-size="42" font-weight="900" fill="#06140f">{{FOOT}}</text>
-<text x="540" y="1862" class="inter" text-anchor="middle" font-size="28" font-weight="800" fill="#93A1B3" letter-spacing="2">duely.live/b/{{ID}}</text>
+<text x="540" y="1862" class="inter" text-anchor="middle" font-size="28" font-weight="800" fill="#93A1B3" letter-spacing="2">clashly.live/b/{{ID}}</text>
 </svg>`;
 
 function challengeSvg(data) {
@@ -119,7 +119,7 @@ const VOID_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg"
 </g>
 <text x="60" y="330" class="anton" font-size="96" fill="#93A1B3">CALLED OFF</text>
 <text x="66" y="386" class="inter" font-size="26" font-weight="700" fill="#5E6B7C">{{HOME}} v {{AWAY}} &#183; this one didn't count</text>
-<text x="66" y="560" class="inter" font-size="20" font-weight="800" fill="#14E0C8">Start your own on duely.live &#8594;</text>
+<text x="66" y="560" class="inter" font-size="20" font-weight="800" fill="#14E0C8">Start your own on clashly.live &#8594;</text>
 </svg>`;
 function voidSvg(data) { return fill(VOID_TPL, data); }
 function resultSvg(data) {

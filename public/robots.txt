@@ -1,4 +1,4 @@
-# Duely — duely.live
+# Duely — clashly.live
 # Search + AI crawlers welcome. The share/bet pages are per-user; the
 # marketing surfaces (/, /about) are the ones we want indexed and cited.
 User-agent: *
@@ -24,4 +24,4 @@ Allow: /
 User-agent: Applebot-Extended
 Allow: /
 
-Sitemap: https://duely.live/sitemap.xml
+Sitemap: https://clashly.live/sitemap.xml

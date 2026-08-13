@@ -670,7 +670,7 @@ function ogTextForBet(bet) {
 // Duely is, how to settle a bet, and that no money is held — the exact prose we
 // want cited. Also a clean SEO landing for "settle a bet with a friend" queries.
 // Homepage unfurl card (1200x630) — rendered once and cached. Branded floodlit
-// look so a bare duely.live link posted anywhere shows a proper preview.
+// look so a bare clashly.live link posted anywhere shows a proper preview.
 let _homeOgPng = null;
 const HOME_OG_SVG = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
 <defs>
@@ -705,13 +705,13 @@ function serveAbout(req, res) {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>What is Duely? Settle football bets with friends — on the record</title>
 <meta name="description" content="Duely is a free app to settle football bets with friends. Call a match, your mate takes the other side, and the winner goes on the record. No money is held — just bragging rights. Here's how it works." />
-<link rel="canonical" href="https://duely.live/about" />
+<link rel="canonical" href="https://clashly.live/about" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta property="og:type" content="article" />
 <meta property="og:title" content="What is Duely? Settle football bets with friends" />
 <meta property="og:description" content="Call a match, your mate takes the other side, the winner goes on the record. Free, no money held, just bragging rights." />
-<meta property="og:url" content="https://duely.live/about" />
-<meta property="og:image" content="https://duely.live/og-home.png" />
+<meta property="og:url" content="https://clashly.live/about" />
+<meta property="og:image" content="https://clashly.live/og-home.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <style>
   :root { color-scheme: dark; }
@@ -730,7 +730,7 @@ function serveAbout(req, res) {
 </style>
 </head><body>
 <div class="wrap">
-  <div class="tag">DUELY · duely.live</div>
+  <div class="tag">DUELY · clashly.live</div>
   <h1>Settle football bets with your mates — on the record.</h1>
   <p class="lede">Duely turns "I bet you Arsenal win" into a proper, tracked rivalry. Call the match, your friend takes the other side, and the winner goes on the record. Free, no money held, just bragging rights.</p>
   <a class="cta" href="/">Start a duel →</a>
@@ -757,7 +757,7 @@ function serveAbout(req, res) {
   <p>Football fans and friend groups who are always betting on matches but never keep track — five-a-side teams, fantasy-league mini-leagues, office rivalries, and family group chats. If your mates argue about who called it right, Duely settles it.</p>
 
   <a class="cta" href="/">Back yourself — start a duel →</a>
-  <div class="foot">Duely keeps score and holds no money — you and your mates settle up between yourselves. For the bragging rights. 18+. · <a href="/">duely.live</a></div>
+  <div class="foot">Duely keeps score and holds no money — you and your mates settle up between yourselves. For the bragging rights. 18+. · <a href="/">clashly.live</a></div>
 </div>
 </body></html>`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
