@@ -280,7 +280,7 @@ const prefs = {
 const outcomeLabel = (b, code) => code === 'HOME' ? `${b.home} win` : code === 'AWAY' ? `${b.away} win` : code === 'DRAW' ? 'Draw' : code;
 const complementLabel = (b) => b.backedOutcome === 'DRAW' ? "it's not a draw" : b.backedOutcome === 'HOME' ? `${b.home} don't win` : `${b.away} don't win`;
 
-let CONFIG = { brand: 'Duely', live: false };
+let CONFIG = { brand: 'Clashly', live: false };
 let PREFILL = null; // for rematch
 let RECWIN = 'week'; // high-scores window: week | all
 const _betCache = {}; // last-fetched bet per id (optimistic reactions reconcile against it)
@@ -390,7 +390,7 @@ function getLeagueCode() {
 // file here: on WhatsApp/Messenger a file-share can drop the URL, killing the loop.
 async function shareLink(link, text) {
   if (navigator.share) {
-    try { await navigator.share({ title: 'Duely', text, url: link }); return true; }
+    try { await navigator.share({ title: 'Clashly', text, url: link }); return true; }
     catch (e) { if (e && e.name === 'AbortError') return true; } // user cancelled — not a failure
   }
   // desktop / no Web Share: WhatsApp web deep-link (unfurls the card there too)
@@ -428,7 +428,7 @@ function renderOnboarding(next) {
   app.innerHTML = `
     <div class="card">
       <h2>Think you know ball? Prove it. ⚽</h2>
-      <p class="sub">Call the match, your mate takes the other side, and the winner goes on the record. Duely keeps the score — the rivalry does the rest.</p>
+      <p class="sub">Call the match, your mate takes the other side, and the winner goes on the record. Clashly keeps the score — the rivalry does the rest.</p>
       <label for="name">What should mates call you?</label>
       <input id="name" placeholder="e.g. Alex" maxlength="40" />
       <div class="checkrow">
@@ -461,6 +461,7 @@ async function renderHome() {
   const m = me.get();
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
   const recP = api('/records?window=' + RECWIN).catch(() => null);
+  const arenaP = api('/arena').catch(() => null);
   const [sRes, lgRes] = await Promise.allSettled([api('/players/me/summary'), api('/players/me/leagues')]);
   const s = sRes.status === 'fulfilled' ? sRes.value : { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] };
   const lg = lgRes.status === 'fulfilled' ? lgRes.value : { leagues: [] };
@@ -468,6 +469,8 @@ async function renderHome() {
   try { const mr = await matchP; if (mr) big = pickBigGames(mr.matches); } catch {}
   let rec = null;
   try { rec = await recP; } catch {}
+  let arena = [];
+  try { const ar = await arenaP; if (ar && ar.challenges) arena = ar.challenges; } catch {}
   if (!live()) return; // superseded by a newer navigation
   const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
   const recHtml = rec ? [
@@ -476,6 +479,7 @@ async function renderHome() {
     recRow('🎯', 'Best record', rec.bestRecord && `${esc(rec.bestRecord.name)} · ${rec.bestRecord.w}-${rec.bestRecord.l}`),
     recRow('😅', 'Biggest bottle', rec.biggestBottle && `${esc(rec.biggestBottle.name)} · ${rec.biggestBottle.l} Ls`),
     recRow('🥊', 'Fiercest rivalry', rec.fiercest && `${esc(rec.fiercest.a)} v ${esc(rec.fiercest.b)} · ${rec.fiercest.games}`),
+    recRow('👑', 'Arena crown', rec.arenaKing && `${esc(rec.arenaKing.name)} · ${rec.arenaKing.wins} arena W${rec.arenaKing.wins === 1 ? '' : 's'}`),
   ].join('') : '';
 
   const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
@@ -519,7 +523,7 @@ async function renderHome() {
     ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)">
       <h2>Get your first rivalry going 👋</h2>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:6px">
-        <div style="display:flex;align-items:center;gap:10px;font-weight:800;color:var(--teal)"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--teal);color:#06140f;font-size:13px;font-weight:900">✓</span> Joined Duely</div>
+        <div style="display:flex;align-items:center;gap:10px;font-weight:800;color:var(--teal)"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--teal);color:#06140f;font-size:13px;font-weight:900">✓</span> Joined Clashly</div>
         <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">2</span> Back a call &amp; set the stakes</div>
         <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">3</span> Fire the link — a mate takes the other side</div>
       </div>
@@ -538,7 +542,7 @@ async function renderHome() {
         <div class="stat"><div class="n ${netClass}">${netTxt(s.net, s.currency)}</div><div class="k">Net</div></div>
         <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
       </div>
-      ${!hideStreaks && s.platformRecord ? `<div class="banner" style="margin:10px 0 0;border-style:solid;border-color:rgba(255,200,61,.3)">🏆 Duely record: <b style="color:var(--gold)">${esc(s.platformRecord.name)}'s ${s.platformRecord.count}-win streak</b>${s.streak.type === 'W' && s.streak.count >= s.platformRecord.count ? " — that's you. Defend it." : ' — beat it.'}</div>` : ''}
+      ${!hideStreaks && s.platformRecord ? `<div class="banner" style="margin:10px 0 0;border-style:solid;border-color:rgba(255,200,61,.3)">🏆 Clashly record: <b style="color:var(--gold)">${esc(s.platformRecord.name)}'s ${s.platformRecord.count}-win streak</b>${s.streak.type === 'W' && s.streak.count >= s.platformRecord.count ? " — that's you. Defend it." : ' — beat it.'}</div>` : ''}
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
     </div>
 
@@ -553,6 +557,24 @@ async function renderHome() {
           <button class="linkbtn" data-callit="${esc(g.id)}" style="font-weight:800">Call it →</button>
         </div>`).join('')}
     </div>` : ''}
+
+    <div class="card" style="border-color:rgba(124,58,237,.45)">
+      <div class="cardhead"><h2>The Arena ⚡</h2>${s.arenaPts ? `<span class="flame on">⚡ ${s.arenaPts} pts</span>` : ''}</div>
+      <p class="sub" style="margin:2px 0 10px">Open challenges from all of Clashly. Take a stranger's bet, win it, bank <b style="color:var(--gold)">+3 Arena points</b> — top the weekly board and wear the 👑.</p>
+      ${(() => { const list = arena.filter((c) => !m || c.proposerId !== m.id).slice(0, 5); const mine = arena.length - list.length;
+        return (list.length ? list.map((c) => {
+          const backedLbl = c.backedOutcome === 'HOME' ? c.home + ' win' : c.backedOutcome === 'AWAY' ? c.away + ' win' : 'Draw';
+          const stakeLbl = c.line || (c.stake > 0 ? sym(c.currency) + c.stake : 'bragging rights');
+          const st = c.proposerStats || {};
+          const cred = (st.w || st.l) ? `${st.w}–${st.l}` + (st.streakType === 'W' && st.streakCount >= 2 ? ' · 🔥' + st.streakCount + 'W' : '') : 'new blood';
+          return `<div class="riv-row" data-arena="${esc(c.id)}" role="button" tabindex="0" style="cursor:pointer">
+            <div><div class="nm">${esc(c.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(c.away)}</div>
+            <div class="sm">${esc(c.proposerName)} (${cred}) backs <b>${esc(backedLbl)}</b> · ${esc(stakeLbl)}</div></div>
+            <button class="linkbtn" data-arena="${esc(c.id)}" style="font-weight:800">Take it →</button>
+          </div>`; }).join('') : '<p class="sub" style="margin:8px 0 0">No open challenges right now — throw the first glove. 🥊</p>')
+          + (mine > 0 ? `<p class="sub" style="margin:8px 0 0">Your open challenge is live in the Arena — waiting for a taker. 👀</p>` : ''); })()}
+      <button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post an open challenge</button>
+    </div>
 
     ${recHtml ? `<div class="card">
       <div class="cardhead"><h2>High scores 🏆</h2><button class="linkbtn" id="recWin">${RECWIN === 'week' ? 'This week ▾' : 'All time ▾'}</button></div>
@@ -581,6 +603,9 @@ async function renderHome() {
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  app.querySelectorAll('[data-arena]').forEach((el) =>
+    el.addEventListener('click', (e) => { e.stopPropagation(); track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
+  const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
   app.querySelectorAll('[data-callit]').forEach((el) =>
     el.addEventListener('click', (e) => { e.stopPropagation(); track('big_game_tap', { match: el.dataset.callit }); PREFILL = { matchId: el.dataset.callit }; renderCreate(); }));
   app.querySelectorAll('[data-rivid]').forEach((row) =>
@@ -705,8 +730,8 @@ async function renderLeague(code, full) {
   let lg;
   try { lg = await api('/leagues/' + code); }
   catch (e) {
-    if (e.status === 404) { app.innerHTML = `<div class="card"><h2>League not found</h2><p class="sub">This invite looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
-    app.innerHTML = `<div class="card"><h2>Can't reach Duely</h2><p class="sub">Looks like a connection blip — the league's still there.</p><button class="cta" id="retryLg">Try again</button></div>`;
+    if (e.status === 404) { app.innerHTML = `<div class="card"><h2>League not found</h2><p class="sub">This invite looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Clashly</button></div>`; return; }
+    app.innerHTML = `<div class="card"><h2>Can't reach Clashly</h2><p class="sub">Looks like a connection blip — the league's still there.</p><button class="cta" id="retryLg">Try again</button></div>`;
     $('#retryLg').addEventListener('click', () => renderLeague(code, full));
     return;
   }
@@ -759,7 +784,7 @@ async function renderLeague(code, full) {
       <div class="lg-rec">${r.w}-${r.l}</div>
       <div class="lg-net ${r.net > 0 ? 'pos' : r.net < 0 ? 'neg' : ''}">${netTxt(r.net, r.currency)}</div>
     </div>`).join('');
-  const waText = `Join our Duely league "${lg.name}" 🏆 — settle football bets, climb the table.`;
+  const waText = `Join our Clashly league "${lg.name}" 🏆 — settle football bets, climb the table.`;
 
   app.innerHTML = `
     <div class="card">
@@ -816,6 +841,10 @@ async function renderCreate() {
       <label for="note">Trash talk (optional)</label>
       <div class="reacts" id="banterChips" style="margin:0 0 8px"></div>
       <input id="note" placeholder="No chance they keep it close 😏" maxlength="140" value="${copy?.note ? esc(copy.note) : ''}" />
+      <label style="display:flex;align-items:flex-start;gap:10px;margin-top:14px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="arenaChk" style="width:auto;margin-top:3px" />
+        <span>🌍 <b>Open challenge</b> — list it in the Arena so <b>anyone</b> can take the other side. Win against a stranger and bank <b style="color:var(--gold)">+3 Arena points</b>.</span>
+      </label>
       <div class="banner" style="margin-top:14px;text-align:left"><span id="previewLine">…</span></div>
       <div class="banner" id="fixSrc" style="margin-top:8px">⏳ Loading fixtures…</div>
     </div>
@@ -883,6 +912,7 @@ async function renderCreate() {
   document.querySelectorAll('#sheetPanel [data-line]').forEach((chip) =>
     chip.addEventListener('click', () => { $('#lineInput').value = chip.dataset.line; haptic(8); updatePreview(); }));
   $('#sheetClose').addEventListener('click', closeSheet);
+  if (PREFILL?.arena) { const ac = $('#arenaChk'); if (ac) ac.checked = true; }
 
   if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; }
   onMatchChange();
@@ -910,7 +940,7 @@ async function renderCreate() {
       const bet = await api('/bets', { method: 'POST', body: JSON.stringify({
         home, away, competition: mm ? mm.competition : (copy?.competition || ''),
         utcDate: mm ? mm.utcDate : null, externalId: mm ? mm.externalId || null : null,
-        backedOutcome: state.backedOutcome, stake: p.stake, currency: p.currency, line: p.line, note: $('#note').value.trim(), rematch: Boolean(rematchOf || copy),
+        backedOutcome: state.backedOutcome, stake: p.stake, currency: p.currency, line: p.line, note: $('#note').value.trim(), arena: Boolean($('#arenaChk')?.checked), rematch: Boolean(rematchOf || copy),
       }) });
       roleStore.set(bet.id, 'proposer'); PREFILL = null;
       try { sessionStorage.setItem('duely_stamp', bet.id); } catch {}
@@ -939,8 +969,8 @@ async function renderBet(id, opts = {}) {
   try { bet = await api('/bets/' + id); }
   catch (e) {
     if (!live()) return; // a newer navigation superseded this render
-    if (e.status === 404) { app.innerHTML = `<div class="card"><h2>Bet not found</h2><p class="sub">This link looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Duely</button></div>`; return; }
-    app.innerHTML = `<div class="card"><h2>Can't reach Duely</h2><p class="sub">Looks like a connection blip — the bet's still there.</p><button class="cta" id="retryBet">Try again</button></div>`;
+    if (e.status === 404) { app.innerHTML = `<div class="card"><h2>Bet not found</h2><p class="sub">This link looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Clashly</button></div>`; return; }
+    app.innerHTML = `<div class="card"><h2>Can't reach Clashly</h2><p class="sub">Looks like a connection blip — the bet's still there.</p><button class="cta" id="retryBet">Try again</button></div>`;
     $('#retryBet').addEventListener('click', () => renderBet(id));
     return;
   }
@@ -1021,7 +1051,7 @@ async function renderBet(id, opts = {}) {
       ps.streakType === 'W' && ps.streakCount >= 2
         ? `<div class="banner" style="margin:0 0 4px">🔥 ${esc(bet.proposerName)} is on a ${ps.streakCount}-win streak — fancy stopping it?</div>`
         : ps.duels >= 1
-          ? `<div class="banner" style="margin:0 0 4px">${esc(bet.proposerName)} has settled ${ps.duels} duel${ps.duels === 1 ? '' : 's'} on Duely.</div>`
+          ? `<div class="banner" style="margin:0 0 4px">${esc(bet.proposerName)} has settled ${ps.duels} duel${ps.duels === 1 ? '' : 's'} on Clashly.</div>`
           : `<div class="banner" style="margin:0 0 4px">Duel #1 between you and ${esc(bet.proposerName)} — the record starts here.</div>`
     );
     app.innerHTML = `
@@ -1215,7 +1245,7 @@ async function renderBet(id, opts = {}) {
       </div>`;
     // score-led taunt when the record exists — reuses the banner's fetch (no await:
     // an await here would leave the screen painted but dead until it resolved)
-    let shareText = `Called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? 'Your move, ' + other + ' 👀 ' : ''}Settle the score on Duely 👇`;
+    let shareText = `Called it — ${outcomeLabel(bet, bet.actualOutcome)}. ${other ? 'Your move, ' + other + ' 👀 ' : ''}Settle the score on Clashly 👇`;
     if (iWon && other && rivData && rivData.games > 1) {
       const strip = (rivData.recent || []).slice().reverse().map((x) => (x.aWon ? '🟩' : '🟥')).join('');
       shareText = `That's ${rivData.aWins}–${rivData.bWins} to me, ${other} 😏${strip ? `\nUs, on the record: ${strip}` : ''}\nRematch? 👇`;
@@ -1337,7 +1367,7 @@ async function shareImage(imgUrl, text, kind) {
   // no file-share support (most desktops) → open the image so they can save/post it
   try { window.open(imgUrl, '_blank', 'noopener'); } catch { toast('Could not open the image'); }
 }
-async function shareStory(id) { return shareImage('/storycard/' + id + '.png', 'Settled on Duely ⚽', 'story'); }
+async function shareStory(id) { return shareImage('/storycard/' + id + '.png', 'Settled on Clashly ⚽', 'story'); }
 
 // rename via the bottom sheet (replaces the inaccessible prompt())
 function openRenameSheet(current) {
