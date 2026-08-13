@@ -94,6 +94,7 @@ async function initData() {
   if (!db.leagues) db.leagues = {};
   if (!db.events) db.events = [];
   if (!db.stats) db.stats = {};
+  if (!db.terrace) db.terrace = [];
   // backfill founder seq for players created before it existed (join order)
   const ps = Object.values(db.players);
   let maxSeq = Math.max(0, ...ps.map((p) => p.seq || 0));
@@ -909,6 +910,30 @@ async function handleApi(req, res, url) {
       },
       stats: s,
     });
+  }
+
+  // The Terrace megaphone — public announcements. Rage bait welcome, slurs masked,
+  // one post a minute per player, feed capped so it stays fresh.
+  if (req.method === 'GET' && parts[1] === 'terrace' && parts.length === 2) {
+    const rows = db.terrace.slice(-30).reverse().map((p) => {
+      const ps = playerSummary(p.byId);
+      return { ...p, record: `${ps.w}–${ps.l}`, streakType: ps.streak.type, streakCount: ps.streak.count, arenaPts: ps.arenaPts };
+    });
+    return sendJson(res, 200, { posts: rows });
+  }
+  if (req.method === 'POST' && parts[1] === 'terrace' && parts.length === 2) {
+    const me = authPlayer(req); if (!me) return need401();
+    const b = await readBody(req);
+    const text = maskProfanity(String(b.text || '').trim().slice(0, 180));
+    if (text.length < 2) return sendJson(res, 400, { error: 'Say something worth saying' });
+    const last = [...db.terrace].reverse().find((p) => p.byId === me.id);
+    if (last && Date.now() - new Date(last.t).getTime() < 60000)
+      return sendJson(res, 429, { error: 'Easy — one megaphone a minute. Let it land.' });
+    const post = { id: newId(), byId: me.id, by: me.name, text, t: new Date().toISOString() };
+    db.terrace.push(post);
+    if (db.terrace.length > 200) db.terrace = db.terrace.slice(-200);
+    logEvent('terrace_post', { id: post.id });
+    return sendJson(res, 201, post);
   }
 
   // GET /api/arena — the open-challenge pool: public bets anyone signed-in can take.
