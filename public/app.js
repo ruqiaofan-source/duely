@@ -306,6 +306,7 @@ function pickBigGames(matches, n = 3) {
     .sort((a, b) => (b._score - a._score) || (new Date(a.utcDate || 0) - new Date(b.utcDate || 0)))
     .slice(0, n);
 }
+const timeAgo = (iso) => { const s = Math.max(1, (Date.now() - new Date(iso).getTime()) / 1000); if (s < 60) return 'now'; if (s < 3600) return Math.floor(s / 60) + 'm'; if (s < 86400) return Math.floor(s / 3600) + 'h'; return Math.floor(s / 86400) + 'd'; };
 const kickoffTxt = (iso) => { try { return new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
 
 // ---------------------------------------------------------------------------
@@ -365,7 +366,11 @@ function renderHeader() {
   const h = $('#headExtra');
   const m = me.get();
   if (!h) return;
-  h.innerHTML = m ? `<div class="idchip" id="idchip"><span class="av">${initials(m.name)}</span>${esc(m.name)}</div>` : '';
+  const lang = (window.CLASHLY_I18N && window.CLASHLY_I18N.lang()) || 'en';
+  const langBtn = `<button class="linkbtn" id="langBtn" style="font-weight:800" title="Language / Język">${lang === 'pl' ? '🇵🇱 PL' : '🇬🇧 EN'}</button>`;
+  h.innerHTML = (m ? `<div class="idchip" id="idchip"><span class="av">${initials(m.name)}</span>${esc(m.name)}</div>` : '') + langBtn;
+  const lb = $('#langBtn');
+  if (lb && window.CLASHLY_I18N) lb.addEventListener('click', () => window.CLASHLY_I18N.toggle());
   const chip = $('#idchip');
   if (chip) chip.addEventListener('click', () => { if (location.pathname !== '/') history.pushState({}, '', '/'); route(); });
 }
@@ -462,6 +467,7 @@ async function renderHome() {
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
   const recP = api('/records?window=' + RECWIN).catch(() => null);
   const arenaP = api('/arena').catch(() => null);
+  const terrP = api('/terrace').catch(() => null);
   const [sRes, lgRes] = await Promise.allSettled([api('/players/me/summary'), api('/players/me/leagues')]);
   const s = sRes.status === 'fulfilled' ? sRes.value : { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] };
   const lg = lgRes.status === 'fulfilled' ? lgRes.value : { leagues: [] };
@@ -471,6 +477,8 @@ async function renderHome() {
   try { rec = await recP; } catch {}
   let arena = [];
   try { const ar = await arenaP; if (ar && ar.challenges) arena = ar.challenges; } catch {}
+  let terrace = [];
+  try { const tr = await terrP; if (tr && tr.posts) terrace = tr.posts; } catch {}
   if (!live()) return; // superseded by a newer navigation
   const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
   const recHtml = rec ? [
@@ -576,6 +584,23 @@ async function renderHome() {
       <button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post an open challenge</button>
     </div>
 
+    <div class="card">
+      <div class="cardhead"><h2>The Terrace 📣</h2><span class="sm" style="color:var(--muted);font-size:12px">say it to everyone</span></div>
+      ${terrace.length ? terrace.slice(0, 6).map((p) => `
+        <div class="recent" style="align-items:flex-start">
+          <span style="min-width:0"><b style="color:var(--text)">${esc(p.by)}</b> <span style="color:var(--muted-2);font-size:11.5px">${esc(p.record)}${p.streakType === 'W' && p.streakCount >= 2 ? ' · 🔥' + p.streakCount : ''} · ${timeAgo(p.t)}</span><br/>${esc(p.text)}</span>
+        </div>`).join('') : '<p class="sub" style="margin:8px 0 0">Silence on the terrace. Someone say something spicy. 🌶️</p>'}
+      <div class="reacts" id="terrChips" style="margin:10px 0 6px">
+        <button type="button" class="react-chip" data-terr="Nobody in this app knows ball. Prove me wrong 😤">😤 rage bait</button>
+        <button type="button" class="react-chip" data-terr="Free Arena points on my open challenge — if you dare 🌍">🌍 call-out</button>
+        <button type="button" class="react-chip" data-terr="My record speaks for itself. Who's next? 👑">👑 flex</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="terrIn" maxlength="180" placeholder="Announce it to all of Clashly…" style="flex:1" />
+        <button class="linkbtn" id="terrGo" style="font-weight:800;flex:none">Post</button>
+      </div>
+    </div>
+
     ${recHtml ? `<div class="card">
       <div class="cardhead"><h2>High scores 🏆</h2><button class="linkbtn" id="recWin">${RECWIN === 'week' ? 'This week ▾' : 'All time ▾'}</button></div>
       ${recHtml}
@@ -606,6 +631,15 @@ async function renderHome() {
   app.querySelectorAll('[data-arena]').forEach((el) =>
     el.addEventListener('click', (e) => { e.stopPropagation(); track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
   const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
+  const tGo = $('#terrGo'), tIn = $('#terrIn');
+  if (tGo && tIn) {
+    const post = async () => { const v = tIn.value.trim(); if (v.length < 2) return toast('Say something worth saying'); tGo.disabled = true;
+      try { await api('/terrace', { method: 'POST', body: JSON.stringify({ text: v }) }); track('terrace_post'); haptic(10); renderHome(); }
+      catch (e) { toast(e.message); tGo.disabled = false; } };
+    tGo.addEventListener('click', post);
+    tIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); post(); } });
+    app.querySelectorAll('[data-terr]').forEach((c) => c.addEventListener('click', () => { tIn.value = c.dataset.terr; haptic(6); tIn.focus(); }));
+  }
   app.querySelectorAll('[data-callit]').forEach((el) =>
     el.addEventListener('click', (e) => { e.stopPropagation(); track('big_game_tap', { match: el.dataset.callit }); PREFILL = { matchId: el.dataset.callit }; renderCreate(); }));
   app.querySelectorAll('[data-rivid]').forEach((row) =>
@@ -841,10 +875,10 @@ async function renderCreate() {
       <label for="note">Trash talk (optional)</label>
       <div class="reacts" id="banterChips" style="margin:0 0 8px"></div>
       <input id="note" placeholder="No chance they keep it close 😏" maxlength="140" value="${copy?.note ? esc(copy.note) : ''}" />
-      <label style="display:flex;align-items:flex-start;gap:10px;margin-top:14px;cursor:pointer;font-weight:600">
-        <input type="checkbox" id="arenaChk" style="width:auto;margin-top:3px" />
-        <span>🌍 <b>Open challenge</b> — list it in the Arena so <b>anyone</b> can take the other side. Win against a stranger and bank <b style="color:var(--gold)">+3 Arena points</b>.</span>
-      </label>
+      <div class="checkrow" style="margin-top:14px">
+        <input type="checkbox" id="arenaChk" />
+        <label for="arenaChk">🌍 <b>Open challenge</b> — list it in the Arena so <b>anyone</b> on Clashly can take the other side. Beat a stranger, bank <b style="color:var(--gold)">+3 Arena points</b>.</label>
+      </div>
       <div class="banner" style="margin-top:14px;text-align:left"><span id="previewLine">…</span></div>
       <div class="banner" id="fixSrc" style="margin-top:8px">⏳ Loading fixtures…</div>
     </div>
@@ -912,7 +946,9 @@ async function renderCreate() {
   document.querySelectorAll('#sheetPanel [data-line]').forEach((chip) =>
     chip.addEventListener('click', () => { $('#lineInput').value = chip.dataset.line; haptic(8); updatePreview(); }));
   $('#sheetClose').addEventListener('click', closeSheet);
-  if (PREFILL?.arena) { const ac = $('#arenaChk'); if (ac) ac.checked = true; }
+  const syncArenaUi = () => { const ac = $('#arenaChk'), cb = $('#createBtn'); if (ac && cb && !cb.disabled) cb.textContent = ac.checked ? '🌍 Lock it in & post to the Arena →' : 'Lock it in & get link →'; };
+  const acEl = $('#arenaChk'); if (acEl) acEl.addEventListener('change', () => { haptic(8); syncArenaUi(); });
+  if (PREFILL?.arena) { const ac = $('#arenaChk'); if (ac) ac.checked = true; syncArenaUi(); }
 
   if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; }
   onMatchChange();
@@ -947,7 +983,7 @@ async function renderCreate() {
       track('bet_created', { stake: p.stake, forfeit: Boolean(p.line) });
       closeSheet();
       history.pushState({}, '', '/b/' + bet.id); renderBet(bet.id);
-    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Lock it in & get link →'; }
+    } catch (e) { toast(e.message); btn.disabled = false; syncArenaUi(); if (!$('#arenaChk')?.checked) btn.textContent = 'Lock it in & get link →'; }
   };
   armHold($('#createBtn'), doCreate);
 }
@@ -1029,6 +1065,7 @@ async function renderBet(id, opts = {}) {
         <div class="banner">Waiting for your mate to take the bet…</div>`;
       const waText = `${m ? m.name + ' reckons' : 'I reckon'} ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`;
       // primary: WhatsApp deep-link (unfurls the card AND keeps the link tappable)
+      if (bet.arena) { const wa = $('#waBtn'); if (wa) wa.insertAdjacentHTML('beforebegin', '<div class="banner" style="border-style:solid;border-color:rgba(124,58,237,.45);text-align:left;margin-bottom:10px">🌍 <b>Live in the Arena</b> — anyone on Clashly can take the other side right now. Firing the link at a mate still works too.</div>'); }
       $('#waBtn').addEventListener('click', () => { track('share', { kind: 'whatsapp' }); shareLink(link, waText); });
       $('#shareBtn').addEventListener('click', () => shareLink(link, waText)); // native sheet, link-first
       $('#storyBtn').addEventListener('click', () => shareImage('/storycard/' + id + '.png', waText, 'challenge_story'));
