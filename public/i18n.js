@@ -8,6 +8,15 @@
   const PL = {
     // tabs + chrome
     'Home': 'Start', 'Duels': 'Pojedynki', 'League': 'Liga', 'You': 'Ty',
+    'Challenge': 'Wyzwij', 'Ranking': 'Ranking', 'Profile': 'Profil',
+    'Player rankings 🏆': 'Ranking graczy 🏆', 'Weekly crowns': 'Korony tygodnia', 'My leagues': 'Moje ligi',
+    'Settle up 💸': 'Rozliczenia 💸', '⚔️ All my duels →': '⚔️ Wszystkie pojedynki →',
+    'All square — nobody owes anything. 🤝': 'Wszystko wyrównane — nikt nikomu nie wisi. 🤝',
+    'Clashly holds no money — settle between yourselves (cash, BLIK, Revolut…) and mark the duel sorted.': 'Clashly nie trzyma pieniędzy — rozliczcie się między sobą (gotówka, BLIK, Revolut…) i oznaczcie pojedynek jako rozliczony.',
+    'Settings': 'Ustawienia', 'Account': 'Konto', 'Sign out': 'Wyloguj', 'Sign in / create account': 'Zaloguj / załóż konto',
+    'Edit name': 'Zmień imię', 'Play some duels and the crowns appear here.': 'Rozegraj kilka pojedynków, a korony się pojawią.',
+    '📣 LATEST FROM THE TERRACE': '📣 ŚWIEŻE Z TRYBUNY',
+    "🗣️ That's nonsense →": '🗣️ Bzdura →', '⚔️ Make them back it': '⚔️ Niech to udowodni',
     // onboarding
     'Think you know ball? Prove it. ⚽': 'Znasz się na futbolu? Udowodnij to. ⚽',
     'Call the match, your mate takes the other side, and the winner goes on the record. Clashly keeps the score — the rivalry does the rest.':

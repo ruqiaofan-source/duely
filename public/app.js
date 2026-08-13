@@ -367,7 +367,8 @@ function renderHeader() {
   const m = me.get();
   if (!h) return;
   const lang = (window.CLASHLY_I18N && window.CLASHLY_I18N.lang()) || 'en';
-  const langBtn = `<button class="linkbtn" id="langBtn" style="font-weight:800" title="Language / Język">${lang === 'pl' ? '🇵🇱 PL' : '🇬🇧 EN'}</button>`;
+  const segS = (on) => on ? 'padding:5px 10px;background:var(--teal);color:#06140f' : 'padding:5px 10px;color:var(--muted)';
+  const langBtn = `<div id="langBtn" role="button" tabindex="0" title="Language / Język" style="display:flex;border:1.5px solid var(--line);border-radius:999px;overflow:hidden;cursor:pointer;font-size:12px;font-weight:800;flex:none"><span style="${segS(lang !== 'pl')}">🇬🇧 EN</span><span style="${segS(lang === 'pl')}">🇵🇱 PL</span></div>`;
   h.innerHTML = (m ? `<div class="idchip" id="idchip"><span class="av">${initials(m.name)}</span>${esc(m.name)}</div>` : '') + langBtn;
   const lb = $('#langBtn');
   if (lb && window.CLASHLY_I18N) lb.addEventListener('click', () => window.CLASHLY_I18N.toggle());
@@ -420,6 +421,7 @@ async function route() {
   if (code) { setTab('league'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
   if (!me.get()) { setTab(null); return renderOnboarding(); }
   const path = location.pathname;
+  if (path.startsWith('/board')) { setTab('board'); return renderBoard(); }
   if (path.startsWith('/duels')) { setTab('duels'); return renderDuels(); }
   if (path.startsWith('/leagues')) { setTab('league'); return renderLeagueHub(); }
   if (path.startsWith('/profile')) { setTab('profile'); return renderProfile(); }
@@ -528,6 +530,15 @@ async function renderHome() {
     : '';
 
   app.innerHTML = `
+    ${terrace.length ? (() => { const hp = terrace[0]; return `<div class="card" style="border-color:rgba(255,200,61,.5);background:linear-gradient(180deg,rgba(255,200,61,.07),transparent)">
+      <div class="sm" style="color:var(--gold);font-weight:800;letter-spacing:1px;font-size:11px">📣 LATEST FROM THE TERRACE</div>
+      <div style="font-family:Anton,sans-serif;font-size:24px;line-height:1.25;margin:8px 0 6px">“${esc(hp.text)}”</div>
+      <div class="sm" style="color:var(--muted)">— ${esc(hp.by)} (${esc(hp.record)}${hp.streakType === 'W' && hp.streakCount >= 2 ? ' · 🔥' + hp.streakCount : ''}) · ${timeAgo(hp.t)}</div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button class="cta" data-correct="${esc(hp.by)}" style="flex:1">🗣️ That's nonsense →</button>
+        <button class="cta commit" data-punish="${esc(hp.by)}" style="flex:1">⚔️ Make them back it</button>
+      </div>
+    </div>`; })() : ''}
     ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)">
       <h2>Get your first rivalry going 👋</h2>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:6px">
@@ -553,6 +564,26 @@ async function renderHome() {
       ${!hideStreaks && s.platformRecord ? `<div class="banner" style="margin:10px 0 0;border-style:solid;border-color:rgba(255,200,61,.3)">🏆 Clashly record: <b style="color:var(--gold)">${esc(s.platformRecord.name)}'s ${s.platformRecord.count}-win streak</b>${s.streak.type === 'W' && s.streak.count >= s.platformRecord.count ? " — that's you. Defend it." : ' — beat it.'}</div>` : ''}
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
     </div>
+
+    <div class="card">
+      <div class="cardhead"><h2>The Terrace 📣</h2><span class="sm" style="color:var(--muted);font-size:12px">say it to everyone</span></div>
+      <div class="reacts" id="terrChips" style="margin:6px 0 6px">
+        <button type="button" class="react-chip" data-terr="Nobody in this app knows ball. Prove me wrong 😤">😤 rage bait</button>
+        <button type="button" class="react-chip" data-terr="Free Arena points on my open challenge — if you dare 🌍">🌍 call-out</button>
+        <button type="button" class="react-chip" data-terr="My record speaks for itself. Who's next? 👑">👑 flex</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <input id="terrIn" maxlength="180" placeholder="Announce it to all of Clashly…" style="flex:1" />
+        <button class="linkbtn" id="terrGo" style="font-weight:800;flex:none">Post</button>
+      </div>
+      <div style="max-height:320px;overflow-y:auto">
+      ${terrace.length ? terrace.slice(0, 25).map((p) => `
+        <div class="recent" data-correct="${esc(p.by)}" role="button" tabindex="0" style="align-items:flex-start;cursor:pointer">
+          <span style="min-width:0"><b style="color:var(--text)">${esc(p.by)}</b> <span style="color:var(--muted-2);font-size:11.5px">${esc(p.record)}${p.streakType === 'W' && p.streakCount >= 2 ? ' · 🔥' + p.streakCount : ''} · ${timeAgo(p.t)}</span><br/>${esc(p.text)}</span>
+        </div>`).join('') : '<p class="sub" style="margin:8px 0 0">Silence on the terrace. Someone say something spicy. 🌶️</p>'}
+      </div>
+    </div>
+
 
     ${big.length ? `<div class="card">
       <div class="cardhead"><h2>Big games coming up 🔥</h2></div>
@@ -584,43 +615,12 @@ async function renderHome() {
       <button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post an open challenge</button>
     </div>
 
-    <div class="card">
-      <div class="cardhead"><h2>The Terrace 📣</h2><span class="sm" style="color:var(--muted);font-size:12px">say it to everyone</span></div>
-      ${terrace.length ? terrace.slice(0, 6).map((p) => `
-        <div class="recent" style="align-items:flex-start">
-          <span style="min-width:0"><b style="color:var(--text)">${esc(p.by)}</b> <span style="color:var(--muted-2);font-size:11.5px">${esc(p.record)}${p.streakType === 'W' && p.streakCount >= 2 ? ' · 🔥' + p.streakCount : ''} · ${timeAgo(p.t)}</span><br/>${esc(p.text)}</span>
-        </div>`).join('') : '<p class="sub" style="margin:8px 0 0">Silence on the terrace. Someone say something spicy. 🌶️</p>'}
-      <div class="reacts" id="terrChips" style="margin:10px 0 6px">
-        <button type="button" class="react-chip" data-terr="Nobody in this app knows ball. Prove me wrong 😤">😤 rage bait</button>
-        <button type="button" class="react-chip" data-terr="Free Arena points on my open challenge — if you dare 🌍">🌍 call-out</button>
-        <button type="button" class="react-chip" data-terr="My record speaks for itself. Who's next? 👑">👑 flex</button>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input id="terrIn" maxlength="180" placeholder="Announce it to all of Clashly…" style="flex:1" />
-        <button class="linkbtn" id="terrGo" style="font-weight:800;flex:none">Post</button>
-      </div>
-    </div>
-
-    ${recHtml ? `<div class="card">
-      <div class="cardhead"><h2>High scores 🏆</h2><button class="linkbtn" id="recWin">${RECWIN === 'week' ? 'This week ▾' : 'All time ▾'}</button></div>
-      ${recHtml}
-    </div>` : ''}
 
     <div class="card">
       <h2>Rivalries</h2>
       ${rivalriesHtml}
     </div>
 
-    <div class="card">
-      <div class="cardhead"><h2>Leagues</h2><button class="linkbtn" id="newLeague">+ New / join</button></div>
-      ${lg.leagues.length
-        ? lg.leagues.map((l) => `
-          <div class="riv-row" data-league="${esc(l.code)}" role="button" tabindex="0" style="cursor:pointer">
-            <div><div class="nm">${esc(l.name)}</div><div class="sm">${l.members} mates · ${l.rank ? 'you\'re #' + l.rank + ' of ' + l.total : 'unranked'}</div></div>
-            <div class="rec ${l.rank === 1 ? 'lead' : ''}">#${l.rank || '–'}</div>
-          </div>`).join('')
-        : `<p class="sub" style="margin:8px 0 0">One table for your whole group chat — every duel between members counts. Winner walks tall all season. 🏆</p><button class="cta" id="startLeague" style="margin-top:12px">Start a group league →</button>`}
-    </div>
 
     ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
 
@@ -631,6 +631,8 @@ async function renderHome() {
   app.querySelectorAll('[data-arena]').forEach((el) =>
     el.addEventListener('click', (e) => { e.stopPropagation(); track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
   const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
+  app.querySelectorAll('[data-correct]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const ti = $('#terrIn'); if (ti) { ti.value = '@' + b.dataset.correct + ' '; ti.focus(); ti.scrollIntoView({ behavior: 'smooth', block: 'center' }); haptic(8); } }));
+  app.querySelectorAll('[data-punish]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); PREFILL = { opponent: b.dataset.punish }; renderCreate(); }));
   const tGo = $('#terrGo'), tIn = $('#terrIn');
   if (tGo && tIn) {
     const post = async () => { const v = tIn.value.trim(); if (v.length < 2) return toast('Say something worth saying'); tGo.disabled = true;
@@ -646,13 +648,57 @@ async function renderHome() {
     row.addEventListener('click', (e) => { if (e.target.closest('[data-rematch]')) return; openRivalrySheet(row.dataset.rivid, row.dataset.rivname); }));
   app.querySelectorAll('[data-rematch]').forEach((b) =>
     b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
-  $('#newLeague').addEventListener('click', () => renderLeagueHub());
+  const nl0 = $('#newLeague'); if (nl0) nl0.addEventListener('click', () => renderLeagueHub());
   const sl = $('#startLeague'); if (sl) sl.addEventListener('click', () => renderLeagueHub());
   const rw = $('#recWin'); if (rw) rw.addEventListener('click', () => { RECWIN = RECWIN === 'week' ? 'all' : 'week'; renderHome(); });
   const el2 = $('#escalateLeague'); if (el2) el2.addEventListener('click', () => renderLeagueHub(`The ${hot.opponent} derby`));
   app.querySelectorAll('[data-league]').forEach((b) =>
     b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
 }
+
+// ---------------------------------------------------------------------------
+// Leaderboard — rankings, weekly crowns, leagues
+// ---------------------------------------------------------------------------
+async function renderBoard() {
+  const my = ++_gen; const live = () => my === _gen;
+  const m = me.get();
+  const [recRes, lgRes, sRes] = await Promise.allSettled([api('/records?window=' + RECWIN), api('/players/me/leagues'), api('/players/me/summary')]);
+  if (!live()) return;
+  const rec = recRes.status === 'fulfilled' ? recRes.value : null;
+  const lg = lgRes.status === 'fulfilled' ? lgRes.value : { leagues: [] };
+  const s = sRes.status === 'fulfilled' ? sRes.value : { arenaPts: 0 };
+  const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
+  const crowns = rec ? [
+    recRow('🔥', 'Hot streak', rec.streak && `${esc(rec.streak.name)} · ${rec.streak.count}W`),
+    recRow('⚔️', 'Most duels', rec.mostDuels && `${esc(rec.mostDuels.name)} · ${rec.mostDuels.duels}`),
+    recRow('🎯', 'Best record', rec.bestRecord && `${esc(rec.bestRecord.name)} · ${rec.bestRecord.w}-${rec.bestRecord.l}`),
+    recRow('😅', 'Biggest bottle', rec.biggestBottle && `${esc(rec.biggestBottle.name)} · ${rec.biggestBottle.l} Ls`),
+    recRow('👑', 'Arena crown', rec.arenaKing && `${esc(rec.arenaKing.name)} · ${rec.arenaKing.wins} arena W${rec.arenaKing.wins === 1 ? '' : 's'}`),
+  ].join('') : '';
+  const table = (rec && rec.table) || [];
+  app.innerHTML = `
+    <div class="card">
+      <div class="cardhead"><h2>Player rankings 🏆</h2><button class="linkbtn" id="recWin">${RECWIN === 'week' ? 'This week ▾' : 'All time ▾'}</button></div>
+      ${table.length ? table.map((r, i) => `
+        <div class="recent"><span>${i === 0 ? '👑' : '#' + (i + 1)} <b style="color:var(--text)">${esc(r.name)}</b>${m && r.name === m.name ? ' <span class="tag-rival">you</span>' : ''}</span><span class="res" style="color:var(--gold)">${r.w}–${r.l}${r.arenaPts ? ' · ⚡' + r.arenaPts : ''}</span></div>`).join('')
+        : `<p class="sub" style="margin:8px 0 0">No decided duels ${RECWIN === 'week' ? 'this week' : 'yet'} — the throne is empty. 👑</p>`}
+      ${s.arenaPts ? `<div class="banner" style="margin-top:10px">⚡ Your Arena points: <b style="color:var(--gold)">${s.arenaPts}</b></div>` : ''}
+    </div>
+    <div class="card"><div class="cardhead"><h2>Weekly crowns</h2></div>${crowns || '<p class="sub" style="margin:8px 0 0">Play some duels and the crowns appear here.</p>'}</div>
+    <div class="card">
+      <div class="cardhead"><h2>My leagues</h2><button class="linkbtn" id="newLeague">+ New / join</button></div>
+      ${lg.leagues.length ? lg.leagues.map((l) => `
+        <div class="riv-row" data-league="${esc(l.code)}" role="button" tabindex="0" style="cursor:pointer">
+          <div><div class="nm">${esc(l.name)}</div><div class="sm">${l.members} mates · ${l.rank ? "you're #" + l.rank + ' of ' + l.total : 'unranked'}</div></div>
+          <div class="rec ${l.rank === 1 ? 'lead' : ''}">#${l.rank || '–'}</div>
+        </div>`).join('') : `<p class="sub" style="margin:8px 0 0">One table for your whole group chat — every duel between members counts. 🏆</p><button class="cta" id="startLeague" style="margin-top:12px">Start a group league →</button>`}
+    </div>`;
+  const rw = $('#recWin'); if (rw) rw.addEventListener('click', () => { RECWIN = RECWIN === 'week' ? 'all' : 'week'; renderBoard(); });
+  const nl = $('#newLeague'); if (nl) nl.addEventListener('click', () => renderLeagueHub());
+  const sl = $('#startLeague'); if (sl) sl.addEventListener('click', () => renderLeagueHub());
+  app.querySelectorAll('[data-league]').forEach((b) => b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
+}
+
 
 // ---------------------------------------------------------------------------
 // Duels tab — all your bets
@@ -694,6 +740,7 @@ async function renderProfile() {
   const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
   const hideStreaks = prefs.get().hideStreaks;
   const streakTxt = (!hideStreaks && s.streak.count) ? `${s.streak.count}${s.streak.type}` : '—';
+  const lang = (window.CLASHLY_I18N && window.CLASHLY_I18N.lang()) || 'en';
   const acct = m.email
     ? `<div class="card"><div class="cardhead"><h2>Account</h2><button class="linkbtn" id="signout">Sign out</button></div><p class="sub" style="margin:0">Signed in as <b style="color:var(--text)">${esc(m.email)}</b>${m.verified ? ' ✓' : ''}. Your record syncs to this account.</p></div>`
     : `<div class="card"><div class="cardhead"><h2>Account</h2></div><p class="sub" style="margin:0 0 10px">You're playing as a guest on this device. Save your record so it survives across devices.</p><button class="cta" id="signin">Sign in / create account</button></div>`;
@@ -707,12 +754,18 @@ async function renderProfile() {
       </div>
     </div>
     ${acct}
-    <div class="card"><div class="cardhead"><h2>Settings</h2></div><div class="checkrow" style="margin-top:6px"><input type="checkbox" id="hideStreaks" ${hideStreaks ? 'checked' : ''} /><label for="hideStreaks">Hide streaks — no flame, no pressure</label></div></div>
+    <div class="card"><div class="cardhead"><h2>Settle up 💸</h2><button class="linkbtn" id="allDuels">⚔️ All my duels →</button></div>
+      ${(s.rivalries || []).filter((r) => r.net).length ? (s.rivalries || []).filter((r) => r.net).map((r) => `<div class="recent"><span>${esc(r.opponent)}</span><span class="res ${r.net > 0 ? 'w' : 'l'}">${r.net > 0 ? 'owes you ' : 'you owe '}${sym(r.currency)}${Math.abs(r.net)}</span></div>`).join('') : '<p class="sub" style="margin:8px 0 0">All square — nobody owes anything. 🤝</p>'}
+      <p class="sub" style="margin:10px 0 0;font-size:12px">Clashly holds no money — settle between yourselves (cash, BLIK, Revolut…) and mark the duel sorted.</p>
+    </div>
+    <div class="card"><div class="cardhead"><h2>Settings</h2></div><div class="checkrow" style="margin-top:6px"><input type="checkbox" id="langPl" ${lang === 'pl' ? 'checked' : ''} /><label for="langPl">🇵🇱 Polski interfejs (Polish interface)</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="hideStreaks" ${hideStreaks ? 'checked' : ''} /><label for="hideStreaks">Hide streaks — no flame, no pressure</label></div></div>
     <div class="card"><h2>Rivalries</h2>${s.rivalries.length
       ? s.rivalries.map((r) => `<div class="riv-row" data-rivid="${esc(r.opponentId)}" data-rivname="${esc(r.opponent)}" role="button" tabindex="0" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
       : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
     <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b>'} — settle up with your mates and run it back.</div>`;
   $('#rename').addEventListener('click', () => openRenameSheet(m.name));
+  const ad = $('#allDuels'); if (ad) ad.addEventListener('click', () => { history.pushState({}, '', '/duels'); route(); });
+  const lp = $('#langPl'); if (lp) lp.addEventListener('change', () => { if (window.CLASHLY_I18N) window.CLASHLY_I18N.toggle(); });
   const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); localStorage.removeItem('settle_roles'); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
   const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
   const hs = $('#hideStreaks'); if (hs) hs.addEventListener('change', () => { prefs.set('hideStreaks', hs.checked); renderProfile(); });
@@ -1472,6 +1525,7 @@ document.getElementById('tabbar')?.addEventListener('click', (e) => {
   const t = e.target.closest('.tab'); if (!t) return;
   haptic(8);
   const tab = t.dataset.tab;
+  if (tab === 'challenge') { PREFILL = null; renderCreate(); return; }
   const target = tab === 'home' ? '/' : tab === 'league' ? '/leagues' : '/' + tab;
   if (location.pathname !== target) history.pushState({}, '', target);
   route();
