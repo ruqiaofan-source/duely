@@ -444,3 +444,43 @@ body.has-tabbar .wrap { padding-bottom: 96px; }
 .seo-hero ol { padding-left: 20px; margin: 6px 0; } .seo-hero ol li { margin: 6px 0; }
 .seo-hero a { color: var(--teal); }
 .seo-hero .spin { margin-top: 22px; }
+
+
+/* ================= CLASHLY LIGHT — Vinted-inspired theme =================
+   Light canvas, white cards, Vinted teal primaries, soft shadows. Overrides
+   the dark tokens above; the intro splash stays dark on purpose (brand moment). */
+:root {
+  --bg: #F5F6F7;
+  --surface: #FFFFFF;
+  --surface-2: #F3F5F6;
+  --surface-3: #FFFFFF;
+  --line: #E3E7E9;
+  --teal: #09B1BA;
+  --teal-bright: #007782;
+  --teal-dim: #0A98A0;
+  --indigo: #4A66E8;
+  --purple: #6D3AD6;
+  --gold: #C08A00;
+  --green: #1B9E60;
+  --loss: #C2455A;
+  --amber: #E8722E;
+  --text: #171C1F;
+  --muted: #5A6B74;
+  --muted-2: #8A969D;
+  --shadow: 0 6px 20px rgba(23, 28, 31, 0.08);
+  --glass: rgba(255, 255, 255, 0.92);
+  --aurora: linear-gradient(160deg, rgba(9, 177, 186, 0.10) 0%, rgba(109, 58, 214, 0.05) 55%, transparent 100%);
+}
+html, body {
+  background:
+    radial-gradient(900px 480px at 50% -8%, rgba(9, 177, 186, 0.07) 0%, transparent 60%),
+    var(--bg);
+  color: var(--text);
+}
+button.cta { background: var(--teal); color: #fff; box-shadow: 0 8px 20px rgba(9, 177, 186, 0.30); }
+button.cta.commit { box-shadow: 0 8px 20px rgba(225, 29, 46, 0.25); }
+button.cta.gold { color: #3a2a00; }
+.tabbar { background: var(--glass); border-top: 1px solid var(--line); }
+.checkrow:has(input:checked) { background: rgba(9, 177, 186, 0.08); box-shadow: none; }
+.checkrow input:checked { box-shadow: 0 0 0 4px rgba(9, 177, 186, 0.18); }
+.intro { background: var(--aurora), #0B1116; }

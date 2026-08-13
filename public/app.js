@@ -367,7 +367,7 @@ function renderHeader() {
   const m = me.get();
   if (!h) return;
   const lang = (window.CLASHLY_I18N && window.CLASHLY_I18N.lang()) || 'en';
-  const segS = (on) => on ? 'padding:5px 10px;background:var(--teal);color:#06140f' : 'padding:5px 10px;color:var(--muted)';
+  const segS = (on) => on ? 'padding:5px 10px;background:var(--teal);color:#fff' : 'padding:5px 10px;color:var(--muted)';
   const langBtn = `<div id="langBtn" role="button" tabindex="0" title="Language / Język" style="display:flex;border:1.5px solid var(--line);border-radius:999px;overflow:hidden;cursor:pointer;font-size:12px;font-weight:800;flex:none"><span style="${segS(lang !== 'pl')}">🇬🇧 EN</span><span style="${segS(lang === 'pl')}">🇵🇱 PL</span></div>`;
   h.innerHTML = (m ? `<div class="idchip" id="idchip"><span class="av">${initials(m.name)}</span>${esc(m.name)}</div>` : '') + langBtn;
   const lb = $('#langBtn');
