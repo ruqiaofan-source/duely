@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Duely — social P2P football bet scorekeeper (v1)
+ * Clashly — social P2P football bet scorekeeper (v1)
  *
  * Loop: create a bet -> share link -> mate takes the other side ->
  * resolve at full time -> who owes who -> the result writes to your
@@ -49,7 +49,7 @@ const PUBLIC = path.join(ROOT, 'public');
 const DATA_FILE = path.join(ROOT, 'data.json');
 const FOOTBALL_TOKEN = process.env.FOOTBALL_DATA_TOKEN || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const BRAND = 'Duely';
+const BRAND = 'Clashly';
 
 // ---------------------------------------------------------------------------
 // Store — Postgres (durable, survives redeploys) with a JSON-file fallback
@@ -275,6 +275,13 @@ function resolveBet(bet, actualOutcome) {
   // owes carries ids (the ledger key) plus denormalized names (for cards/OG)
   bet.owes = { fromId: loserPid, toId: winnerPid, from: loserNm, to: winnerNm, amount: bet.stake, currency: bet.currency };
   bet.resolvedAt = new Date().toISOString();
+  // Arena incentive: beating a stranger from the open pool earns points (+3 win,
+  // +1 for showing up) — fuel for the Arena crown on the dashboard.
+  if (bet.arena) {
+    const wp = db.players[winnerPid], lp = db.players[loserPid];
+    if (wp) wp.arenaPts = (wp.arenaPts || 0) + 3;
+    if (lp) lp.arenaPts = (lp.arenaPts || 0) + 1;
+  }
   addPundit(bet, 'resolved');
   return bet;
 }
@@ -398,7 +405,7 @@ function playerSummary(id) {
     currency: b.currency, status: b.status,
   }));
   const nv = netView(nets);
-  return { id, name, w, l, net: nv.net, currency: nv.currency, streak, rivalries, recent };
+  return { id, name, w, l, net: nv.net, currency: nv.currency, streak, rivalries, recent, arenaPts: (db.players[id] && db.players[id].arenaPts) || 0 };
 }
 
 function rivalry(idA, idB) {
@@ -616,7 +623,7 @@ function ogMeta({ title, desc, img, pageUrl, alt, stamp }) {
   const t = escHtml(title), d = escHtml(desc), a = escHtml(alt || title);
   return `
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Duely" />
+    <meta property="og:site_name" content="Clashly" />
     <meta property="og:title" content="${t}" />
     <meta property="og:description" content="${d}" />
     <meta property="og:image" content="${escHtml(img)}" />
@@ -639,14 +646,14 @@ function ogTextForBet(bet) {
   if (bet.status === 'void') {
     return {
       title: `${bet.proposerName}'s bet was called off`,
-      desc: `This one didn't count. Start your own on Duely.`,
+      desc: `This one didn't count. Start your own on Clashly.`,
     };
   }
   if (bet.status === 'resolved' || bet.status === 'settled') {
     const winner = winnerDisplayName(bet);
     return {
       title: `${winner} called it: ${outcomeLabel(bet, bet.actualOutcome)} ⚽`,
-      desc: `${rivalryLine(bet)}. Settle it between yourselves. Back yourself on Duely.`,
+      desc: `${rivalryLine(bet)}. Settle it between yourselves. Back yourself on Clashly.`,
     };
   }
   if (bet.status === 'accepted') {
@@ -661,13 +668,13 @@ function ogTextForBet(bet) {
     // title carries the full hook: iMessage/Apple render ONLY og:title + og:image
     // (they drop og:description), so the matchup lives here, not just in desc.
     title: `${bet.proposerName} calls ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.home} v ${bet.away} 🤝`,
-    desc: `${bet.note ? maskProfanity(bet.note) + ' — ' : ''}${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Duely.`,
+    desc: `${bet.note ? maskProfanity(bet.note) + ' — ' : ''}${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Clashly.`,
   };
 }
 
 // A real, static, JS-free page — the highest-leverage GEO asset. AI answer engines
 // (ChatGPT, Perplexity, Claude) read raw HTML, so this page states plainly what
-// Duely is, how to settle a bet, and that no money is held — the exact prose we
+// Clashly is, how to settle a bet, and that no money is held — the exact prose we
 // want cited. Also a clean SEO landing for "settle a bet with a friend" queries.
 // Homepage unfurl card (1200x630) — rendered once and cached. Branded floodlit
 // look so a bare clashly.live link posted anywhere shows a proper preview.
@@ -681,8 +688,8 @@ const HOME_OG_SVG = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/s
 </defs>
 <rect width="1200" height="630" fill="url(#bg)"/><rect width="1200" height="630" fill="url(#gl)"/>
 <rect x="0" y="0" width="1200" height="8" fill="#14E0C8"/>
-<g transform="translate(72,80) scale(0.62)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#duel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
-<text x="145" y="128" class="anton" font-size="46" fill="#F4F7FB" letter-spacing="1">DUELY</text>
+<g transform="translate(72,80) scale(0.62)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#duel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<text x="145" y="128" class="anton" font-size="46" fill="#F4F7FB" letter-spacing="1">CLASHLY</text>
 <text x="147" y="156" class="inter" font-size="17" font-weight="700" fill="#14E0C8" letter-spacing="3">BACK YOURSELF.</text>
 <text x="72" y="290" class="anton" font-size="82" fill="#F4F7FB">SETTLE THE BET.</text>
 <text x="72" y="378" class="anton" font-size="82" fill="#14E0C8">ON THE RECORD.</text>
@@ -703,12 +710,12 @@ function serveAbout(req, res) {
 <html lang="en"><head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>What is Duely? Settle football bets with friends — on the record</title>
-<meta name="description" content="Duely is a free app to settle football bets with friends. Call a match, your mate takes the other side, and the winner goes on the record. No money is held — just bragging rights. Here's how it works." />
+<title>What is Clashly? Settle football bets with friends — on the record</title>
+<meta name="description" content="Clashly is a free app to settle football bets with friends. Call a match, your mate takes the other side, and the winner goes on the record. No money is held — just bragging rights. Here's how it works." />
 <link rel="canonical" href="https://clashly.live/about" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <meta property="og:type" content="article" />
-<meta property="og:title" content="What is Duely? Settle football bets with friends" />
+<meta property="og:title" content="What is Clashly? Settle football bets with friends" />
 <meta property="og:description" content="Call a match, your mate takes the other side, the winner goes on the record. Free, no money held, just bragging rights." />
 <meta property="og:url" content="https://clashly.live/about" />
 <meta property="og:image" content="https://clashly.live/og-home.png" />
@@ -730,20 +737,20 @@ function serveAbout(req, res) {
 </style>
 </head><body>
 <div class="wrap">
-  <div class="tag">DUELY · clashly.live</div>
+  <div class="tag">CLASHLY · clashly.live</div>
   <h1>Settle football bets with your mates — on the record.</h1>
-  <p class="lede">Duely turns "I bet you Arsenal win" into a proper, tracked rivalry. Call the match, your friend takes the other side, and the winner goes on the record. Free, no money held, just bragging rights.</p>
+  <p class="lede">Clashly turns "I bet you Arsenal win" into a proper, tracked rivalry. Call the match, your friend takes the other side, and the winner goes on the record. Free, no money held, just bragging rights.</p>
   <a class="cta" href="/">Start a duel →</a>
 
   <h2>How to settle a bet with a friend</h2>
   <ol>
     <li><strong>Call it.</strong> Pick a football match and back an outcome — a team to win, a draw, or your own custom call — and name what's on the line (a forfeit, first round, or just bragging rights).</li>
-    <li><strong>Send the link.</strong> Duely gives you a challenge link with a share card. Drop it in the group chat; your mate taps it and takes the other side.</li>
+    <li><strong>Send the link.</strong> Clashly gives you a challenge link with a share card. Drop it in the group chat; your mate taps it and takes the other side.</li>
     <li><strong>Settle it.</strong> After full time you both confirm the result. If you disagree, the bet is voided — nobody can cheat the record. The winner goes on the record and your head-to-head rivalry table updates.</li>
   </ol>
 
-  <h2>Does Duely handle money?</h2>
-  <p>No. Duely is a <strong>scorekeeper</strong>, not a bookmaker. It never processes payments, holds stakes, or takes a cut. Any stake is settled privately between friends. Duely is for players aged 18 and over and is designed for friendly bets and bragging rights — not gambling.</p>
+  <h2>Does Clashly handle money?</h2>
+  <p>No. Clashly is a <strong>scorekeeper</strong>, not a bookmaker. It never processes payments, holds stakes, or takes a cut. Any stake is settled privately between friends. Clashly is for players aged 18 and over and is designed for friendly bets and bragging rights — not gambling.</p>
 
   <h2>What makes it stick</h2>
   <ul>
@@ -754,10 +761,10 @@ function serveAbout(req, res) {
   </ul>
 
   <h2>Who it's for</h2>
-  <p>Football fans and friend groups who are always betting on matches but never keep track — five-a-side teams, fantasy-league mini-leagues, office rivalries, and family group chats. If your mates argue about who called it right, Duely settles it.</p>
+  <p>Football fans and friend groups who are always betting on matches but never keep track — five-a-side teams, fantasy-league mini-leagues, office rivalries, and family group chats. If your mates argue about who called it right, Clashly settles it.</p>
 
   <a class="cta" href="/">Back yourself — start a duel →</a>
-  <div class="foot">Duely keeps score and holds no money — you and your mates settle up between yourselves. For the bragging rights. 18+. · <a href="/">clashly.live</a></div>
+  <div class="foot">Clashly keeps score and holds no money — you and your mates settle up between yourselves. For the bragging rights. 18+. · <a href="/">clashly.live</a> · <a href="mailto:contact@clashly.live">contact@clashly.live</a></div>
 </div>
 </body></html>`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
@@ -904,6 +911,26 @@ async function handleApi(req, res, url) {
     });
   }
 
+  // GET /api/arena — the open-challenge pool: public bets anyone signed-in can take.
+  // The competitive loop: strangers, points, and a crown worth defending.
+  if (req.method === 'GET' && parts[1] === 'arena' && parts.length === 2) {
+    const now = Date.now();
+    const rows = Object.values(db.bets)
+      .filter((b) => b.arena && b.status === 'open' && (!b.utcDate || new Date(b.utcDate).getTime() > now))
+      .sort((a, c) => new Date(c.createdAt) - new Date(a.createdAt))
+      .slice(0, 30)
+      .map((b) => {
+        const ps = playerSummary(b.proposerId);
+        return {
+          id: b.id, home: b.home, away: b.away, competition: b.competition, utcDate: b.utcDate,
+          backedOutcome: b.backedOutcome, stake: b.stake, currency: b.currency, line: b.line, note: b.note,
+          proposerId: b.proposerId, proposerName: b.proposerName,
+          proposerStats: { w: ps.w, l: ps.l, streakType: ps.streak.type, streakCount: ps.streak.count, arenaPts: ps.arenaPts },
+        };
+      });
+    return sendJson(res, 200, { challenges: rows });
+  }
+
   // GET /api/records?window=week|all — the high-scores board: many small crowns,
   // time-windowed so the race resets and anyone can hold one THIS week.
   if (req.method === 'GET' && parts[1] === 'records') {
@@ -937,6 +964,7 @@ async function handleApi(req, res, url) {
       bestRecord: rows.filter((r) => r.duels >= 3).sort((x, y) => (y.w / y.duels) - (x.w / x.duels))[0] || null,
       biggestBottle: sortTop('l', 2),
       fiercest,
+      arenaKing: (() => { const agg = {}; for (const b of rel) if (b.arena) { const wid = winnerId(b); if (wid) agg[wid] = (agg[wid] || 0) + 1; } const top = Object.entries(agg).sort((x, y) => y[1] - x[1])[0]; return top ? { name: nameOf(top[0]) || '?', wins: top[1] } : null; })(),
     });
   }
 
@@ -1140,6 +1168,7 @@ async function handleApi(req, res, url) {
       // hybrid stakes: an optional forfeit line ("loser buys the pints") alongside —
       // or instead of — a numeric stake. Forfeits are the ICP-native currency.
       line: b.line ? String(b.line).slice(0, 60) : '',
+      arena: Boolean(b.arena) || undefined,
       createdAt: new Date().toISOString(),
     };
     db.bets[id] = bet;
@@ -1320,10 +1349,10 @@ function serveLeagueHtml(req, res, code) {
       logEvent('link_opened', { code, kind: 'league' }, false);
       const proto = req.headers['x-forwarded-proto'] || 'http';
       const origin = `${proto}://${req.headers.host}`;
-      const title = `Join ${league.name} on Duely 🏆`;
+      const title = `Join ${league.name} on Clashly 🏆`;
       const desc = `${league.members.length} mate${league.members.length === 1 ? '' : 's'} settling football bets. Tap to join the league.`;
       const img = `${origin}/lcard/${code}.png?v=${league.members.length}`;
-      const meta = ogMeta({ title, desc, img, pageUrl: `${origin}/l/${code}`, alt: `${league.name} — friends football league on Duely` });
+      const meta = ogMeta({ title, desc, img, pageUrl: `${origin}/l/${code}`, alt: `${league.name} — friends football league on Clashly` });
       html = html.replace('</head>', meta + '  </head>');
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

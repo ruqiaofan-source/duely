@@ -30,11 +30,11 @@ function loadTemplate(name, fallback) {
   try { return fs.readFileSync(path.join(__dirname, name), 'utf8'); }
   catch { return fallback; }
 }
-const FALLBACK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#0B0F14"/><text x="64" y="320" font-family="Impact,sans-serif" font-size="80" fill="#14E0C8">DUELY</text></svg>`;
+const FALLBACK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#0B0F14"/><text x="64" y="320" font-family="Impact,sans-serif" font-size="80" fill="#14E0C8">CLASHLY</text></svg>`;
 const CHALLENGE_TPL = loadTemplate('challenge.svg', FALLBACK);
 const RESULT_TPL = loadTemplate('result.svg', FALLBACK);
 
-const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely league invite">
+const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Clashly league invite">
 <defs>
 <style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}
 .inter{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;}</style>
@@ -49,8 +49,8 @@ const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/sv
 <rect x="0" y="0" width="1200" height="8" fill="#14E0C8"/>
 <g opacity="0.05" stroke="#9AA7B8" stroke-width="2" fill="none"><line x1="600" y1="120" x2="600" y2="470"/><circle cx="600" cy="295" r="78"/></g>
 <g class="inter">
-<g transform="translate(56,48) scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#lDuel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
-<text x="116" y="74" class="anton" font-size="34" fill="#F5F7FA" letter-spacing="1">DUELY</text>
+<g transform="translate(56,48) scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#lDuel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<text x="116" y="74" class="anton" font-size="34" fill="#F5F7FA" letter-spacing="1">CLASHLY</text>
 <text x="118" y="92" class="inter" font-size="12.5" font-weight="700" fill="#14E0C8" letter-spacing="2">BACK YOURSELF.</text>
 </g>
 <text x="600" y="232" class="inter" text-anchor="middle" font-size="18" font-weight="800" fill="#14E0C8" letter-spacing="4">FRIENDS LEAGUE</text>
@@ -62,7 +62,7 @@ const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/sv
 </svg>`;
 
 // 1080x1920 story / reel variant (Instagram/WhatsApp status)
-const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely story card">
+const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Clashly story card">
 <defs>
 <style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}.inter{font-family:'Inter',system-ui,sans-serif;}</style>
 <linearGradient id="sBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0A0E13"/></linearGradient>
@@ -74,8 +74,8 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 <rect width="1080" height="1920" fill="url(#sGlow)"/>
 <rect x="0" y="0" width="1080" height="10" fill="{{ACCENT}}"/>
 <g class="inter">
-<g transform="translate(72,100) scale(0.78)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#sDuel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
-<text x="172" y="144" class="anton" font-size="56" fill="#F5F7FA" letter-spacing="1">DUELY</text>
+<g transform="translate(72,100) scale(0.78)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#sDuel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<text x="172" y="144" class="anton" font-size="56" fill="#F5F7FA" letter-spacing="1">CLASHLY</text>
 <text x="174" y="176" class="inter" font-size="20" font-weight="700" fill="#14E0C8" letter-spacing="3">BACK YOURSELF.</text>
 </g>
 <rect x="72" y="320" width="360" height="60" rx="30" fill="#161C26" stroke="{{ACCENT}}" stroke-width="2"/>
@@ -104,7 +104,7 @@ function challengeSvg(data) {
 
 // neutral "called off" card for voided bets — a cancelled bet must not keep
 // unfurling as an open challenge
-const VOID_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Duely bet called off">
+const VOID_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Clashly bet called off">
 <defs>
 <style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}.inter{font-family:'Inter',system-ui,sans-serif;}</style>
 <linearGradient id="vBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10161F"/><stop offset="1" stop-color="#0A0E13"/></linearGradient>
@@ -113,8 +113,8 @@ const VOID_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg"
 <rect width="1200" height="630" fill="#0A0E13"/><rect width="1200" height="630" fill="url(#vBg)"/>
 <rect x="0" y="0" width="1200" height="6" fill="#33414F"/>
 <g transform="translate(64,48)">
-<g transform="scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M26 20 H56 C73 20 80 33 80 50 C80 67 73 80 56 80 H26 Z M39 33 H55 C64 33 68 41 68 50 C68 59 64 67 55 67 H39 Z" fill-rule="evenodd" fill="url(#vDuel)"/><rect x="51" y="20" width="3" height="60" fill="#0A0E13"/></g>
-<text x="60" y="28" class="anton" font-size="30" fill="#F4F7FB" letter-spacing="1">DUELY</text>
+<g transform="scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#vDuel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<text x="60" y="28" class="anton" font-size="30" fill="#F4F7FB" letter-spacing="1">CLASHLY</text>
 <text x="62" y="46" class="inter" font-size="12" font-weight="700" fill="#14E0C8" letter-spacing="2.5">BACK YOURSELF.</text>
 </g>
 <text x="60" y="330" class="anton" font-size="96" fill="#93A1B3">CALLED OFF</text>
