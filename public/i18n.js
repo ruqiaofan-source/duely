@@ -8,7 +8,7 @@
   const PL = {
     // tabs + chrome
     'Home': 'Start', 'Duels': 'Pojedynki', 'League': 'Liga', 'You': 'Ty',
-    'Challenge': 'Wyzwij', 'Ranking': 'Ranking', 'Profile': 'Profil',
+    'Challenge': 'Wyzwij', 'Profile': 'Profil',
     'Player rankings 🏆': 'Ranking graczy 🏆', 'Weekly crowns': 'Korony tygodnia', 'My leagues': 'Moje ligi',
     'Settle up 💸': 'Rozliczenia 💸', '⚔️ All my duels →': '⚔️ Wszystkie pojedynki →',
     'All square — nobody owes anything. 🤝': 'Wszystko wyrównane — nikt nikomu nie wisi. 🤝',
@@ -86,7 +86,7 @@
   const tr = (s) => {
     if (get() !== 'pl' || !s) return null;
     const t = s.trim();
-    if (PL[t]) return s.replace(t, PL[t]);
+    if (PL[t] && PL[t] !== t) { const r = s.replace(t, PL[t]); return r !== s ? r : null; }
     return null;
   };
 
@@ -107,11 +107,16 @@
 
   function boot() {
     const targets = [document.getElementById('app'), document.getElementById('sheetPanel'), document.getElementById('tabbar'), document.getElementById('toast'), document.body];
+    let busy = false;
     const obs = new MutationObserver((muts) => {
-      for (const m of muts) {
-        for (const a of m.addedNodes) walk(a);
-        if (m.type === 'characterData') { const r = tr(m.target.nodeValue); if (r) m.target.nodeValue = r; }
-      }
+      if (busy) return;
+      busy = true;
+      try {
+        for (const m of muts) {
+          for (const a of m.addedNodes) walk(a);
+          if (m.type === 'characterData') { const r = tr(m.target.nodeValue); if (r && r !== m.target.nodeValue) m.target.nodeValue = r; }
+        }
+      } finally { busy = false; }
     });
     const root = document.body;
     if (!root) return;
