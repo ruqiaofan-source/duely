@@ -968,7 +968,7 @@ async function handleApi(req, res, url) {
       const a = (agg[pid] = agg[pid] || { w: 0, l: 0 });
       if (winnerId(b) === pid) a.w++; else a.l++;
     }
-    const rows = Object.entries(agg).map(([pid, a]) => ({ name: nameOf(pid) || '?', w: a.w, l: a.l, duels: a.w + a.l }));
+    const rows = Object.entries(agg).map(([pid, a]) => ({ pid, name: nameOf(pid) || '?', w: a.w, l: a.l, duels: a.w + a.l }));
     const byP = {};
     for (const b of [...rel].sort((a, c) => new Date(a.resolvedAt || 0) - new Date(c.resolvedAt || 0)))
       for (const pid of [b.proposerId, b.opponentId]) {
@@ -989,6 +989,7 @@ async function handleApi(req, res, url) {
       bestRecord: rows.filter((r) => r.duels >= 3).sort((x, y) => (y.w / y.duels) - (x.w / x.duels))[0] || null,
       biggestBottle: sortTop('l', 2),
       fiercest,
+      table: [...rows].sort((x, y) => (y.w - x.w) || (x.l - y.l) || (y.duels - x.duels)).slice(0, 10).map((r) => ({ name: r.name, w: r.w, l: r.l, arenaPts: (db.players[r.pid] && db.players[r.pid].arenaPts) || 0 })),
       arenaKing: (() => { const agg = {}; for (const b of rel) if (b.arena) { const wid = winnerId(b); if (wid) agg[wid] = (agg[wid] || 0) + 1; } const top = Object.entries(agg).sort((x, y) => y[1] - x[1])[0]; return top ? { name: nameOf(top[0]) || '?', wins: top[1] } : null; })(),
     });
   }
