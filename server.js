@@ -951,9 +951,17 @@ async function handleApi(req, res, url) {
           backedOutcome: b.backedOutcome, stake: b.stake, currency: b.currency, line: b.line, note: b.note,
           proposerId: b.proposerId, proposerName: b.proposerName,
           proposerStats: { w: ps.w, l: ps.l, streakType: ps.streak.type, streakCount: ps.streak.count, arenaPts: ps.arenaPts },
+          offers: (b.offers || []).filter((o) => o.status === 'pending').length,
         };
       });
-    return sendJson(res, 200, { challenges: rows });
+    const recent = [...decidedBets()].sort(byRecent).slice(0, 8).map((b) => ({
+      home: b.home, away: b.away,
+      winner: b.owes ? b.owes.to : (b.winner === 'proposer' ? b.proposerName : b.opponentName),
+      loser: b.owes ? b.owes.from : (b.winner === 'proposer' ? b.opponentName : b.proposerName),
+      stakeLbl: b.line || (b.stake > 0 ? (b.currency || 'EUR') + ' ' + b.stake : 'bragging rights'),
+      arena: Boolean(b.arena), t: b.resolvedAt,
+    }));
+    return sendJson(res, 200, { challenges: rows, recent });
   }
 
   // GET /api/records?window=week|all — the high-scores board: many small crowns,
@@ -1214,6 +1222,60 @@ async function handleApi(req, res, url) {
       // proposer for cold visitors — aggregate counts only, no private record
       const ps = playerSummary(bet.proposerId);
       return sendJson(res, 200, { ...bet, proposerStats: { duels: ps.w + ps.l, streakType: ps.streak.type, streakCount: ps.streak.count } });
+    }
+
+    // Haggle: counter the terms instead of taking them (Vinted's "make an offer").
+    // POST /api/bets/:id/offer               {stake?, currency?, line?, note?}
+    // POST /api/bets/:id/offer/:oid/accept   (proposer only — locks the bet at the offer's terms)
+    // POST /api/bets/:id/offer/:oid/decline  (proposer only)
+    if (req.method === 'POST' && action === 'offer') {
+      const me = authPlayer(req); if (!me) return need401();
+      const oid = parts[4]; const sub = parts[5];
+      if (oid) {
+        if (me.id !== bet.proposerId) return sendJson(res, 403, { error: 'Only the bet owner can answer an offer.' });
+        const off = (bet.offers || []).find((o) => o.id === oid);
+        if (!off || off.status !== 'pending') return sendJson(res, 409, { error: 'That offer is gone.' });
+        if (sub === 'decline') { off.status = 'declined'; saveData(); logEvent('offer_declined', { id: bet.id }); return sendJson(res, 200, bet); }
+        if (sub === 'accept') {
+          if (bet.status !== 'open') return sendJson(res, 409, { error: 'Bet already taken' });
+          // lock the bet at the COUNTER'S terms — the haggle won
+          if (off.stake > 0) { bet.stake = off.stake; bet.currency = off.currency || bet.currency; bet.line = off.line || ''; }
+          else if (off.line) { bet.line = off.line; bet.stake = 0; }
+          bet.opponentId = off.byId; bet.opponentName = off.by;
+          bet.status = 'accepted'; bet.acceptedAt = new Date().toISOString();
+          bet.haggled = true;
+          (bet.offers || []).forEach((o) => { if (o.status === 'pending') o.status = 'declined'; });
+          off.status = 'accepted';
+          addPundit(bet, 'accepted');
+          logEvent('offer_accepted', { id: bet.id });
+          saveData();
+          return sendJson(res, 200, bet);
+        }
+        return sendJson(res, 400, { error: 'Unknown offer action' });
+      }
+      if (bet.status !== 'open') return sendJson(res, 409, { error: 'Bet already taken' });
+      if (me.id === bet.proposerId) return sendJson(res, 409, { error: "It's your bet — you can't haggle with yourself." });
+      if (bet.utcDate && Date.now() > new Date(bet.utcDate).getTime()) {
+        return sendJson(res, 409, { error: 'Too late — this match has already kicked off.' });
+      }
+      const b = await readBody(req);
+      const stake = Math.max(0, Number(b.stake) || 0);
+      const line = b.line ? String(b.line).slice(0, 60) : '';
+      if (!stake && !line) return sendJson(res, 400, { error: 'Counter with a stake or a forfeit — something has to be on the line.' });
+      bet.offers = bet.offers || [];
+      // one live offer per player — a new one replaces yours
+      bet.offers = bet.offers.filter((o) => !(o.byId === me.id && o.status === 'pending'));
+      if (bet.offers.filter((o) => o.status === 'pending').length >= 10) return sendJson(res, 409, { error: 'This bet has enough offers on the table.' });
+      const off = {
+        id: newId(), byId: me.id, by: me.name,
+        stake, currency: (b.currency || bet.currency || 'EUR').slice(0, 4), line,
+        note: b.note ? String(b.note).slice(0, 100) : '',
+        t: new Date().toISOString(), status: 'pending',
+      };
+      bet.offers.push(off);
+      logEvent('offer_made', { id: bet.id });
+      saveData();
+      return sendJson(res, 201, bet);
     }
 
     if (req.method === 'POST' && action === 'accept') {
