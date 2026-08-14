@@ -16,6 +16,10 @@
     'Settings': 'Ustawienia', 'Account': 'Konto', 'Sign out': 'Wyloguj', 'Sign in / create account': 'Zaloguj / załóż konto',
     'Edit name': 'Zmień imię', 'Play some duels and the crowns appear here.': 'Rozegraj kilka pojedynków, a korony się pojawią.',
     '📣 LATEST FROM THE TERRACE': '📣 ŚWIEŻE Z TRYBUNY',
+    'See all →': 'Zobacz wszystkie →', 'Latest results 🏁': 'Ostatnie wyniki 🏁',
+    '← Back to home': '← Wróć na start',
+    'Every card is a live bet waiting for an opponent. Take one, win it, bank': 'Każda karta to zakład czekający na przeciwnika. Weź go, wygraj i zgarnij',
+    '📌 Yours, live in the Arena:': '📌 Twoje, wystawione na Arenie:',
     "🗣️ That's nonsense →": '🗣️ Bzdura →', '⚔️ Make them back it': '⚔️ Niech to udowodni',
     // onboarding
     'Think you know ball? Prove it. ⚽': 'Znasz się na futbolu? Udowodnij to. ⚽',
@@ -68,6 +72,17 @@
     'e.g. loser buys the pints': 'np. przegrany stawia browary',
     'Announce it to all of Clashly…': 'Ogłoś to całemu Clashly…',
     'Say something worth saying': 'Powiedz coś konkretnego',
+    // haggling
+    '💬 Haggle — counter the terms': '💬 Targuj się — zaproponuj inne warunki',
+    'Your counter — what should be on the line?': 'Twoja kontra — o co ma iść gra?',
+    'e.g. loser wears the rival shirt': 'np. przegrany zakłada koszulkę rywala',
+    'Add a jab (optional)': 'Dorzuć zaczepkę (opcjonalnie)',
+    '…or money (optional)': '…albo kasa (opcjonalnie)',
+    'Send counter-offer →': 'Wyślij kontrofertę →',
+    'Counter-offer sent 💬': 'Kontroferta wysłana 💬',
+    'Sign the fight card': 'Podpisz kartę walki',
+    'Counter with a forfeit or a stake': 'Zaproponuj fant albo stawkę',
+    'Offer declined': 'Oferta odrzucona',
     // bet page
     'Take the bet 🤝': 'Przyjmij zakład 🤝',
     'Lock it in 🤝': 'Zaklep 🤝',

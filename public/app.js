@@ -421,6 +421,7 @@ async function route() {
   if (code) { setTab('league'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
   if (!me.get()) { setTab(null); return renderOnboarding(); }
   const path = location.pathname;
+  if (path.startsWith('/arena')) { setTab('home'); return renderArena(); }
   if (path.startsWith('/board')) { setTab('board'); return renderBoard(); }
   if (path.startsWith('/duels')) { setTab('duels'); return renderDuels(); }
   if (path.startsWith('/leagues')) { setTab('league'); return renderLeagueHub(); }
@@ -458,6 +459,22 @@ function renderOnboarding(next) {
     catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Let's go →"; }
   });
   $('#signin').addEventListener('click', () => openLoginSheet());
+}
+
+
+// Vinted-style item card for an open Arena challenge — the bet as a listing
+function arenaItemCard(c) {
+  const backedLbl = c.backedOutcome === 'HOME' ? c.home + ' win' : c.backedOutcome === 'AWAY' ? c.away + ' win' : 'Draw';
+  const stakeLbl = c.line || (c.stake > 0 ? sym(c.currency) + c.stake : 'bragging rights');
+  const st = c.proposerStats || {};
+  const cred = (st.w || st.l) ? `${st.w}\u2013${st.l}` : 'new';
+  const fire = st.streakType === 'W' && st.streakCount >= 2 ? ' \ud83d\udd25' + st.streakCount : '';
+  return `<div class="item-card" data-arena="${esc(c.id)}" role="button" tabindex="0">
+    <span class="pricetag">${esc(stakeLbl)}</span>${c.offers ? `<span class="offbadge">💬 ${c.offers}</span>` : ''}
+    <div class="teams">${esc(c.home)} <span style="color:var(--purple)">v</span> ${esc(c.away)}</div>
+    <div class="pick">backs <b>${esc(backedLbl)}</b>${c.utcDate ? ' \u00b7 ' + kickoffTxt(c.utcDate) : ''}</div>
+    <div class="seller"><span class="av2">${initials(c.proposerName)}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.proposerName)} \u00b7 ${cred}${fire}</span></div>
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -597,24 +614,16 @@ async function renderHome() {
         </div>`).join('')}
     </div>` : ''}
 
+
+
     <div class="card" style="border-color:rgba(124,58,237,.45)">
-      <div class="cardhead"><h2>The Arena ⚡</h2>${s.arenaPts ? `<span class="flame on">⚡ ${s.arenaPts} pts</span>` : ''}</div>
-      <p class="sub" style="margin:2px 0 10px">Open challenges from all of Clashly. Take a stranger's bet, win it, bank <b style="color:var(--gold)">+3 Arena points</b> — top the weekly board and wear the 👑.</p>
-      ${(() => { const list = arena.filter((c) => !m || c.proposerId !== m.id).slice(0, 5); const mine = arena.length - list.length;
-        return (list.length ? list.map((c) => {
-          const backedLbl = c.backedOutcome === 'HOME' ? c.home + ' win' : c.backedOutcome === 'AWAY' ? c.away + ' win' : 'Draw';
-          const stakeLbl = c.line || (c.stake > 0 ? sym(c.currency) + c.stake : 'bragging rights');
-          const st = c.proposerStats || {};
-          const cred = (st.w || st.l) ? `${st.w}–${st.l}` + (st.streakType === 'W' && st.streakCount >= 2 ? ' · 🔥' + st.streakCount + 'W' : '') : 'new blood';
-          return `<div class="riv-row" data-arena="${esc(c.id)}" role="button" tabindex="0" style="cursor:pointer">
-            <div><div class="nm">${esc(c.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(c.away)}</div>
-            <div class="sm">${esc(c.proposerName)} (${cred}) backs <b>${esc(backedLbl)}</b> · ${esc(stakeLbl)}</div></div>
-            <button class="linkbtn" data-arena="${esc(c.id)}" style="font-weight:800">Take it →</button>
-          </div>`; }).join('') : '<p class="sub" style="margin:8px 0 0">No open challenges right now — throw the first glove. 🥊</p>')
+      <div class="cardhead"><h2>The Arena ⚡</h2><button class="linkbtn" id="arenaAll">See all →</button></div>
+      <p class="sub" style="margin:2px 0 0">Open bets from all of Clashly, listed like a marketplace. Take one, win it, bank <b style="color:var(--gold)">+3 points</b>.${s.arenaPts ? ` You have <b style=\"color:var(--gold)\">\u26a1 ${s.arenaPts}</b>.` : ''}</p>
+      ${(() => { const open = arena.filter((c) => !m || c.proposerId !== m.id); const mine = arena.length - open.length;
+        return (open.length ? `<div class="market">${open.slice(0, 4).map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:8px 0 0">No open challenges right now — throw the first glove. 🥊</p>')
           + (mine > 0 ? `<p class="sub" style="margin:8px 0 0">Your open challenge is live in the Arena — waiting for a taker. 👀</p>` : ''); })()}
       <button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post an open challenge</button>
     </div>
-
 
     <div class="card">
       <h2>Rivalries</h2>
@@ -631,6 +640,7 @@ async function renderHome() {
   app.querySelectorAll('[data-arena]').forEach((el) =>
     el.addEventListener('click', (e) => { e.stopPropagation(); track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
   const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
+  const aa = $('#arenaAll'); if (aa) aa.addEventListener('click', () => { history.pushState({}, '', '/arena'); route(); });
   app.querySelectorAll('[data-correct]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const ti = $('#terrIn'); if (ti) { ti.value = '@' + b.dataset.correct + ' '; ti.focus(); ti.scrollIntoView({ behavior: 'smooth', block: 'center' }); haptic(8); } }));
   app.querySelectorAll('[data-punish]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); PREFILL = { opponent: b.dataset.punish }; renderCreate(); }));
   const tGo = $('#terrGo'), tIn = $('#terrIn');
@@ -654,6 +664,38 @@ async function renderHome() {
   const el2 = $('#escalateLeague'); if (el2) el2.addEventListener('click', () => renderLeagueHub(`The ${hot.opponent} derby`));
   app.querySelectorAll('[data-league]').forEach((b) =>
     b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
+}
+
+
+// ---------------------------------------------------------------------------
+// Arena — the full marketplace of open bets (browse like listings)
+// ---------------------------------------------------------------------------
+async function renderArena() {
+  const my = ++_gen; const live = () => my === _gen;
+  const m = me.get();
+  const [arRes, sRes] = await Promise.allSettled([api('/arena'), api('/players/me/summary')]);
+  if (!live()) return;
+  const ar = arRes.status === 'fulfilled' ? arRes.value : null;
+  const s = sRes.status === 'fulfilled' ? sRes.value : { arenaPts: 0 };
+  const list = (ar && ar.challenges) || [];
+  const recent = (ar && ar.recent) || [];
+  const open = list.filter((c) => !m || c.proposerId !== m.id);
+  const mine = list.filter((c) => m && c.proposerId === m.id);
+  app.innerHTML = `
+    <div class="card" style="border-color:rgba(124,58,237,.45)">
+      <div class="cardhead"><h2>The Arena ⚡</h2>${s.arenaPts ? `<span class="flame on">⚡ ${s.arenaPts} pts</span>` : ''}</div>
+      <p class="sub" style="margin:2px 0 0">Every card is a live bet waiting for an opponent. Take one, win it, bank <b style="color:var(--gold)">+3 Arena points</b> and climb the Ranking. 👑</p>
+      ${open.length ? `<div class="market">${open.map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:10px 0 0">No open challenges right now — throw the first glove. 🥊</p>'}
+      ${mine.length ? `<p class="sub" style="margin:10px 0 0">📌 Yours, live in the Arena:</p><div class="market">${mine.map(arenaItemCard).join('')}</div>` : ''}
+      <button class="cta commit" id="arenaPost" style="margin-top:14px">🌍 Post an open challenge</button>
+      <button class="muted-link" id="homeLink">← Back to home</button>
+    </div>
+    ${recent.length ? `<div class="card"><div class="cardhead"><h2>Latest results 🏁</h2></div>${recent.map((r) => `
+      <div class="recent"><span><b style="color:var(--text)">${esc(r.winner)}</b> beat ${esc(r.loser)}${r.arena ? ' ⚡' : ''} · <span style="color:var(--muted)">${esc(r.home)} v ${esc(r.away)}</span></span><span class="res" style="color:var(--muted)">${esc(r.stakeLbl)}</span></div>`).join('')}</div>` : ''}`;
+  app.querySelectorAll('[data-arena]').forEach((el) =>
+    el.addEventListener('click', () => { track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
+  const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
+  const hl = $('#homeLink'); if (hl) hl.addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,6 +1158,36 @@ async function renderBet(id, opts = {}) {
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
         <div class="banner">Waiting for your mate to take the bet…</div>`;
+      const pendingOffers = (bet.offers || []).filter((o) => o.status === 'pending');
+      if (pendingOffers.length) {
+        const offHtml = pendingOffers.map((o) => `
+          <div class="offer">
+            <div>
+              <div class="o-who"><b>${esc(o.by)}</b> counters:</div>
+              <div class="o-terms">${esc(o.line || '')}${o.line && o.stake > 0 ? ' + ' : ''}${o.stake > 0 ? sym(o.currency) + o.stake : ''}</div>
+              ${o.note ? `<div class="o-note">“${esc(o.note)}”</div>` : ''}
+            </div>
+            <div class="o-btns">
+              <button class="mini yes" data-acc="${o.id}">✓</button>
+              <button class="mini no" data-dec="${o.id}">✕</button>
+            </div>
+          </div>`).join('');
+        $('#waBtn').insertAdjacentHTML('beforebegin', `
+          <div style="margin:0 0 12px;padding:12px 14px;border:1px solid rgba(20,224,200,.35);border-radius:16px;background:rgba(20,224,200,.05)">
+            <p class="sub" style="margin:0 0 4px"><b style="color:var(--teal)">💬 Counter-offers</b> — they want different terms:</p>
+            ${offHtml}
+          </div>`);
+        document.querySelectorAll('[data-acc]').forEach((b) => b.addEventListener('click', async () => {
+          b.disabled = true;
+          try { await api('/bets/' + id + '/offer/' + b.dataset.acc + '/accept', { method: 'POST' }); track('offer_accepted'); toast('Deal 🤝 — locked at their terms'); renderBet(id); }
+          catch (e) { toast(e.message); b.disabled = false; }
+        }));
+        document.querySelectorAll('[data-dec]').forEach((b) => b.addEventListener('click', async () => {
+          b.disabled = true;
+          try { await api('/bets/' + id + '/offer/' + b.dataset.dec + '/decline', { method: 'POST' }); toast('Offer declined'); renderBet(id); }
+          catch (e) { toast(e.message); b.disabled = false; }
+        }));
+      }
       const waText = `${m ? m.name + ' reckons' : 'I reckon'} ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`;
       // primary: WhatsApp deep-link (unfurls the card AND keeps the link tappable)
       if (bet.arena) { const wa = $('#waBtn'); if (wa) wa.insertAdjacentHTML('beforebegin', '<div class="banner" style="border-style:solid;border-color:rgba(124,58,237,.45);text-align:left;margin-bottom:10px">🌍 <b>Live in the Arena</b> — anyone on Clashly can take the other side right now. Firing the link at a mate still works too.</div>'); }
@@ -1162,6 +1234,15 @@ async function renderBet(id, opts = {}) {
           <input id="opponentName" placeholder="Your name" maxlength="40" autocapitalize="words" />
         </div>`}
         <button class="cta commit" id="acceptBtn">Take the bet 🤝</button>
+        <button class="ghost" id="haggleBtn" style="width:100%;margin-top:8px">💬 Haggle — counter the terms</button>
+        <div id="haggleWrap" style="display:none;margin-top:10px">
+          <label>Your counter — what should be on the line?</label>
+          <input id="hagLine" placeholder="e.g. loser wears the rival shirt" maxlength="60" />
+          <input id="hagStake" type="number" min="0" inputmode="numeric" placeholder="…or money (optional)" style="margin-top:8px" />
+          <input id="hagNote" placeholder="Add a jab (optional)" maxlength="100" style="margin-top:8px" />
+          ${m ? '' : '<div id="hagNameWrap"><label for="hagName">Sign the fight card</label><input id="hagName" placeholder="Your name" maxlength="40" autocapitalize="words" /></div>'}
+          <button class="cta" id="hagSend" style="margin-top:10px">Send counter-offer →</button>
+        </div>
         <button class="muted-link" onclick="location.href='/'">Nah — not this one</button>
         ${commentsHtml(bet)}
       </div>`;
@@ -1203,6 +1284,42 @@ async function renderBet(id, opts = {}) {
         btn.disabled = false; $('.card').classList.remove('locking');
       }
     });
+    (() => {
+      const hb = $('#haggleBtn'); if (!hb) return;
+      const mm0 = me.get();
+      const myPending = mm0 && (bet.offers || []).find((o) => o.byId === mm0.id && o.status === 'pending');
+      if (myPending) {
+        hb.style.display = 'none';
+        $('#haggleWrap').style.display = 'none';
+        hb.insertAdjacentHTML('afterend', `<div class="banner" style="margin-top:8px">💬 Your counter is in — ${esc(myPending.line || sym(myPending.currency) + myPending.stake)}. Waiting on ${esc(bet.proposerName)}.</div>`);
+        return;
+      }
+      hb.addEventListener('click', () => {
+        const w = $('#haggleWrap');
+        w.style.display = w.style.display === 'none' ? 'block' : 'none';
+        if (w.style.display === 'block') { try { $('#hagLine').focus(); } catch {} }
+      });
+      $('#hagSend').addEventListener('click', async () => {
+        const line = ($('#hagLine')?.value || '').trim();
+        const stake = Math.max(0, Number($('#hagStake')?.value) || 0);
+        const note = ($('#hagNote')?.value || '').trim();
+        if (!line && !stake) return toast('Counter with a forfeit or a stake');
+        let mm = me.get();
+        if (!mm) {
+          const nm = ($('#hagName')?.value || '').trim();
+          if (!nm) return toast('Add your name');
+          try { mm = await register(nm); } catch (e) { return toast(e.message); }
+          renderHeader();
+        }
+        const b = $('#hagSend'); b.disabled = true; haptic(16);
+        try {
+          await api('/bets/' + id + '/offer', { method: 'POST', body: JSON.stringify({ line, stake, currency: bet.currency, note }) });
+          track('offer_made');
+          toast('Counter-offer sent 💬');
+          renderBet(id);
+        } catch (e) { toast(e.message); b.disabled = false; }
+      });
+    })();
     wireComments(id);
     return;
   }
@@ -1213,6 +1330,7 @@ async function renderBet(id, opts = {}) {
     app.innerHTML = `
       <div class="card">
         <div class="cardhead"><h2>Bet's on 🔒</h2>${pill}</div>
+        ${bet.haggled ? `<div class="banner" style="margin:0 0 8px">💬 Terms were haggled — ${esc(bet.opponentName)} countered and ${esc(bet.proposerName)} took the deal.</div>` : ''}
         ${matchCard}
         ${rb}
         ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}

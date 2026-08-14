@@ -446,3 +446,35 @@ body.has-tabbar .wrap { padding-bottom: 96px; }
 .seo-hero .spin { margin-top: 22px; }
 
 
+
+/* ---- Arena marketplace (Vinted-style item grid) ---- */
+.market { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.item-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; transition: transform .1s, border-color .2s, box-shadow .2s; }
+.item-card:hover { border-color: rgba(20, 224, 200, .45); }
+.item-card:active { transform: scale(.97); }
+.offbadge {
+  display: inline-block; margin-left: 6px; padding: 3px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; color: var(--purple);
+  background: rgba(124, 58, 237, .14); border: 1px solid rgba(124, 58, 237, .35);
+}
+.offer {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 0; border-bottom: 1px dashed rgba(255, 255, 255, .08);
+}
+.offer:last-child { border-bottom: 0; }
+.offer .o-who { font-size: 13px; color: var(--muted); }
+.offer .o-terms { font-weight: 700; color: var(--teal); font-size: 15px; }
+.offer .o-note { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 2px; }
+.offer .o-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.offer .mini {
+  width: 38px; height: 38px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .04); color: var(--text); font-size: 16px; cursor: pointer;
+}
+.offer .mini.yes { border-color: rgba(20, 224, 200, .5); color: var(--teal); }
+.offer .mini.no { border-color: rgba(255, 92, 92, .4); color: #ff7b7b; }
+.item-card .pricetag { align-self: flex-start; background: rgba(20, 224, 200, .12); color: var(--teal); font-weight: 800; font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(20, 224, 200, .35); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-card .teams { font-family: "Anton", sans-serif; font-size: 15px; line-height: 1.25; letter-spacing: .3px; min-height: 38px; }
+.item-card .pick { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.item-card .pick b { color: var(--teal); }
+.item-card .seller { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted-2); border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto; }
+.item-card .seller .av2 { width: 20px; height: 20px; border-radius: 50%; background: var(--surface-3); display: grid; place-items: center; font-size: 9px; font-weight: 800; color: var(--teal); border: 1px solid var(--line); flex: none; }
