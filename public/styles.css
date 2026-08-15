@@ -283,7 +283,7 @@ button.ghost {
 
 /* logo mark (header + intro) — one canonical "split-D" mark, no idle motion */
 .mark { display: block; width: 100%; height: 100%; }
-.intro-logo .mark { animation: markIn .7s cubic-bezier(.2,.9,.3,1) .2s both; }
+.intro-logo .mark { animation: markIn .6s cubic-bezier(.2,.9,.3,1) .95s both; }
 @keyframes markIn { 0% { opacity: 0; transform: scale(.6) rotate(-8deg); } 100% { opacity: 1; transform: none; } }
 
 /* intro — floodlights on */
@@ -291,19 +291,32 @@ button.ghost {
 .intro {
   position: fixed; inset: 0; z-index: 100; background: var(--aurora), #06080c;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
-  animation: introOut .55s ease 1.2s forwards;
+  animation: introOut .55s ease 1.7s forwards;
 }
 .intro.gone { display: none; }
 .intro-beam { position: absolute; top: -25%; width: 42%; height: 150%; opacity: 0; filter: blur(38px); }
 .beam-l { left: 2%;  transform: rotate(15deg);  background: linear-gradient(180deg, rgba(20,224,200,.30), transparent 72%); animation: beamIn .9s ease .05s forwards; }
 .beam-r { right: 2%; transform: rotate(-15deg); background: linear-gradient(180deg, rgba(124,58,237,.26), transparent 72%); animation: beamIn .9s ease .18s forwards; }
 @keyframes beamIn { to { opacity: 1; } }
-.intro-core { text-align: center; animation: coreIn .8s cubic-bezier(.2,.9,.3,1) .28s both; }
+.intro-core { text-align: center; animation: coreIn .8s cubic-bezier(.2,.9,.3,1) .05s both; }
 @keyframes coreIn { from { opacity: 0; transform: translateY(10px) scale(.9); filter: blur(7px); } to { opacity: 1; transform: none; filter: blur(0); } }
 .intro-logo {
+  position: relative;
   width: 100px; height: 100px; margin: 0 auto 18px; display: grid; place-items: center;
   filter: drop-shadow(0 12px 40px rgba(20,224,200,.28));
 }
+/* the ball-into-C morph: a football spins in, then collapses into the C mark */
+.intro-ball {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 78px; line-height: 1;
+  animation: ballSpin .85s cubic-bezier(.25,.8,.35,1) both, ballOut .28s ease .8s forwards;
+}
+@keyframes ballSpin {
+  from { transform: rotate(-620deg) scale(1.9); opacity: 0; }
+  18%  { opacity: 1; }
+  to   { transform: rotate(0deg) scale(1); opacity: 1; }
+}
+@keyframes ballOut { to { transform: scale(.45) rotate(40deg); opacity: 0; } }
 @keyframes logoBloom {
   0%   { box-shadow: 0 10px 40px rgba(20,224,200,0); }
   45%  { box-shadow: 0 12px 72px rgba(20,224,200,.6); }
@@ -526,3 +539,10 @@ button.cta:hover { filter: brightness(1.06); }
   to { transform: rotate(-7deg) scale(1); opacity: .92; }
 }
 .gw-strip { font-size: 26px; letter-spacing: 5px; margin: 4px 0 12px; text-align: center; }
+
+/* ---- v11: rivalry streak chip ---- */
+.wkchip {
+  display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .3px;
+  color: var(--amber); background: rgba(255,140,66,.14); border: 1px solid rgba(255,140,66,.35);
+  border-radius: 999px; padding: 1px 7px; vertical-align: 1px;
+}

@@ -486,6 +486,7 @@ async function renderHome() {
   const my = ++_gen; const live = () => my === _gen;
   const m = me.get();
   const actP = api('/activity').catch(() => null);
+  const motwP = api('/motw').catch(() => null);
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
   const recP = api('/records?window=' + RECWIN).catch(() => null);
   const arenaP = api('/arena').catch(() => null);
@@ -503,6 +504,8 @@ async function renderHome() {
   try { const tr = await terrP; if (tr && tr.posts) terrace = tr.posts; } catch {}
   let activity = [];
   try { const av = await actP; if (av && av.items) activity = av.items; } catch {}
+  let motw = null;
+  try { const mw = await motwP; if (mw && mw.match && new Date(mw.match.utcDate || 0).getTime() > Date.now()) motw = mw.match; } catch {}
   if (!live()) return; // superseded by a newer navigation
   const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
   const recHtml = rec ? [
@@ -532,7 +535,7 @@ async function renderHome() {
         return `
           <div class="riv-row" data-rivid="${esc(r.opponentId)}" data-rivname="${esc(r.opponent)}" role="button" tabindex="0" style="cursor:pointer">
             <div>
-              <div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div>
+              <div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}${r.streakWeeks >= 2 ? ` <span class="wkchip">🔥${r.streakWeeks}wk</span>` : ''}</div>
               <div class="sm">${verb} · ${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div>
             </div>
             <div style="text-align:right">
@@ -645,6 +648,14 @@ async function renderHome() {
     </div>
 
 
+    ${motw ? `<div class="card motw"><div class="cardhead"><h2>🏟️ Match of the Week</h2></div><div class="nm" style="font-family:Anton,sans-serif;font-size:19px;letter-spacing:.3px;margin:4px 0 2px">${esc(motw.home)} <span style="color:var(--purple-text)">v</span> ${esc(motw.away)}</div><div class="sm" style="color:var(--muted);font-size:12.5px">${esc(motw.competition || '')}${motw.utcDate ? ' · ' + kickoffTxt(motw.utcDate) : ''} · everyone's calling this one</div><button class="cta" id="motwCall" style="margin-top:12px">Make your call →</button></div>` : ''}
+
+    ${s.forfeits && s.forfeits.length ? `<div class="card"><div class="cardhead"><h2>Unpaid forfeits 🧾</h2></div>${s.forfeits.map((f) => `
+      <div class="riv-row" data-bet="${esc(f.betId)}" role="button" tabindex="0" style="cursor:pointer">
+        <div><div class="nm">${f.owedByMe ? 'You owe ' + esc(f.to) : esc(f.from) + ' owes you'}</div><div class="sm">“${esc(f.line)}”${f.since ? ' · since ' + new Date(f.since).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : ''}</div></div>
+        ${f.owedByMe ? `<span class="sm" style="color:var(--muted)">Make it right →</span>` : `<button class="linkbtn" data-collect="${esc(f.betId)}" data-cfrom="${esc(f.from)}" data-cline="${esc(f.line)}" style="font-weight:800;color:var(--gold)">Collect →</button>`}
+      </div>`).join('')}<p class="sub" style="margin:10px 0 0">Clashly never forgets a forfeit. Settle it and mark the duel sorted.</p></div>` : ''}
+
     ${s.recent && s.recent.length >= 2 ? `<div class="card"><div class="cardhead"><h2>My form 📋</h2></div><div class="gw-strip">${s.recent.slice(0, 7).map((r) => r.won ? '🟩' : '🟥').reverse().join('')}</div><button class="ghost" id="gwCopy">Copy for the group chat 📋</button></div>` : ''}
 
     ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
@@ -652,6 +663,13 @@ async function renderHome() {
     <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`;
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  const mc = $('#motwCall'); if (mc) mc.addEventListener('click', () => { track('motw_tap'); PREFILL = { matchId: motw.id }; renderCreate(); });
+  app.querySelectorAll('[data-collect]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation(); track('forfeit_collect');
+    const link = location.origin + '/b/' + b.dataset.collect;
+    shareLink(link, `Oi ${b.dataset.cfrom} — still outstanding: “${b.dataset.cline}” 🧾 The receipt says it all 👇`);
+  }));
+  app.querySelectorAll('[data-bet]').forEach((el) => el.addEventListener('click', () => { history.pushState({}, '', '/b/' + el.dataset.bet); renderBet(el.dataset.bet); }));
   const gw = $('#gwCopy'); if (gw) gw.addEventListener('click', async () => {
     const strip = s.recent.slice(0, 7).map((r) => r.won ? '🟩' : '🟥').reverse().join('');
     const txt = `My form on Clashly: ${strip} (${s.w}W–${s.l}L). Fancy your chances? clashly.live`;
@@ -1161,7 +1179,7 @@ async function renderBet(id, opts = {}) {
       if (!r.games) return '';
       const lead = r.aWins > r.bWins ? 'lead' : r.aWins < r.bWins ? 'trail' : 'level';
       const verb = r.aWins > r.bWins ? 'You lead' : r.aWins < r.bWins ? 'You trail' : 'All level';
-      return `<div class="rivalry"><div><div class="vsline">${verb} ${esc(otherName)}</div><div class="sm" style="color:var(--muted);font-size:12px">net ${netTxt(r.aNet, r.currency)} this season</div></div><div class="score ${lead}">${r.aWins}–${r.bWins}</div></div>`;
+      return `<div class="rivalry"><div><div class="vsline">${verb} ${esc(otherName)}${r.streakWeeks >= 2 ? ` <span class="wkchip">🔥${r.streakWeeks}wk</span>` : ''}</div><div class="sm" style="color:var(--muted);font-size:12px">net ${netTxt(r.aNet, r.currency)} this season</div></div><div class="score ${lead}">${r.aWins}–${r.bWins}</div></div>`;
     } catch { return ''; }
   }
 
@@ -1609,7 +1627,7 @@ async function shareImage(imgUrl, text, kind) {
   try {
     if (navigator.canShare) {
       const r = await fetch(imgUrl); const blob = await r.blob();
-      const file = new File([blob], 'duely.png', { type: blob.type || 'image/png' });
+      const file = new File([blob], 'clashly.png', { type: blob.type || 'image/png' });
       if (navigator.canShare({ files: [file] })) {
         try { await navigator.share({ files: [file], text }); return; }
         catch (e) { if (e && e.name === 'AbortError') return; }
@@ -1718,7 +1736,7 @@ route();
     } else {
       const kill = () => intro.classList.add('gone');
       intro.addEventListener('click', kill);
-      setTimeout(kill, 1850);
+      setTimeout(kill, 2350);
     }
   }
   const spot = document.querySelector('.amb-spot');
