@@ -83,6 +83,15 @@
     'Sign the fight card': 'Podpisz kartę walki',
     'Counter with a forfeit or a stake': 'Zaproponuj fant albo stawkę',
     'Offer declined': 'Oferta odrzucona',
+    // v8 additions
+    'Bragging rights': 'O honor',
+    'Loser posts a public apology on the Terrace': 'Przegrany publicznie przeprasza na Trybunie',
+    "Loser wears the winner's colours for a day": 'Przegrany przez dzień nosi barwy zwycięzcy',
+    '🔊 Sound effects': '🔊 Efekty dźwiękowe',
+    '🔔 Notifications (results, counter-offers)': '🔔 Powiadomienia (wyniki, kontroferty)',
+    '🔔 Know the second your bet resolves or someone counters.': '🔔 Dowiedz się od razu, gdy zakład się rozstrzygnie albo ktoś złoży kontrofertę.',
+    'Turn on': 'Włącz',
+    'Notifications on 🔔': 'Powiadomienia włączone 🔔',
     // v7 additions
     '💬 Counter-offers waiting': '💬 Czekają kontroferty',
     'Review →': 'Zobacz →',

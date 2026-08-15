@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
+const sfx = (n) => { try { if (window.SFX) window.SFX.play(n); } catch {} };
 const api = async (path, opts = {}) => {
   const m = me.get();
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
@@ -163,7 +164,7 @@ function armHold(btn, onCommit, holdMs = 650) {
   btn.appendChild(fill);
   const start = (e) => { if (done || btn.disabled) return; e.preventDefault(); haptic(8); requestAnimationFrame(() => { fill.style.transform = 'scaleX(1)'; }); t = setTimeout(() => { done = true; haptic([15, 30, 15]); onCommit(); }, holdMs); };
   const cancel = () => { if (done || t === null) return; clearTimeout(t); t = null; fill.style.transition = 'transform 180ms ease-out'; fill.style.transform = 'scaleX(0)'; setTimeout(() => { fill.style.transition = 'transform ' + holdMs + 'ms linear'; }, 200); toast('Hold to lock it in'); };
-  btn.addEventListener('pointerdown', (e) => { t = null; start(e); });
+  btn.addEventListener('pointerdown', (e) => { t = null; sfx('tick'); start(e); });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, cancel));
   btn.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && !done) { e.preventDefault(); done = true; onCommit(); } });
 }
@@ -483,6 +484,7 @@ function arenaItemCard(c) {
 async function renderHome() {
   const my = ++_gen; const live = () => my === _gen;
   const m = me.get();
+  const actP = api('/activity').catch(() => null);
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
   const recP = api('/records?window=' + RECWIN).catch(() => null);
   const arenaP = api('/arena').catch(() => null);
@@ -498,6 +500,8 @@ async function renderHome() {
   try { const ar = await arenaP; if (ar && ar.challenges) arena = ar.challenges; } catch {}
   let terrace = [];
   try { const tr = await terrP; if (tr && tr.posts) terrace = tr.posts; } catch {}
+  let activity = [];
+  try { const av = await actP; if (av && av.items) activity = av.items; } catch {}
   if (!live()) return; // superseded by a newer navigation
   const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
   const recHtml = rec ? [
@@ -556,11 +560,13 @@ async function renderHome() {
         <button class="cta commit" data-punish="${esc(hp.by)}" style="flex:1">⚔️ Make them back it</button>
       </div>
     </div>`; })() : ''}
+    ${activity.length > 1 ? `<div class="ticker"><div class="ticker-track">${(activity.concat(activity)).map((a) => `<span class="tk">⚡ ${esc(a.text)}</span>`).join('')}</div></div>` : ''}
     ${(() => { const mineOff = m ? arena.filter((c) => c.proposerId === m.id && c.offers > 0) : [];
       return mineOff.length ? `<div class="card" style="border-color:rgba(124,58,237,.55)">
       <div class="cardhead"><h2>💬 Counter-offers waiting</h2></div>
       ${mineOff.map((c) => `<div class="riv-row" data-golisting="${esc(c.id)}" role="button" tabindex="0" style="cursor:pointer"><div><div class="nm">${esc(c.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(c.away)}</div><div class="sm">${c.offers} offer${c.offers === 1 ? '' : 's'} on your listing — someone wants different terms</div></div><button class="linkbtn" data-golisting="${esc(c.id)}" style="font-weight:800">Review →</button></div>`).join('')}
     </div>` : ''; })()}
+    ${m && (s.w + s.l + (s.rivalries || []).length) > 0 && typeof Notification !== 'undefined' && Notification.permission === 'default' && !localStorage.getItem('clashly_push_dismissed') ? `<div class="banner" style="border-style:solid;border-color:rgba(124,58,237,.4);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>🔔 Know the second your bet resolves or someone counters.</span><button class="linkbtn" id="pushOn" style="flex:none;font-weight:800">Turn on</button><button class="linkbtn" id="pushNo" style="flex:none;color:var(--muted)">✕</button></div>` : ''}
     ${m && (s.w + s.l) > 0 && !s.hasEmail ? `<div class="banner" style="border-style:solid;border-color:rgba(20,224,200,.4);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>🛡️ Protect your ${s.w}–${s.l} record — link your email so it survives any device.</span><button class="linkbtn" id="linkAcct" style="flex:none;font-weight:800">Link it →</button></div>` : ''}
     ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)">
       <h2>Get your first rivalry going 👋</h2>
@@ -646,6 +652,8 @@ async function renderHome() {
   const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const ft = $('#firstTake'); if (ft) ft.addEventListener('click', () => { track('first_take_tap'); history.pushState({}, '', '/arena'); route(); });
   const la = $('#linkAcct'); if (la) la.addEventListener('click', () => { track('link_nudge_tap'); history.pushState({}, '', '/profile'); route(); });
+  const po = $('#pushOn'); if (po) po.addEventListener('click', async () => { track('push_optin_tap'); const ok = await enablePush(); toast(ok ? 'Notifications on 🔔' : 'Could not enable notifications'); renderHome(); });
+  const pn = $('#pushNo'); if (pn) pn.addEventListener('click', () => { try { localStorage.setItem('clashly_push_dismissed', '1'); } catch {} renderHome(); });
   app.querySelectorAll('[data-golisting]').forEach((el) =>
     el.addEventListener('click', (e) => { e.stopPropagation(); history.pushState({}, '', '/b/' + el.dataset.golisting); renderBet(el.dataset.golisting); }));
   app.querySelectorAll('[data-arena]').forEach((el) =>
@@ -657,7 +665,7 @@ async function renderHome() {
   const tGo = $('#terrGo'), tIn = $('#terrIn');
   if (tGo && tIn) {
     const post = async () => { const v = tIn.value.trim(); if (v.length < 2) return toast('Say something worth saying'); tGo.disabled = true;
-      try { await api('/terrace', { method: 'POST', body: JSON.stringify({ text: v }) }); track('terrace_post'); haptic(10); renderHome(); }
+      try { await api('/terrace', { method: 'POST', body: JSON.stringify({ text: v }) }); track('terrace_post'); haptic(10); sfx('pop'); renderHome(); }
       catch (e) { toast(e.message); tGo.disabled = false; } };
     tGo.addEventListener('click', post);
     tIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); post(); } });
@@ -811,7 +819,7 @@ async function renderProfile() {
       ${(s.rivalries || []).filter((r) => r.net).length ? (s.rivalries || []).filter((r) => r.net).map((r) => `<div class="recent" data-settlego="1" role="button" tabindex="0" style="cursor:pointer"><span>${esc(r.opponent)} <span style="color:var(--muted-2);font-size:11px">tap to settle →</span></span><span class="res ${r.net > 0 ? 'w' : 'l'}">${r.net > 0 ? 'owes you ' : 'you owe '}${sym(r.currency)}${Math.abs(r.net)}</span></div>`).join('') : '<p class="sub" style="margin:8px 0 0">All square — nobody owes anything. 🤝</p>'}
       <p class="sub" style="margin:10px 0 0;font-size:12px">Clashly holds no money — settle between yourselves (cash, BLIK, Revolut…) and mark the duel sorted.</p>
     </div>
-    <div class="card"><div class="cardhead"><h2>Settings</h2></div><div class="checkrow" style="margin-top:6px"><input type="checkbox" id="langPl" ${lang === 'pl' ? 'checked' : ''} /><label for="langPl">🇵🇱 Polski interfejs (Polish interface)</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="hideStreaks" ${hideStreaks ? 'checked' : ''} /><label for="hideStreaks">Hide streaks — no flame, no pressure</label></div></div>
+    <div class="card"><div class="cardhead"><h2>Settings</h2></div><div class="checkrow" style="margin-top:6px"><input type="checkbox" id="langPl" ${lang === 'pl' ? 'checked' : ''} /><label for="langPl">🇵🇱 Polski interfejs (Polish interface)</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="hideStreaks" ${hideStreaks ? 'checked' : ''} /><label for="hideStreaks">Hide streaks — no flame, no pressure</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="sndFx" ${(window.SFX && window.SFX.on()) ? 'checked' : ''} /><label for="sndFx">🔊 Sound effects</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="pushChk" ${typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'checked' : ''} /><label for="pushChk">🔔 Notifications (results, counter-offers)</label></div></div>
     <div class="card"><h2>Rivalries</h2>${s.rivalries.length
       ? s.rivalries.map((r) => `<div class="riv-row" data-rivid="${esc(r.opponentId)}" data-rivname="${esc(r.opponent)}" role="button" tabindex="0" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
       : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
@@ -823,6 +831,8 @@ async function renderProfile() {
   const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); localStorage.removeItem('settle_roles'); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
   const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
   const hs = $('#hideStreaks'); if (hs) hs.addEventListener('change', () => { prefs.set('hideStreaks', hs.checked); renderProfile(); });
+  const sx = $('#sndFx'); if (sx) sx.addEventListener('change', () => { if (window.SFX) window.SFX.toggle(); sfx('pop'); });
+  const pc = $('#pushChk'); if (pc) pc.addEventListener('change', async () => { if (pc.checked) { const ok = await enablePush(); if (!ok) { pc.checked = false; toast('Blocked by the browser — allow notifications in site settings'); } else toast('Notifications on 🔔'); } else { toast('Turn off in your browser site settings'); pc.checked = true; } });
   app.querySelectorAll('[data-rivid]').forEach((row) =>
     row.addEventListener('click', () => openRivalrySheet(row.dataset.rivid, row.dataset.rivname)));
 }
@@ -1097,6 +1107,7 @@ async function renderCreate() {
 
 // brief "locked in" seal animation between commit and next screen
 function sealThen(next, sub) {
+  sfx('lock');
   app.innerHTML = `<div class="card"><div class="sealwrap"><div class="seal">🔒</div><h2 style="text-align:center">Locked in</h2>${sub ? `<p class="sub" style="text-align:center;margin:8px 0 0">${sub}</p>` : ''}</div></div>`;
   if (sub) { try { confetti(1); haptic([10, 40, 16]); } catch {} }
   setTimeout(next, sub ? 1100 : 720);
@@ -1285,6 +1296,7 @@ async function renderBet(id, opts = {}) {
           await api('/bets/' + id + '/accept', { method: 'POST' });
         }
         track('bet_accepted');
+        sfx('whistle');
         renderHeader();
         roleStore.set(id, 'opponent');
         let sub = `The ${esc(bet.proposerName)} rivalry is live`;
@@ -1327,6 +1339,7 @@ async function renderBet(id, opts = {}) {
         try {
           await api('/bets/' + id + '/offer', { method: 'POST', body: JSON.stringify({ line, stake, currency: bet.currency, note }) });
           track('offer_made');
+          sfx('ping');
           toast('Counter-offer sent 💬');
           renderBet(id);
         } catch (e) { toast(e.message); b.disabled = false; }
@@ -1479,7 +1492,8 @@ async function renderBet(id, opts = {}) {
 
     // animate the payout count-up, confetti only if *I* won
     setTimeout(() => { const el = $('#amt'); if (el) countUp(el, bet.owes.amount, sym(bet.currency)); }, 420);
-    if (iWon) { setTimeout(() => confetti(Math.max(1, Math.min(3, (bet.stake || 20) / 20))), 520); haptic([14, 50, 22]); }
+    if (iWon) { setTimeout(() => confetti(Math.max(1, Math.min(3, (bet.stake || 20) / 20))), 520); haptic([14, 50, 22]); sfx('cheer'); }
+    else if (m && (bet.proposerId === m.id || bet.opponentId === m.id)) { sfx('womp'); }
 
     if (bet.status === 'resolved') $('#settleBtn').addEventListener('click', async () => {
       try { await api('/bets/' + id + '/settle', { method: 'POST' }); toast('Nice — sorted'); renderBet(id); } catch (e) { toast(e.message); }
@@ -1717,6 +1731,24 @@ route();
   }
 })();
 
+
+// ---- Web push opt-in ----
+async function enablePush() {
+  try {
+    if (!('serviceWorker' in navigator) || typeof Notification === 'undefined') return false;
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return false;
+    const reg = await navigator.serviceWorker.ready;
+    const { key } = await api('/push/key');
+    if (!key) return false;
+    const b64 = key.replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+    const appKey = new Uint8Array([...raw].map((c) => c.charCodeAt(0)));
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+    await api('/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON() }) });
+    return true;
+  } catch { return false; }
+}
 
 // ---- PWA install: capture the prompt, surface it once things are sticky ----
 let _deferredInstall = null;

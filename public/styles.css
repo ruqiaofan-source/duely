@@ -478,3 +478,25 @@ body.has-tabbar .wrap { padding-bottom: 96px; }
 .item-card .pick b { color: var(--teal); }
 .item-card .seller { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted-2); border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto; }
 .item-card .seller .av2 { width: 20px; height: 20px; border-radius: 50%; background: var(--surface-3); display: grid; place-items: center; font-size: 9px; font-weight: 800; color: var(--teal); border: 1px solid var(--line); flex: none; }
+
+
+/* ---- v8: smoothness pass ---- */
+@media (prefers-reduced-motion: no-preference) {
+  #app > * { animation: rise .3s ease both; }
+  #app > *:nth-child(2) { animation-delay: .04s; }
+  #app > *:nth-child(3) { animation-delay: .08s; }
+  #app > *:nth-child(4) { animation-delay: .12s; }
+  #app > *:nth-child(n+5) { animation-delay: .15s; }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+button.cta, .item-card, .riv-row, .tab { transition: transform .12s ease, filter .12s ease; }
+.item-card:active { transform: scale(.97); }
+button.cta:hover { filter: brightness(1.06); }
+
+/* ---- v8: live ticker ---- */
+.ticker { overflow: hidden; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.03); padding: 7px 0; margin-bottom: 2px; }
+.ticker-track { display: inline-flex; gap: 26px; white-space: nowrap; animation: tickerScroll 26s linear infinite; will-change: transform; }
+.ticker .tk { font-size: 12px; color: var(--muted); font-weight: 700; }
+.ticker .tk b { color: var(--text); }
+@media (prefers-reduced-motion: reduce) { .ticker-track { animation: none; } }
+@keyframes tickerScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
