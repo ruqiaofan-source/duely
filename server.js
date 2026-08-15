@@ -264,6 +264,19 @@ function complementLabel(bet) {
   if (bet.backedOutcome === 'HOME') return `${bet.home} don't win`;
   return `${bet.away} don't win`;
 }
+function notifyResolved(bet) {
+  try {
+    const label = `${bet.home} v ${bet.away}`;
+    if (bet.owes) {
+      sendPush(bet.owes.toId, { title: 'You WON 🏆', body: `${label} — ${bet.owes.from} owes you. Rub it in.`, url: '/b/' + bet.id });
+      sendPush(bet.owes.fromId, { title: 'You lost 💀', body: `${label} — time to settle up with ${bet.owes.to}.`, url: '/b/' + bet.id });
+    } else {
+      sendPush(bet.proposerId, { title: 'Result is in', body: label, url: '/b/' + bet.id });
+      if (bet.opponentId) sendPush(bet.opponentId, { title: 'Result is in', body: label, url: '/b/' + bet.id });
+    }
+  } catch {}
+}
+
 function resolveBet(bet, actualOutcome) {
   const proposerWins = actualOutcome === bet.backedOutcome;
   const winnerPid = proposerWins ? bet.proposerId : bet.opponentId;
@@ -1184,6 +1197,35 @@ async function handleApi(req, res, url) {
   // Bets
   // -------------------------------------------------------------------------
 
+  // Push subscription management
+  if (req.method === 'GET' && parts[1] === 'push' && parts[2] === 'key') {
+    return sendJson(res, 200, { key: (webpush && db.meta && db.meta.vapid) ? db.meta.vapid.publicKey : null });
+  }
+  if (req.method === 'POST' && parts[1] === 'push' && parts[2] === 'subscribe') {
+    const me = authPlayer(req); if (!me) return need401();
+    const b = await readBody(req);
+    if (!b.subscription || !b.subscription.endpoint) return sendJson(res, 400, { error: 'subscription required' });
+    db.push = db.push || {};
+    const subs = (db.push[me.id] || []).filter((s) => s.endpoint !== b.subscription.endpoint);
+    subs.push(b.subscription);
+    db.push[me.id] = subs.slice(-5);
+    saveData();
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // GET /api/activity — the live ticker: recent public happenings, no secrets
+  if (req.method === 'GET' && parts[1] === 'activity' && parts.length === 2) {
+    const items = [];
+    for (const b of Object.values(db.bets)) {
+      if (b.arena && b.createdAt) items.push({ t: b.createdAt, text: `${b.proposerName} listed ${b.home} v ${b.away} in the Arena` });
+      if (b.acceptedAt && b.opponentName) items.push({ t: b.acceptedAt, text: `${b.opponentName} took ${b.proposerName}'s bet` });
+      if (b.resolvedAt && b.owes) items.push({ t: b.resolvedAt, text: `${b.owes.to} beat ${b.owes.from} (${b.home} v ${b.away})` });
+    }
+    for (const p of (db.terrace || []).slice(-10)) items.push({ t: p.t, text: `${p.by} sounded off on the Terrace` });
+    items.sort((a, c) => new Date(c.t) - new Date(a.t));
+    return sendJson(res, 200, { items: items.slice(0, 12) });
+  }
+
   // POST /api/bets
   if (req.method === 'POST' && parts[1] === 'bets' && parts.length === 2) {
     const me = authPlayer(req); if (!me) return need401();
@@ -1239,6 +1281,7 @@ async function handleApi(req, res, url) {
         if (sub === 'decline') { off.status = 'declined'; saveData(); logEvent('offer_declined', { id: bet.id }); return sendJson(res, 200, bet); }
         if (sub === 'accept') {
           if (bet.status !== 'open') return sendJson(res, 409, { error: 'Bet already taken' });
+          if (bet.utcDate && Date.now() > new Date(bet.utcDate).getTime()) { off.status = 'declined'; saveData(); return sendJson(res, 409, { error: 'Kicked off — this offer expired.' }); }
           // lock the bet at the COUNTER'S terms — the haggle won
           if (off.stake > 0) { bet.stake = off.stake; bet.currency = off.currency || bet.currency; bet.line = off.line || ''; }
           else if (off.line) { bet.line = off.line; bet.stake = 0; }
@@ -1250,6 +1293,7 @@ async function handleApi(req, res, url) {
           addPundit(bet, 'accepted');
           logEvent('offer_accepted', { id: bet.id });
           saveData();
+          sendPush(off.byId, { title: 'Deal — counter accepted 🤝', body: `${me.name} took your terms on ${bet.home} v ${bet.away}.`, url: '/b/' + bet.id });
           return sendJson(res, 200, bet);
         }
         return sendJson(res, 400, { error: 'Unknown offer action' });
@@ -1276,6 +1320,7 @@ async function handleApi(req, res, url) {
       bet.offers.push(off);
       logEvent('offer_made', { id: bet.id });
       saveData();
+      sendPush(bet.proposerId, { title: 'Counter-offer on your listing 💬', body: `${me.name} wants different terms on ${bet.home} v ${bet.away}.`, url: '/b/' + bet.id });
       return sendJson(res, 201, bet);
     }
 
@@ -1293,6 +1338,7 @@ async function handleApi(req, res, url) {
       bet.acceptedAt = new Date().toISOString();
       addPundit(bet, 'accepted');
       logEvent('bet_accepted', { id: bet.id });
+      sendPush(bet.proposerId, { title: 'Your bet is ON ⚔️', body: `${me.name} took the other side of ${bet.home} v ${bet.away}.`, url: '/b/' + bet.id });
       return sendJson(res, 200, bet);
     }
 
@@ -1307,7 +1353,7 @@ async function handleApi(req, res, url) {
       if (FOOTBALL_TOKEN && bet.externalId) {
         try {
           const live = await fetchLiveResult(bet.externalId);
-          if (live) { resolveBet(bet, live); delete bet.pendingResult; logEvent('bet_resolved', { id: bet.id, auto: true }); return sendJson(res, 200, bet); }
+          if (live) { resolveBet(bet, live); notifyResolved(bet); delete bet.pendingResult; logEvent('bet_resolved', { id: bet.id, auto: true }); return sendJson(res, 200, bet); }
           if (!b.actualOutcome) return sendJson(res, 409, { error: 'Match not finished yet' });
         } catch (e) { console.warn('live result failed:', e.message); }
       }
@@ -1317,7 +1363,7 @@ async function handleApi(req, res, url) {
       if (prev && prev.byId !== me.id) {
         if (prev.outcome === b.actualOutcome) {
           // both players independently reported the same result → it's settled
-          resolveBet(bet, b.actualOutcome); delete bet.pendingResult; delete bet.disputed;
+          resolveBet(bet, b.actualOutcome); notifyResolved(bet); delete bet.pendingResult; delete bet.disputed;
           logEvent('bet_resolved', { id: bet.id });
           return sendJson(res, 200, bet);
         }
@@ -1347,6 +1393,7 @@ async function handleApi(req, res, url) {
         return sendJson(res, 409, { error: 'The report changed — check the new result before confirming.' });
       }
       resolveBet(bet, bet.pendingResult.outcome);
+      notifyResolved(bet);
       delete bet.pendingResult;
       logEvent('bet_resolved', { id: bet.id });
       return sendJson(res, 200, bet);
@@ -1524,7 +1571,33 @@ async function seedArena() {
   } catch (e) { console.warn('arena seed failed:', e.message); }
 }
 
+// --- Web push: VAPID keys live in the db (zero-config deploys), subscriptions
+// per player, best-effort delivery with pruning of dead endpoints.
+let webpush = null;
+try { webpush = require('web-push'); } catch { console.warn('web-push not installed; notifications disabled'); }
+function initPush() {
+  if (!webpush) return;
+  db.meta = db.meta || {};
+  if (!db.meta.vapid) { db.meta.vapid = webpush.generateVAPIDKeys(); saveData(); }
+  webpush.setVapidDetails('mailto:contact@clashly.live', db.meta.vapid.publicKey, db.meta.vapid.privateKey);
+}
+function sendPush(playerId, payload) {
+  if (!webpush || !db.meta || !db.meta.vapid) return;
+  const subs = (db.push && db.push[playerId]) || [];
+  if (!subs.length) return;
+  const body = JSON.stringify(payload);
+  subs.forEach((sub) => {
+    webpush.sendNotification(sub, body).catch((err) => {
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        db.push[playerId] = (db.push[playerId] || []).filter((s) => s.endpoint !== sub.endpoint);
+        saveData();
+      }
+    });
+  });
+}
+
 initData().then(() => {
+  initPush();
   setTimeout(seedArena, 5000);
   setInterval(seedArena, 6 * 3600000);
   server.listen(PORT, () => {
