@@ -325,7 +325,11 @@ button.cta.commit { animation: commitPulse 3s ease-in-out 3; }
     animation-duration: .001ms !important; animation-iteration-count: 1 !important;
     transition-duration: .001ms !important; scroll-behavior: auto !important;
   }
-  .intro { display: none !important; }
+  /* reduced motion: keep the floodlit splash but freeze it — no beams, no zoom.
+     JS still removes it after ~1.8s, so it's a static brand card, not motion. */
+  .intro { animation: none !important; }
+  .intro .intro-beam { display: none !important; }
+  .intro.gone { display: none !important; }
 }
 
 /* =========================================================
