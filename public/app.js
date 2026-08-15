@@ -176,7 +176,7 @@ function commentsHtml(bet) {
   const mm = me.get();
   const rows = cs.map((c) => `
     <div style="padding:8px 2px;border-bottom:1px solid var(--line)">
-      <span style="font-weight:800;font-size:12.5px;color:${c.bot ? 'var(--purple)' : 'var(--teal)'}">${esc(c.by)}${c.bot ? ' <span class="tag-rival">house bot 🤖</span>' : ''}</span>
+      <span style="font-weight:800;font-size:12.5px;color:${c.bot ? 'var(--purple-text)' : 'var(--teal)'}">${esc(c.by)}${c.bot ? ' <span class="tag-rival">house bot 🤖</span>' : ''}</span>
       <div style="font-size:14px;margin-top:2px;line-height:1.45">${esc(c.text)}</div>
     </div>`).join('');
   return `<div id="terrace" style="margin-top:14px">
@@ -645,11 +645,19 @@ async function renderHome() {
     </div>
 
 
+    ${s.recent && s.recent.length >= 2 ? `<div class="card"><div class="cardhead"><h2>My form 📋</h2></div><div class="gw-strip">${s.recent.slice(0, 7).map((r) => r.won ? '🟩' : '🟥').reverse().join('')}</div><button class="ghost" id="gwCopy">Copy for the group chat 📋</button></div>` : ''}
+
     ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
 
     <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`;
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  const gw = $('#gwCopy'); if (gw) gw.addEventListener('click', async () => {
+    const strip = s.recent.slice(0, 7).map((r) => r.won ? '🟩' : '🟥').reverse().join('');
+    const txt = `My form on Clashly: ${strip} (${s.w}W–${s.l}L). Fancy your chances? clashly.live`;
+    try { await navigator.clipboard.writeText(txt); sfx('clip'); toast('Copied — paste it in the chat'); track('gw_copy'); }
+    catch { toast(txt); }
+  });
   const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const ft = $('#firstTake'); if (ft) ft.addEventListener('click', () => { track('first_take_tap'); history.pushState({}, '', '/arena'); route(); });
   const la = $('#linkAcct'); if (la) la.addEventListener('click', () => { track('link_nudge_tap'); history.pushState({}, '', '/profile'); route(); });
@@ -1358,6 +1366,7 @@ async function renderBet(id, opts = {}) {
         <div class="cardhead"><h2>Bet's on 🔒</h2>${pill}</div>
         ${bet.haggled ? `<div class="banner" style="margin:0 0 8px">💬 Terms were haggled — ${esc(bet.opponentName)} countered and ${esc(bet.proposerName)} took the deal.</div>` : ''}
         ${matchCard}
+        <div class="stamprow"><span class="stamp stamp-on stamp-in">ON.</span></div>
         ${rb}
         ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}
         <div class="side"><div><div class="who">${esc(bet.proposerName)}</div><div class="pick">${esc(outcomeLabel(bet, bet.backedOutcome))}</div></div><div class="stake">${money(bet)}</div></div>
@@ -1445,11 +1454,15 @@ async function renderBet(id, opts = {}) {
     const other = otherSide(bet, m);
     const iWon = m && (bet.winner === 'proposer' ? bet.proposerId : bet.opponentId) === m.id;
     const rb = await rivalryBanner(otherSideId(bet, m), other);
+    const iPlay = m && (bet.proposerId === m.id || bet.opponentId === m.id);
+    const stampTxt = iWon ? 'CALLED IT.' : iPlay ? 'BOTTLED.' : 'SETTLED.';
+    const stampCls = iWon ? 'stamp-win' : iPlay ? 'stamp-loss' : 'stamp-neutral';
 
     app.innerHTML = `
       <div class="card">
         <div class="cardhead"><h2>Full time 🏁</h2>${pill}</div>
         ${matchCard}
+        <div class="stamprow"><span class="stamp ${stampCls} stamp-in">${stampTxt}</span></div>
         <div class="banner reveal" style="margin-bottom:12px">Result: <b style="color:var(--text)">${esc(outcomeLabel(bet, bet.actualOutcome))}</b></div>
         <div class="owes reveal delay1">
           <div class="lbl">${bet.status === 'settled' ? 'Sorted' : 'Sort it'} 👇</div>
@@ -1469,6 +1482,7 @@ async function renderBet(id, opts = {}) {
             : (other ? `<button class="cta commit" id="rematchLoss">Demand a rematch ⚔️</button>` : '')}
           <div class="row" style="margin-top:10px">
             <button class="ghost" id="storyBtn">Story image 📲</button>
+            <button class="ghost" id="receiptBtn">Receipt 🧾</button>
             <button class="ghost" id="copyBet">Run it back 🔁</button>
           </div>
           ${bet.status === 'resolved' ? `<button class="cta gold" id="settleBtn" style="margin-top:10px">Mark it sorted ✓</button>` : `<div class="banner" style="margin-top:14px">✓ Sorted${bet.settledByName ? ' by ' + esc(bet.settledByName) : ''}${bet.settledAt ? ' · ' + new Date(bet.settledAt).toLocaleDateString() : ''} · <button class="linkbtn" id="unsettleBtn" style="font-size:12px">undo</button></div>`}
@@ -1487,12 +1501,14 @@ async function renderBet(id, opts = {}) {
     const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => shareWithCard('/card/' + id + '.png', shareText, link, 'result'));
     const rl = $('#rematchLoss'); if (rl) rl.addEventListener('click', () => rematchConfirm(other, bet));
     const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => shareStory(id));
+    const rcb = $('#receiptBtn'); if (rcb) rcb.addEventListener('click', () => shareImage('/receipt/' + id + '.png', 'Receipts 🧾 — the terrace remembers. clashly.live/b/' + id, 'receipt'));
     const cb = $('#copyBet'); if (cb) cb.addEventListener('click', () => { PREFILL = { copy: { home: bet.home, away: bet.away, competition: bet.competition, backedOutcome: bet.backedOutcome, stake: bet.stake, currency: bet.currency, line: bet.line, note: bet.note } }; renderCreate(); });
     wireReactions(id);
     wireComments(id);
 
     // animate the payout count-up, confetti only if *I* won
     setTimeout(() => { const el = $('#amt'); if (el) countUp(el, bet.owes.amount, sym(bet.currency)); }, 420);
+    if (iPlay) setTimeout(() => sfx('deal'), 160); // the stamp thump
     if (iWon) { setTimeout(() => confetti(Math.max(1, Math.min(3, (bet.stake || 20) / 20))), 520); haptic([14, 50, 22]); sfx('cheer'); }
     else if (m && (bet.proposerId === m.id || bet.opponentId === m.id)) { sfx('womp'); }
 
@@ -1513,6 +1529,7 @@ async function renderBet(id, opts = {}) {
     app.innerHTML = `
       <div class="card">
         <div class="cardhead"><h2>Bet called off</h2><span class="pill settled">void</span></div>
+        <div class="stamprow"><span class="stamp stamp-void stamp-in">VOID.</span></div>
         <p class="sub">This bet was voided — it doesn't count toward anyone's record.</p>
         <button class="cta" id="homeLink">Back to my season</button>
       </div>`;

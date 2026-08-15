@@ -9,7 +9,8 @@
   --teal-bright: #2FF3DC; /* hover / peak-chroma strokes (small areas only) */
   --teal-dim: #0BA899;    /* pressed / large fills (APCA-safe) */
   --indigo: #5B6CFF;      /* bridge accent — links / secondary */
-  --purple: #7C3AED;      /* rivalry / versus (scarce) */
+  --purple: #7C3AED;      /* rivalry / versus (scarce — large fills only) */
+  --purple-text: #A78BFA; /* AA-safe purple for text/icons on dark surfaces */
   --red: #E11D2E;         /* commit CTA — darkened so white text clears WCAG AA */
   --red-deep: #C8102E;    /* commit gradient end */
   --gold: #FFC83D;        /* winning / trophy / #1 */
@@ -458,7 +459,7 @@ body.has-tabbar .wrap { padding-bottom: 96px; }
 .item-card:active { transform: scale(.97); }
 .offbadge {
   display: inline-block; margin-left: 6px; padding: 3px 8px; border-radius: 999px;
-  font-size: 11px; font-weight: 700; color: var(--purple);
+  font-size: 11px; font-weight: 700; color: var(--purple-text);
   background: rgba(124, 58, 237, .14); border: 1px solid rgba(124, 58, 237, .35);
 }
 .offer {
@@ -504,3 +505,24 @@ button.cta:hover { filter: brightness(1.06); }
 .ticker .tk b { color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .ticker-track { animation: none; } }
 @keyframes tickerScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* ---- v10: the Stamp (betting-shop resolve moment) + form strip ---- */
+.stamprow { text-align: center; margin: 2px 0 10px; }
+.stamp {
+  display: inline-block; font-family: "Anton", sans-serif; font-size: 28px;
+  letter-spacing: 3px; padding: 5px 16px 4px; border: 3px solid currentColor;
+  border-radius: 8px; box-shadow: inset 0 0 0 1.5px currentColor;
+  transform: rotate(-7deg); opacity: .92;
+}
+.stamp-on { color: var(--teal); }
+.stamp-win { color: var(--gold); }
+.stamp-loss { color: var(--loss); }
+.stamp-neutral { color: var(--muted); }
+.stamp-void { color: var(--muted-2); }
+.stamp-in { animation: stampIn .42s cubic-bezier(.2, 1.4, .4, 1) both; }
+@keyframes stampIn {
+  from { transform: rotate(-7deg) scale(2.4); opacity: 0; }
+  62% { opacity: 1; }
+  to { transform: rotate(-7deg) scale(1); opacity: .92; }
+}
+.gw-strip { font-size: 26px; letter-spacing: 5px; margin: 4px 0 12px; text-align: center; }

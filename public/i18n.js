@@ -17,6 +17,8 @@
     'Edit name': 'Zmień imię', 'Play some duels and the crowns appear here.': 'Rozegraj kilka pojedynków, a korony się pojawią.',
     '📣 LATEST FROM THE TERRACE': '📣 ŚWIEŻE Z TRYBUNY',
     'See all →': 'Zobacz wszystkie →', 'Latest results 🏁': 'Ostatnie wyniki 🏁',
+    'My form 📋': 'Moja forma 📋', 'Copy for the group chat 📋': 'Skopiuj do czatu 📋',
+    'Copied — paste it in the chat': 'Skopiowane — wklej na czacie', 'Receipt 🧾': 'Paragon 🧾',
     '← Back to home': '← Wróć na start',
     'Every card is a live bet waiting for an opponent. Take one, win it, bank': 'Każda karta to zakład czekający na przeciwnika. Weź go, wygraj i zgarnij',
     '📌 Yours, live in the Arena:': '📌 Twoje, wystawione na Arenie:',
