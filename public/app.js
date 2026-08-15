@@ -58,6 +58,7 @@ function _sheetKey(e) {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
 function openSheet(html) {
+  sfx('swish');
   const scrim = document.getElementById('sheetScrim');
   const panel = document.getElementById('sheetPanel');
   panel.innerHTML = html;
@@ -163,8 +164,8 @@ function armHold(btn, onCommit, holdMs = 650) {
   fill.style.cssText = 'position:absolute;inset:0;background:rgba(255,255,255,.25);transform:scaleX(0);transform-origin:left;pointer-events:none;transition:transform ' + holdMs + 'ms linear;border-radius:inherit';
   btn.appendChild(fill);
   const start = (e) => { if (done || btn.disabled) return; e.preventDefault(); haptic(8); requestAnimationFrame(() => { fill.style.transform = 'scaleX(1)'; }); t = setTimeout(() => { done = true; haptic([15, 30, 15]); onCommit(); }, holdMs); };
-  const cancel = () => { if (done || t === null) return; clearTimeout(t); t = null; fill.style.transition = 'transform 180ms ease-out'; fill.style.transform = 'scaleX(0)'; setTimeout(() => { fill.style.transition = 'transform ' + holdMs + 'ms linear'; }, 200); toast('Hold to lock it in'); };
-  btn.addEventListener('pointerdown', (e) => { t = null; sfx('tick'); start(e); });
+  const cancel = () => { try { if (window.SFX) window.SFX.play('riserStop'); } catch {} if (done || t === null) return; clearTimeout(t); t = null; fill.style.transition = 'transform 180ms ease-out'; fill.style.transform = 'scaleX(0)'; setTimeout(() => { fill.style.transition = 'transform ' + holdMs + 'ms linear'; }, 200); toast('Hold to lock it in'); };
+  btn.addEventListener('pointerdown', (e) => { t = null; sfx('riserStart'); start(e); });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, cancel));
   btn.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && !done) { e.preventDefault(); done = true; onCommit(); } });
 }
@@ -953,7 +954,7 @@ async function renderLeague(code, full) {
     <div class="banner">League table counts bets between members only. Win to climb. 🪜</div>`;
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   $('#invite').addEventListener('click', () => window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'));
-  $('#copyInvite').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); toast('Invite copied'); } catch { toast(link); } });
+  $('#copyInvite').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); sfx('clip'); toast('Invite copied'); } catch { toast(link); } });
   const tt = $('#toggleTable'); if (tt) tt.addEventListener('click', () => renderLeague(code, !full));
   $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
 }
@@ -1107,7 +1108,7 @@ async function renderCreate() {
 
 // brief "locked in" seal animation between commit and next screen
 function sealThen(next, sub) {
-  sfx('lock');
+  sfx('sig');
   app.innerHTML = `<div class="card"><div class="sealwrap"><div class="seal">🔒</div><h2 style="text-align:center">Locked in</h2>${sub ? `<p class="sub" style="text-align:center;margin:8px 0 0">${sub}</p>` : ''}</div></div>`;
   if (sub) { try { confetti(1); haptic([10, 40, 16]); } catch {} }
   setTimeout(next, sub ? 1100 : 720);
@@ -1202,7 +1203,7 @@ async function renderBet(id, opts = {}) {
           </div>`);
         document.querySelectorAll('[data-acc]').forEach((b) => b.addEventListener('click', async () => {
           b.disabled = true;
-          try { await api('/bets/' + id + '/offer/' + b.dataset.acc + '/accept', { method: 'POST' }); track('offer_accepted'); toast('Deal 🤝 — locked at their terms'); renderBet(id); }
+          try { await api('/bets/' + id + '/offer/' + b.dataset.acc + '/accept', { method: 'POST' }); track('offer_accepted'); sfx('deal'); toast('Deal 🤝 — locked at their terms'); renderBet(id); }
           catch (e) { toast(e.message); b.disabled = false; }
         }));
         document.querySelectorAll('[data-dec]').forEach((b) => b.addEventListener('click', async () => {
@@ -1217,7 +1218,7 @@ async function renderBet(id, opts = {}) {
       $('#waBtn').addEventListener('click', () => { track('share', { kind: 'whatsapp' }); shareLink(link, waText); });
       $('#shareBtn').addEventListener('click', () => shareLink(link, waText)); // native sheet, link-first
       $('#storyBtn').addEventListener('click', () => shareImage('/storycard/' + id + '.png', waText, 'challenge_story'));
-      $('#copyLink').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } });
+      $('#copyLink').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); sfx('clip'); toast('Link copied'); } catch { toast(link); } });
       $('#cancelBet').addEventListener('click', (e) => {
         const b = e.target;
         if (b.dataset.armed) return doVoid(id);
@@ -1666,6 +1667,7 @@ function openProSheet(ctx) {
 }
 
 document.getElementById('tabbar')?.addEventListener('click', (e) => {
+  sfx('tab');
   const t = e.target.closest('.tab'); if (!t) return;
   haptic(8);
   const tab = t.dataset.tab;
