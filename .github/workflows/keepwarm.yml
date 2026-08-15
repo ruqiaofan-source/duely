@@ -1,0 +1,11 @@
+name: keep-warm
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping clashly.live
+        run: curl -sS -o /dev/null -w "healthz %{http_code} in %{time_total}s\n" https://clashly.live/healthz || true
