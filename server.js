@@ -382,6 +382,29 @@ function netView(nets) {
   return { net: null, currency: null };
 }
 
+// v11 — gameweek arithmetic. Week index is days-since-a-known-Monday / 7
+// (Jan 1 2024 was a Monday); monotonic, timezone-proof, no ISO-week edge cases.
+const WEEK0 = Date.UTC(2024, 0, 1);
+const weekIdx = (t) => Math.floor(((typeof t === 'number' ? t : new Date(t).getTime()) - WEEK0) / 604800000);
+// consecutive gameweeks (ending this week or last) in which a pair had a live
+// clash (accepted or beyond). THE rivalry-streak metric: miss a week, streak dies.
+function pairWeekSet(idA, idB) {
+  const weeks = new Set();
+  for (const b of Object.values(db.bets)) {
+    if (!['accepted', 'resolved', 'settled'].includes(b.status)) continue;
+    if (!((b.proposerId === idA && b.opponentId === idB) || (b.proposerId === idB && b.opponentId === idA))) continue;
+    weeks.add(weekIdx(b.acceptedAt || b.createdAt));
+  }
+  return weeks;
+}
+function pairWeekStreak(idA, idB) {
+  const weeks = pairWeekSet(idA, idB);
+  const cur = weekIdx(Date.now());
+  let k = weeks.has(cur) ? cur : cur - 1, s = 0;
+  while (weeks.has(k)) { s++; k--; }
+  return s;
+}
+
 // the highest win streak ANY player has hit — a real, beatable platform record
 function platformRecord() {
   const byPlayer = {};
@@ -432,8 +455,14 @@ function playerSummary(id) {
     }
   }
   const rivalries = Object.values(byOpp)
-    .map((r) => { const nv = netView(r.nets); return { opponentId: r.opponentId, opponent: r.opponent, w: r.w, l: r.l, games: r.games, net: nv.net, currency: nv.currency, isRival: r.games >= 3 }; })
+    .map((r) => { const nv = netView(r.nets); return { opponentId: r.opponentId, opponent: r.opponent, w: r.w, l: r.l, games: r.games, net: nv.net, currency: nv.currency, isRival: r.games >= 3, streakWeeks: pairWeekStreak(id, r.opponentId) }; })
     .sort((a, b) => b.games - a.games);
+  // v11 — the Forfeit Ledger: resolved-but-unsettled forfeit lines are DEBTS on
+  // the record. The app never enforces them; it just never forgets them.
+  const forfeits = mine
+    .filter((b) => b.status === 'resolved' && b.line && b.line.trim() && b.owes)
+    .slice(0, 8)
+    .map((b) => ({ betId: b.id, line: b.line, from: b.owes.from, to: b.owes.to, owedByMe: b.owes.fromId === id, since: b.resolvedAt }));
   const recent = mine.slice(0, 8).map((b) => ({
     id: b.id, home: b.home, away: b.away, opponent: nameForId(b, otherId(b, id)),
     won: winnerId(b) === id, amount: b.owes ? b.owes.amount : b.stake,
@@ -441,7 +470,7 @@ function playerSummary(id) {
   }));
   const nv = netView(nets);
   const _p = db.players[id];
-  return { id, name, w, l, net: nv.net, currency: nv.currency, streak, rivalries, recent, arenaPts: (_p && _p.arenaPts) || 0, hasEmail: Boolean(_p && (_p.email || _p.emailVerified)) };
+  return { id, name, w, l, net: nv.net, currency: nv.currency, streak, rivalries, recent, forfeits, arenaPts: (_p && _p.arenaPts) || 0, hasEmail: Boolean(_p && (_p.email || _p.emailVerified)) };
 }
 
 function rivalry(idA, idB) {
@@ -464,7 +493,7 @@ function rivalry(idA, idB) {
     id: x.id, home: x.home, away: x.away, resolvedAt: x.resolvedAt,
     aWon: winnerId(x) === idA, line: x.line || '', stake: x.stake, currency: x.currency,
   }));
-  return { aId: idA, bId: idB, a: aName, b: bName, aWins, bWins, aNet: nv.net, games: both.length, currency: nv.currency, recent };
+  return { aId: idA, bId: idB, a: aName, b: bName, aWins, bWins, aNet: nv.net, games: both.length, currency: nv.currency, recent, streakWeeks: pairWeekStreak(idA, idB) };
 }
 
 // Rivalry one-liner for a specific bet's two players (used on cards / OG meta).
@@ -1273,6 +1302,36 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { items: items.slice(0, 12) });
   }
 
+  // GET /api/motw — Match of the Week: one Pundit-curated fixture per gameweek
+  // that EVERYONE is prompted to call. Same match for all = the water-cooler moment.
+  if (req.method === 'GET' && parts[1] === 'motw' && parts.length === 2) {
+    const wk = weekIdx(Date.now());
+    if (!db.meta) db.meta = {};
+    let mo = db.meta.motw;
+    const stale = !mo || mo.week !== wk || !mo.match || new Date(mo.match.utcDate || 0).getTime() < Date.now();
+    if (stale) {
+      const COMP_W2 = [[/world cup|fifa|\bwc\b/i, 100], [/champions league/i, 80], [/europa/i, 55], [/premier league/i, 50], [/la ?liga/i, 45], [/serie a/i, 42], [/bundesliga/i, 42], [/eredivisie/i, 40], [/ligue 1/i, 38]];
+      const BIG2 = /man(chester)? (city|united)|liverpool|arsenal|chelsea|tottenham|newcastle|real madrid|barcelona|atl[ée]tico|bayern|dortmund|leverkusen|psg|paris|inter|ac milan|juventus|napoli|ajax|psv|feyenoord|benfica|porto|celtic|rangers|galatasaray|boca|river|flamengo/i;
+      const now = Date.now();
+      const matches = (await getMatches()) || [];
+      const pick = matches
+        .filter((x) => x.utcDate && new Date(x.utcDate).getTime() > now)
+        .map((x) => {
+          let sc = 0;
+          for (const [re, w] of COMP_W2) if (re.test(x.competition || '')) { sc += w; break; }
+          if (BIG2.test(x.home)) sc += 25;
+          if (BIG2.test(x.away)) sc += 25;
+          return { x, sc };
+        })
+        .sort((a, b) => (b.sc - a.sc) || (new Date(a.x.utcDate) - new Date(b.x.utcDate)))[0];
+      if (!pick) return sendJson(res, 200, { week: wk, match: null });
+      mo = { week: wk, match: pick.x };
+      db.meta.motw = mo;
+      saveData();
+    }
+    return sendJson(res, 200, mo);
+  }
+
   // POST /api/bets
   if (req.method === 'POST' && parts[1] === 'bets' && parts.length === 2) {
     const me = authPlayer(req); if (!me) return need401();
@@ -1651,6 +1710,40 @@ initData().then(() => {
   initPush();
   setTimeout(seedArena, 5000);
   setInterval(seedArena, 6 * 3600000);
+  // v11 — rivalry-streak rescue: Fri/Sat, if a pair with a 2+ week streak has no
+  // clash yet this week, nudge BOTH sides once. Peer pressure beats app pressure.
+  const streakNudgeSweep = () => {
+    try {
+      const dow = new Date().getUTCDay();
+      if (dow !== 5 && dow !== 6) return;
+      const wk = weekIdx(Date.now());
+      if (!db.meta) db.meta = {};
+      if (!db.meta.streakNudges) db.meta.streakNudges = {};
+      const pairs = {};
+      for (const b of Object.values(db.bets)) {
+        if (!b.proposerId || !b.opponentId || !['accepted', 'resolved', 'settled'].includes(b.status)) continue;
+        const key = [b.proposerId, b.opponentId].sort().join('|');
+        (pairs[key] = pairs[key] || new Set()).add(weekIdx(b.acceptedAt || b.createdAt));
+      }
+      let touched = false;
+      for (const [key, weeks] of Object.entries(pairs)) {
+        if (weeks.has(wk)) continue;
+        let s = 0, k = wk - 1;
+        while (weeks.has(k)) { s++; k--; }
+        if (s < 2) continue;
+        if (db.meta.streakNudges[key] === wk) continue;
+        db.meta.streakNudges[key] = wk; touched = true;
+        const [aId, bId] = key.split('|');
+        const an = nameOf(aId), bn = nameOf(bId);
+        if (!an || !bn) continue;
+        sendPush(aId, { title: `🔥 ${s}-week streak on the line`, body: `No clash with ${bn} yet this week — run one back before Sunday.`, url: '/' });
+        sendPush(bId, { title: `🔥 ${s}-week streak on the line`, body: `No clash with ${an} yet this week — run one back before Sunday.`, url: '/' });
+      }
+      if (touched) saveData();
+    } catch (e) { console.warn('streak nudge sweep failed:', e.message); }
+  };
+  setTimeout(streakNudgeSweep, 20000);
+  setInterval(streakNudgeSweep, 12 * 3600000);
   server.listen(PORT, () => {
     console.log(`\n  ${BRAND} running →  http://localhost:${PORT}`);
     console.log(`  Mode: ${FOOTBALL_TOKEN ? 'LIVE (football-data.org)' : 'DEMO (manual results)'}`);
