@@ -57,7 +57,7 @@
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;700;800;900&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;700;800;900&display=swap" media="print" onload="this.media='all'" />
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;700;800;900&display=swap" /></noscript>
-  <link rel="stylesheet" href="/styles.css?v=7" />
+  <link rel="stylesheet" href="/styles.css?v=8" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
   <!-- PostHog product analytics (users, funnels, retention) -->
   <script>
@@ -65,8 +65,7 @@
     posthog.init('phc_qSHNGpLqw3up3W6Zc8zkfUeJcunSN3ZzzFbqB4WX3oAG', { api_host: 'https://eu.i.posthog.com', person_profiles: 'identified_only', defaults: '2025-05-24' });
   </script>
 
-  <!-- show the intro once per session (i.e. when a friend opens the link) -->
-  <script>try{if(sessionStorage.getItem('duely_introed')){document.documentElement.classList.add('no-intro');}else{sessionStorage.setItem('duely_introed','1');}}catch(e){}</script>
+  <!-- floodlights-on intro plays on every full page load (Qiao: it looks cool) -->
 </head>
 <body>
   <!-- ambient floodlit background -->
