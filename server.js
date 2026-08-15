@@ -406,7 +406,8 @@ function playerSummary(id) {
     currency: b.currency, status: b.status,
   }));
   const nv = netView(nets);
-  return { id, name, w, l, net: nv.net, currency: nv.currency, streak, rivalries, recent, arenaPts: (db.players[id] && db.players[id].arenaPts) || 0 };
+  const _p = db.players[id];
+  return { id, name, w, l, net: nv.net, currency: nv.currency, streak, rivalries, recent, arenaPts: (_p && _p.arenaPts) || 0, hasEmail: Boolean(_p && (_p.email || _p.emailVerified)) };
 }
 
 function rivalry(idA, idB) {
@@ -1477,7 +1478,55 @@ const server = http.createServer(async (req, res) => {
   serveStatic(req, res);
 });
 
+// --- Arena seed bot: the house pundit keeps a few open listings live so the
+// marketplace never looks closed. Bets use real fixtures (externalId) so they
+// auto-resolve; humans who beat the bot still bank arena points.
+const BOT_NAME = 'The Pundit';
+const BOT_LINES = ['Bragging rights', 'Loser posts a public apology on the Terrace', "Loser wears the winner's colours for a day", 'Loser buys the pints', 'Bragging rights'];
+const BOT_NOTES = ['printing bragging rights today', 'easy work. always has been', 'your lot bottle it every time', 'study the game, then come back', 'book the excuses now'];
+function ensureBot() {
+  let bot = Object.values(db.players).find((p) => p.bot && p.name === BOT_NAME);
+  if (!bot) {
+    const id = newId();
+    bot = { id, name: BOT_NAME, bot: true, secret: newId() + newId() + newId(), createdAt: new Date().toISOString() };
+    db.players[id] = bot;
+  }
+  return bot;
+}
+async function seedArena() {
+  try {
+    const now = Date.now();
+    const openArena = Object.values(db.bets).filter((b) => b.arena && b.status === 'open' && (!b.utcDate || new Date(b.utcDate).getTime() > now));
+    const TARGET = 3;
+    if (openArena.length >= TARGET) return;
+    const bot = ensureBot();
+    const { matches } = { matches: await getMatches() };
+    const taken = new Set(openArena.map((b) => b.externalId || (b.home + '|' + b.away)));
+    const candidates = (matches || []).filter((mt) => mt.utcDate && new Date(mt.utcDate).getTime() > now + 3600000 && !taken.has(mt.id) && !taken.has(mt.home + '|' + mt.away));
+    let made = 0;
+    for (const mt of candidates) {
+      if (openArena.length + made >= TARGET) break;
+      const id = newId();
+      const pick = Math.random() < 0.5 ? 'HOME' : 'AWAY';
+      db.bets[id] = {
+        id, status: 'open',
+        proposerId: bot.id, proposerName: bot.name, opponentId: null, opponentName: null,
+        home: mt.home, away: mt.away, competition: mt.competition || '', utcDate: mt.utcDate, externalId: mt.id || null,
+        backedOutcome: pick, stake: 0, currency: 'EUR',
+        note: BOT_NOTES[Math.floor(Math.random() * BOT_NOTES.length)],
+        line: BOT_LINES[Math.floor(Math.random() * BOT_LINES.length)],
+        arena: true, bot: true,
+        createdAt: new Date().toISOString(),
+      };
+      made++;
+    }
+    if (made) { logEvent('arena_seeded', { made }); saveData(); console.log(`arena bot seeded ${made} listing(s)`); }
+  } catch (e) { console.warn('arena seed failed:', e.message); }
+}
+
 initData().then(() => {
+  setTimeout(seedArena, 5000);
+  setInterval(seedArena, 6 * 3600000);
   server.listen(PORT, () => {
     console.log(`\n  ${BRAND} running →  http://localhost:${PORT}`);
     console.log(`  Mode: ${FOOTBALL_TOKEN ? 'LIVE (football-data.org)' : 'DEMO (manual results)'}`);
