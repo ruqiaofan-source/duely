@@ -339,6 +339,27 @@ function addPundit(bet, phase) {
   bet.comments.push({ byId: '__pundit', by: 'The Pundit', bot: true, text: pick.replace(/\{(\w+)\}/g, (_, k) => ctx[k] ?? ''), t: new Date().toISOString() });
 }
 
+// v10 — the Receipts Engine: on a rematch, the Pundit resurfaces the loser's
+// old take verbatim. Screenshot culture, productized: the app is the receipt.
+function lastSettledBetween(aId, bId, excludeId) {
+  return Object.values(db.bets)
+    .filter((b) => b.id !== excludeId && (b.status === 'resolved' || b.status === 'settled')
+      && ((b.proposerId === aId && b.opponentId === bId) || (b.proposerId === bId && b.opponentId === aId)))
+    .sort((x, y) => new Date(y.resolvedAt || y.createdAt) - new Date(x.resolvedAt || x.createdAt))[0] || null;
+}
+function addRematchReceipt(bet) {
+  if (!bet.rematch || !bet.proposerId || !bet.opponentId) return;
+  const prev = lastSettledBetween(bet.proposerId, bet.opponentId, bet.id);
+  if (!prev || !prev.winner) return;
+  const loser = prev.winner === 'proposer' ? prev.opponentName : prev.proposerName;
+  const take = prev.winner === 'proposer' ? complementLabel(prev) : outcomeLabel(prev, prev.backedOutcome);
+  const result = prev.actualOutcome ? outcomeLabel(prev, prev.actualOutcome) : '';
+  if (!bet.comments) bet.comments = [];
+  bet.comments.push({ byId: '__pundit', by: 'The Pundit', bot: true,
+    text: `🔁 THE REMATCH. Last time ${loser} backed ${take}${result ? ` — FT: ${result}` : ''}. The terrace keeps receipts. 🧾`,
+    t: new Date().toISOString() });
+}
+
 // ---------------------------------------------------------------------------
 // Stats engine (records computed by player id; names are display only)
 // ---------------------------------------------------------------------------
@@ -563,6 +584,7 @@ function cardSvgForBet(bet) {
       // "told you so." fallback belongs to the winner
       NOTE_BY: (bet.note && bet.note.trim()) ? bet.proposerName : winner,
       OWES: `${bet.owes.from}  →  ${bet.owes.to}`, RIVALRY: rivalryLine(bet),
+      LOSER_TAKE: trimCp(bet.winner === 'proposer' ? complementLabel(bet) : outcomeLabel(bet, bet.backedOutcome), 26),
     });
     return cards.resultSvg(data);
   }
@@ -613,6 +635,31 @@ function serveCard(req, res, url) {
     return res.end(png);
   }
   res.writeHead(302, { Location: `/card/${m[1]}.svg` }); res.end();
+}
+
+// v10 — the Receipt slip (settled bets only; the loser's take is the hero)
+function receiptSvgForBet(bet) {
+  const loser = bet.winner === 'proposer' ? bet.opponentName : bet.proposerName;
+  const take = bet.winner === 'proposer' ? complementLabel(bet) : outcomeLabel(bet, bet.backedOutcome);
+  return cards.receiptSvg({
+    HOME: trimCp(bet.home, 16), AWAY: trimCp(bet.away, 16),
+    LOSER: trimCp(loser, 16), TAKE: trimCp(take, 24),
+    RESULT: outcomeLabel(bet, bet.actualOutcome),
+    STAKE: stakeLabel(bet), RIV: rivalryLine(bet),
+    DATE: fmtDate(bet.resolvedAt || bet.createdAt), ID: bet.id,
+  });
+}
+function serveReceipt(req, res, url) {
+  const m = url.pathname.match(/^\/receipt\/([a-f0-9]+)\.(svg|png)$/);
+  if (!m) { res.writeHead(404); return res.end('Not found'); }
+  const bet = db.bets[m[1]];
+  if (!bet || !(bet.status === 'resolved' || bet.status === 'settled')) { res.writeHead(404); return res.end('No receipt yet — the match has to finish first.'); }
+  const svg = receiptSvgForBet(bet);
+  const cc = 'public, max-age=31536000, immutable';
+  if (m[2] === 'svg') { res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': cc }); return res.end(svg); }
+  const png = cards.renderPng(svg);
+  if (png) { res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': cc }); return res.end(png); }
+  res.writeHead(302, { Location: `/receipt/${m[1]}.svg` }); res.end();
 }
 
 function serveStoryCard(req, res, url) {
@@ -1246,6 +1293,7 @@ async function handleApi(req, res, url) {
       // or instead of — a numeric stake. Forfeits are the ICP-native currency.
       line: b.line ? String(b.line).slice(0, 60) : '',
       arena: Boolean(b.arena) || undefined,
+      rematch: Boolean(b.rematch) || undefined,
       createdAt: new Date().toISOString(),
     };
     db.bets[id] = bet;
@@ -1291,6 +1339,7 @@ async function handleApi(req, res, url) {
           (bet.offers || []).forEach((o) => { if (o.status === 'pending') o.status = 'declined'; });
           off.status = 'accepted';
           addPundit(bet, 'accepted');
+          addRematchReceipt(bet);
           logEvent('offer_accepted', { id: bet.id });
           saveData();
           sendPush(off.byId, { title: 'Deal — counter accepted 🤝', body: `${me.name} took your terms on ${bet.home} v ${bet.away}.`, url: '/b/' + bet.id });
@@ -1337,6 +1386,7 @@ async function handleApi(req, res, url) {
       bet.status = 'accepted';
       bet.acceptedAt = new Date().toISOString();
       addPundit(bet, 'accepted');
+      addRematchReceipt(bet);
       logEvent('bet_accepted', { id: bet.id });
       sendPush(bet.proposerId, { title: 'Your bet is ON ⚔️', body: `${me.name} took the other side of ${bet.home} v ${bet.away}.`, url: '/b/' + bet.id });
       return sendJson(res, 200, bet);
@@ -1509,6 +1559,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
   if (url.pathname.startsWith('/card/')) return serveCard(req, res, url);
   if (url.pathname.startsWith('/storycard/')) return serveStoryCard(req, res, url);
+  if (url.pathname.startsWith('/receipt/')) return serveReceipt(req, res, url);
   if (url.pathname.startsWith('/lcard/')) return serveLeagueCard(req, res, url);
   // canonical share link (/b/:id) and legacy (/?b=:id) get OG meta injected
   const shareMatch = url.pathname.match(/^\/b\/([a-f0-9]+)$/);

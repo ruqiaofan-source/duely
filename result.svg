@@ -27,7 +27,7 @@
 
 <!-- the RECORD — the thing you come back to settle (hero of the message) -->
 <text x="66" y="388" class="inter" font-size="29" font-weight="900" fill="#14E0C8">{{RIVALRY}}</text>
-<text x="66" y="420" class="inter" font-size="22" font-weight="600" fill="#9AA7B8">called {{RESULT}} &#183; the rivalry runs on</text>
+<text x="66" y="420" class="inter" font-size="22" font-weight="600" fill="#9AA7B8">FT {{RESULT}} &#183; {{LOSER}} backed {{LOSER_TAKE}} &#183; receipts kept</text>
 
 <rect x="64" y="456" width="1072" height="1.5" fill="#2A3340"/>
 

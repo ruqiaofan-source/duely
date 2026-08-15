@@ -92,6 +92,45 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 <text x="540" y="1862" class="inter" text-anchor="middle" font-size="28" font-weight="800" fill="#93A1B3" letter-spacing="2">clashly.live/b/{{ID}}</text>
 </svg>`;
 
+
+// v10 — the Receipt: a betting-shop slip for a settled call. Cream paper on the
+// floodlit dark, punch-hole perforations, and the BOTTLED ink stamp. The loser's
+// take is the hero — self-deprecation shares best in the group chat.
+const RECEIPT_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Clashly bet receipt">
+<defs>
+<style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}.inter{font-family:'Inter',system-ui,sans-serif;}</style>
+<pattern id="paper" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="4" fill="#F5EFE0"/><rect y="3" width="4" height="1" fill="#EFE7D4" opacity="0.5"/></pattern>
+</defs>
+<rect width="1200" height="630" fill="#0A0E13"/>
+<g transform="rotate(-1.2 600 315)">
+<rect x="86" y="34" width="1028" height="562" rx="4" fill="url(#paper)" stroke="#D9CFBA" stroke-width="1.5"/>
+<g fill="#0A0E13">
+<circle cx="120" cy="34" r="9"/><circle cx="180" cy="34" r="9"/><circle cx="240" cy="34" r="9"/><circle cx="300" cy="34" r="9"/><circle cx="360" cy="34" r="9"/><circle cx="420" cy="34" r="9"/><circle cx="480" cy="34" r="9"/><circle cx="540" cy="34" r="9"/><circle cx="600" cy="34" r="9"/><circle cx="660" cy="34" r="9"/><circle cx="720" cy="34" r="9"/><circle cx="780" cy="34" r="9"/><circle cx="840" cy="34" r="9"/><circle cx="900" cy="34" r="9"/><circle cx="960" cy="34" r="9"/><circle cx="1020" cy="34" r="9"/><circle cx="1080" cy="34" r="9"/>
+<circle cx="120" cy="596" r="9"/><circle cx="180" cy="596" r="9"/><circle cx="240" cy="596" r="9"/><circle cx="300" cy="596" r="9"/><circle cx="360" cy="596" r="9"/><circle cx="420" cy="596" r="9"/><circle cx="480" cy="596" r="9"/><circle cx="540" cy="596" r="9"/><circle cx="600" cy="596" r="9"/><circle cx="660" cy="596" r="9"/><circle cx="720" cy="596" r="9"/><circle cx="780" cy="596" r="9"/><circle cx="840" cy="596" r="9"/><circle cx="900" cy="596" r="9"/><circle cx="960" cy="596" r="9"/><circle cx="1020" cy="596" r="9"/><circle cx="1080" cy="596" r="9"/>
+</g>
+<g class="inter" fill="#2A2A30">
+<text x="130" y="102" class="anton" font-size="30" fill="#1B1B22" letter-spacing="4">CLASHLY</text>
+<text x="132" y="126" font-size="13" font-weight="800" fill="#8A8171" letter-spacing="4">OFFICIAL RECEIPT &#183; THE TERRACE REMEMBERS</text>
+<text x="1066" y="108" text-anchor="end" font-size="14" font-weight="700" fill="#8A8171">{{DATE}}</text>
+<line x1="130" y1="148" x2="1066" y2="148" stroke="#C9BFA8" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="130" y="206" class="anton" font-size="44" fill="#1B1B22">{{HOME}}  v  {{AWAY}}</text>
+<text x="130" y="266" font-size="15" font-weight="900" fill="#8A8171" letter-spacing="3">THE CALL</text>
+<text x="130" y="312" font-size="30" font-weight="800" fill="#1B1B22">{{LOSER}} backed {{TAKE}}</text>
+<text x="130" y="368" font-size="15" font-weight="900" fill="#8A8171" letter-spacing="3">FULL TIME</text>
+<text x="130" y="414" font-size="30" font-weight="800" fill="#1B1B22">{{RESULT}}</text>
+<line x1="130" y1="448" x2="1066" y2="448" stroke="#C9BFA8" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="130" y="486" font-size="17" font-weight="700" fill="#5A5344">ON THE SLIP&#160;&#160;{{STAKE}}</text>
+<text x="130" y="516" font-size="17" font-weight="700" fill="#5A5344">THE RECORD&#160;&#160;{{RIV}}</text>
+<text x="130" y="566" font-size="13" font-weight="700" fill="#8A8171" letter-spacing="1">SLIP NO. {{ID}} &#183; keep this receipt &#183; clashly.live/b/{{ID}}</text>
+</g>
+<g transform="rotate(-12 880 300)" opacity="0.88">
+<rect x="742" y="248" width="278" height="86" rx="10" fill="none" stroke="#C0272D" stroke-width="5"/>
+<rect x="750" y="256" width="262" height="70" rx="7" fill="none" stroke="#C0272D" stroke-width="2"/>
+<text x="881" y="311" text-anchor="middle" class="anton" font-size="47" fill="#C0272D" letter-spacing="4">BOTTLED</text>
+</g>
+</g>
+</svg>`;
+
 function challengeSvg(data) {
   // Per design notes: never leave the trash-talk panel hollow. BADGE/CTA tokens
   // default to the open-bet state when the caller doesn't provide them.
@@ -127,6 +166,7 @@ function resultSvg(data) {
   return fill(RESULT_TPL, d);
 }
 function leagueSvg(data) { return fill(LEAGUE_TPL, data); }
+function receiptSvg(data) { return fill(RECEIPT_TPL, data); }
 function storySvg(data) { return fill(STORY_TPL, data); }
 
 function renderPng(svg) {
@@ -141,4 +181,4 @@ function renderPng(svg) {
   } catch (e) { console.warn('card png render failed:', e.message); return null; }
 }
 
-module.exports = { challengeSvg, resultSvg, leagueSvg, storySvg, voidSvg, renderPng, hasRasterizer: Boolean(Resvg) };
+module.exports = { challengeSvg, resultSvg, leagueSvg, storySvg, voidSvg, receiptSvg, renderPng, hasRasterizer: Boolean(Resvg) };
