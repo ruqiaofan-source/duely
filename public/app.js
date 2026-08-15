@@ -556,6 +556,12 @@ async function renderHome() {
         <button class="cta commit" data-punish="${esc(hp.by)}" style="flex:1">⚔️ Make them back it</button>
       </div>
     </div>`; })() : ''}
+    ${(() => { const mineOff = m ? arena.filter((c) => c.proposerId === m.id && c.offers > 0) : [];
+      return mineOff.length ? `<div class="card" style="border-color:rgba(124,58,237,.55)">
+      <div class="cardhead"><h2>💬 Counter-offers waiting</h2></div>
+      ${mineOff.map((c) => `<div class="riv-row" data-golisting="${esc(c.id)}" role="button" tabindex="0" style="cursor:pointer"><div><div class="nm">${esc(c.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(c.away)}</div><div class="sm">${c.offers} offer${c.offers === 1 ? '' : 's'} on your listing — someone wants different terms</div></div><button class="linkbtn" data-golisting="${esc(c.id)}" style="font-weight:800">Review →</button></div>`).join('')}
+    </div>` : ''; })()}
+    ${m && (s.w + s.l) > 0 && !s.hasEmail ? `<div class="banner" style="border-style:solid;border-color:rgba(20,224,200,.4);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>🛡️ Protect your ${s.w}–${s.l} record — link your email so it survives any device.</span><button class="linkbtn" id="linkAcct" style="flex:none;font-weight:800">Link it →</button></div>` : ''}
     ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)">
       <h2>Get your first rivalry going 👋</h2>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:6px">
@@ -563,7 +569,8 @@ async function renderHome() {
         <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">2</span> Back a call &amp; set the stakes</div>
         <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">3</span> Fire the link — a mate takes the other side</div>
       </div>
-      <button class="cta commit" id="firstBet" style="margin-top:16px">⚔️ Create your first bet</button>
+      ${arena.filter((c) => !m || c.proposerId !== m.id).length ? `<button class="cta commit" id="firstTake" style="margin-top:16px">🛒 Take a live bet from the Arena →</button>
+      <button class="ghost" id="firstBet" style="width:100%;margin-top:8px">⚔️ Or create your own</button>` : `<button class="cta commit" id="firstBet" style="margin-top:16px">⚔️ Create your first bet</button>`}
     </div>` : ''}
     ${hot ? `<div class="card hero-duel">
       <div class="cardhead"><h2>Unfinished business ⚔️</h2></div>
@@ -637,6 +644,10 @@ async function renderHome() {
 
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  const ft = $('#firstTake'); if (ft) ft.addEventListener('click', () => { track('first_take_tap'); history.pushState({}, '', '/arena'); route(); });
+  const la = $('#linkAcct'); if (la) la.addEventListener('click', () => { track('link_nudge_tap'); history.pushState({}, '', '/profile'); route(); });
+  app.querySelectorAll('[data-golisting]').forEach((el) =>
+    el.addEventListener('click', (e) => { e.stopPropagation(); history.pushState({}, '', '/b/' + el.dataset.golisting); renderBet(el.dataset.golisting); }));
   app.querySelectorAll('[data-arena]').forEach((el) =>
     el.addEventListener('click', (e) => { e.stopPropagation(); track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
   const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
@@ -797,7 +808,7 @@ async function renderProfile() {
     </div>
     ${acct}
     <div class="card"><div class="cardhead"><h2>Settle up 💸</h2><button class="linkbtn" id="allDuels">⚔️ All my duels →</button></div>
-      ${(s.rivalries || []).filter((r) => r.net).length ? (s.rivalries || []).filter((r) => r.net).map((r) => `<div class="recent"><span>${esc(r.opponent)}</span><span class="res ${r.net > 0 ? 'w' : 'l'}">${r.net > 0 ? 'owes you ' : 'you owe '}${sym(r.currency)}${Math.abs(r.net)}</span></div>`).join('') : '<p class="sub" style="margin:8px 0 0">All square — nobody owes anything. 🤝</p>'}
+      ${(s.rivalries || []).filter((r) => r.net).length ? (s.rivalries || []).filter((r) => r.net).map((r) => `<div class="recent" data-settlego="1" role="button" tabindex="0" style="cursor:pointer"><span>${esc(r.opponent)} <span style="color:var(--muted-2);font-size:11px">tap to settle →</span></span><span class="res ${r.net > 0 ? 'w' : 'l'}">${r.net > 0 ? 'owes you ' : 'you owe '}${sym(r.currency)}${Math.abs(r.net)}</span></div>`).join('') : '<p class="sub" style="margin:8px 0 0">All square — nobody owes anything. 🤝</p>'}
       <p class="sub" style="margin:10px 0 0;font-size:12px">Clashly holds no money — settle between yourselves (cash, BLIK, Revolut…) and mark the duel sorted.</p>
     </div>
     <div class="card"><div class="cardhead"><h2>Settings</h2></div><div class="checkrow" style="margin-top:6px"><input type="checkbox" id="langPl" ${lang === 'pl' ? 'checked' : ''} /><label for="langPl">🇵🇱 Polski interfejs (Polish interface)</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="hideStreaks" ${hideStreaks ? 'checked' : ''} /><label for="hideStreaks">Hide streaks — no flame, no pressure</label></div></div>
@@ -807,6 +818,7 @@ async function renderProfile() {
     <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b>'} — settle up with your mates and run it back.</div>`;
   $('#rename').addEventListener('click', () => openRenameSheet(m.name));
   const ad = $('#allDuels'); if (ad) ad.addEventListener('click', () => { history.pushState({}, '', '/duels'); route(); });
+  app.querySelectorAll('[data-settlego]').forEach((el) => el.addEventListener('click', () => { history.pushState({}, '', '/duels'); route(); }));
   const lp = $('#langPl'); if (lp) lp.addEventListener('change', () => { if (window.CLASHLY_I18N) window.CLASHLY_I18N.toggle(); });
   const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); localStorage.removeItem('settle_roles'); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
   const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
@@ -1704,3 +1716,27 @@ route();
     });
   }
 })();
+
+
+// ---- PWA install: capture the prompt, surface it once things are sticky ----
+let _deferredInstall = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _deferredInstall = e;
+  try {
+    if (localStorage.getItem('clashly_pwa_dismissed')) return;
+    const bar = document.createElement('div');
+    bar.id = 'pwaBar';
+    bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:76px;z-index:60;background:linear-gradient(135deg,#0E141C,#101a24);border:1px solid rgba(20,224,200,.45);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 30px rgba(0,0,0,.45)';
+    bar.innerHTML = '<span style="font-size:13.5px;font-weight:700">📲 Add Clashly to your home screen — it works like an app.</span><button id="pwaGo" class="linkbtn" style="flex:none;font-weight:800">Install</button><button id="pwaNo" class="linkbtn" style="flex:none;color:var(--muted)">✕</button>';
+    document.body.appendChild(bar);
+    bar.querySelector('#pwaGo').addEventListener('click', async () => {
+      bar.remove();
+      if (_deferredInstall) { track('pwa_install_prompt'); _deferredInstall.prompt(); _deferredInstall = null; }
+    });
+    bar.querySelector('#pwaNo').addEventListener('click', () => { bar.remove(); try { localStorage.setItem('clashly_pwa_dismissed', '1'); } catch {} });
+  } catch {}
+});
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}

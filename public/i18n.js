@@ -83,6 +83,14 @@
     'Sign the fight card': 'Podpisz kartę walki',
     'Counter with a forfeit or a stake': 'Zaproponuj fant albo stawkę',
     'Offer declined': 'Oferta odrzucona',
+    // v7 additions
+    '💬 Counter-offers waiting': '💬 Czekają kontroferty',
+    'Review →': 'Zobacz →',
+    '🛒 Take a live bet from the Arena →': '🛒 Weź zakład z Areny →',
+    '⚔️ Or create your own': '⚔️ Albo stwórz własny',
+    'Link it →': 'Powiąż →',
+    'Install': 'Zainstaluj',
+    '📲 Add Clashly to your home screen — it works like an app.': '📲 Dodaj Clashly do ekranu głównego — działa jak aplikacja.',
     // bet page
     'Take the bet 🤝': 'Przyjmij zakład 🤝',
     'Lock it in 🤝': 'Zaklep 🤝',
