@@ -101,6 +101,7 @@ async function initData() {
   ps.filter((p) => !p.seq).sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)).forEach((p) => { p.seq = ++maxSeq; });
   rebuildSecretIndex();
   seedHistory();
+  demoHandoverReset();
 }
 
 // lightweight loop-funnel instrumentation (created → opened → accepted → resolved → rematch)
@@ -363,7 +364,11 @@ function addRematchReceipt(bet) {
 // ---------------------------------------------------------------------------
 // Stats engine (records computed by player id; names are display only)
 // ---------------------------------------------------------------------------
-const decidedBets = () => (_decided ||= Object.values(db.bets).filter((b) => b.status === 'resolved' || b.status === 'settled'));
+// QA ghosts: throwaway accounts used for live smoke tests. Their bets are real
+// records but must never pollute public rankings, crowns, or results strips.
+const QA_GHOST = /^(ZqSmoke|ZvElev|XwProbe|XyElev|ZzTest|QaProbe|ZzSweep|XqSmoke)\d+$/;
+const isGhostBet = (b) => QA_GHOST.test(b.proposerName || '') || QA_GHOST.test(b.opponentName || '');
+const decidedBets = () => (_decided ||= Object.values(db.bets).filter((b) => (b.status === 'resolved' || b.status === 'settled') && !isGhostBet(b)));
 const involvesId = (b, id) => b.proposerId === id || b.opponentId === id;
 const otherId = (b, id) => (b.proposerId === id ? b.opponentId : b.proposerId);
 const nameForId = (b, id) => (b.proposerId === id ? b.proposerName : b.opponentName); // display name straight off the bet
@@ -886,6 +891,65 @@ function serveShareHtml(req, res, id) {
 // ---------------------------------------------------------------------------
 // Seed some history so a fresh demo shows live rivalries
 // ---------------------------------------------------------------------------
+// One-time demo handover reset (Aug 2026): wipe QA/crowdtest accounts and bets,
+// keep infrastructure meta (VAPID push keys, MOTW pick), and pre-warm the Terrace
+// with rage-bait takes from HOUSE BOTS (always bot-labeled — Clashly never fakes
+// users). Runs once; the demoReset1 flag makes redeploys safe.
+function demoHandoverReset() {
+  if (!db.meta) db.meta = {};
+  if (db.meta.demoReset1) return;
+  db.players = {}; db.bets = {}; db.terrace = []; db.events = []; db.leagues = {}; db.stats = {};
+  rebuildSecretIndex();
+  // [voice, text] — takes verified against the real 2025-26 season (Arsenal champions +
+  // UCL final loss, Utd 3rd under Carrick, Spurs' near-relegation, Spain WC 2026,
+  // Lewandowski to Chicago Fire, Poland's playoff loss, Lech back-to-back).
+  const VOICES = {
+    pundit: ['__v_pundit', 'The Pundit'], gaffer: ['__v_gaffer', 'The Gaffer'],
+    var: ['__v_var', 'VAR Truther'], stats: ['__v_stats', 'xG Nerd'],
+    lewy: ['__v_lewy', 'Lewy Stan'], old: ['__v_old', 'Old School'],
+  };
+  const TAKES = [
+    ['old', 'Messi lost his last ever World Cup final. Ronaldo would’ve buried that chance. Debate over \u{1F410}'],
+    ['pundit', 'Yamal is a world champion at 19. Messi wasn’t. It’s already his era \u{1F1EA}\u{1F1F8}'],
+    ['gaffer', 'Haaland is a tap-in merchant. Take away City’s midfield and he’s Andy Carroll with a ponytail'],
+    ['old', 'Pelé wouldn’t get in the current Brighton squad and you all know it'],
+    ['pundit', 'Bellingham does more actual football than Mbappé. Fight me'],
+    ['gaffer', 'Arsenal won the league then bottled the Champions League final. Once a bottler, always a bottler \u{1F37E}'],
+    ['stats', '61 points to win the title?? Weakest Premier League winners ever. Asterisk season ⭐'],
+    ['pundit', 'Carrick walked in and did in 5 months what ten Hag and Amorim couldn’t. Utd are BACK'],
+    ['gaffer', 'Man Utd finished 3rd and still lost to Grimsby. Big club? Behave \u{1F62D}'],
+    ['old', 'Liverpool went champions to 5th in one season. Slot was carried by Klopp’s squad all along'],
+    ['pundit', 'Spurs won a European trophy then nearly got relegated the next year. Most Spursy arc in history'],
+    ['stats', 'Bruno breaks the assist record and you lot still call him a penalty merchant. Jealousy is a disease'],
+    ['old', 'The Hand of God was the most streetwise moment in football history. Cope harder, England \u{1F91A}'],
+    ['old', 'Suárez’s handball vs Ghana was the most selfless thing a striker’s ever done. He took the red FOR the team'],
+    ['gaffer', 'Lampard’s ghost goal doesn’t matter. Germany were battering England anyway — 4-1 flattered YOU'],
+    ['var', 'Henry handballs Ireland out of a World Cup and gets a legends documentary. Football’s rigged for big names'],
+    ['var', 'VAR ruined the Liverpool game on opening night and you still want to keep it?? Scrap it all \u{1F4FA}\u{1F5D1}️'],
+    ['var', 'They literally publish tables of VAR errors now and you still trust Stockley Park \u{1F480}'],
+    ['lewy', 'Lewandowski is top 3 strikers EVER and it’s not close. Ask Bayern. Ask the Bundesliga. Ask anyone \u{1F1F5}\u{1F1F1}'],
+    ['lewy', 'Lewy in MLS at 38 while Poland watched the World Cup from the sofa. National embarrassment, not his fault'],
+    ['lewy', 'Losing to SWEDEN to miss the World Cup. Again. This federation could ruin a two-car parade'],
+    ['lewy', 'Lech back-to-back champions and Legia mid-table. Warsaw’s a museum, Poznań’s the capital now \u{1F682}'],
+    ['gaffer', 'Górnik finishing 2nd above Legia is the funniest thing Ekstraklasa has ever produced'],
+    ['lewy', 'Ekstraklasa is a better watch than Serie A. Yes I said it. No I’m not sober. Yes I’m right'],
+    ['old', 'Modern football died the day they invented VAR and £9 pints. Non-league is the real game now ⚰️'],
+    ['gaffer', 'Penalties aren’t a lottery. Your keeper’s just bad and your takers are cowards'],
+    ['pundit', 'Any league your club wins easily is a farmers league. That’s the rule. Yes, including yours \u{1F69C}'],
+    ['stats', 'xG is astrology for men who’ve never had a shot on target in their lives \u{1F4CA}'],
+    ['old', 'One World Cup > ten Champions Leagues. Club football is just the warm-up and deep down you agree'],
+  ];
+  const now = Date.now();
+  TAKES.forEach(([v, text], i) => {
+    const [byId, by] = VOICES[v];
+    // staggered over the last ~3 days so the feed reads lived-in, not bulk-loaded
+    db.terrace.push({ id: newId(), byId, by, bot: true, text, t: new Date(now - (TAKES.length - i) * 9800000).toISOString() });
+  });
+  db.meta.demoReset1 = true;
+  saveData();
+  console.log(`\u{1F9F9} demo handover reset: data wiped, terrace seeded with ${TAKES.length} takes`);
+}
+
 function seedHistory() {
   if (db.seeded) return;
   if (process.env.SEED_DEMO !== '1') return; // deployed app starts clean (no demo names)
