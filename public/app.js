@@ -558,7 +558,7 @@ async function renderHome() {
     ${terrace.length ? (() => { const hp = terrace[0]; return `<div class="card" style="border-color:rgba(255,200,61,.5);background:linear-gradient(180deg,rgba(255,200,61,.07),transparent)">
       <div class="sm" style="color:var(--gold);font-weight:800;letter-spacing:1px;font-size:11px">📣 LATEST FROM THE TERRACE</div>
       <div style="font-family:Anton,sans-serif;font-size:24px;line-height:1.25;margin:8px 0 6px">“${esc(hp.text)}”</div>
-      <div class="sm" style="color:var(--muted)">— ${esc(hp.by)} (${esc(hp.record)}${hp.streakType === 'W' && hp.streakCount >= 2 ? ' · 🔥' + hp.streakCount : ''}) · ${timeAgo(hp.t)}</div>
+      <div class="sm" style="color:var(--muted)">— ${esc(hp.by)}${hp.bot ? ' <span class="tag-rival">house bot 🤖</span>' : ` (${esc(hp.record)}${hp.streakType === 'W' && hp.streakCount >= 2 ? ' · 🔥' + hp.streakCount : ''})`} · ${timeAgo(hp.t)}</div>
       <div style="display:flex;gap:10px;margin-top:12px">
         <button class="cta" data-correct="${esc(hp.by)}" style="flex:1">🗣️ That's nonsense →</button>
         <button class="cta commit" data-punish="${esc(hp.by)}" style="flex:1">⚔️ Make them back it</button>
@@ -613,7 +613,7 @@ async function renderHome() {
       <div style="max-height:320px;overflow-y:auto">
       ${terrace.length ? terrace.slice(0, 25).map((p) => `
         <div class="recent" data-correct="${esc(p.by)}" role="button" tabindex="0" style="align-items:flex-start;cursor:pointer">
-          <span style="min-width:0"><b style="color:var(--text)">${esc(p.by)}</b> <span style="color:var(--muted-2);font-size:11.5px">${esc(p.record)}${p.streakType === 'W' && p.streakCount >= 2 ? ' · 🔥' + p.streakCount : ''} · ${timeAgo(p.t)}</span><br/>${esc(p.text)}</span>
+          <span style="min-width:0"><b style="color:var(--text)">${esc(p.by)}</b> <span style="color:var(--muted-2);font-size:11.5px">${p.bot ? 'house bot 🤖' : esc(p.record) + (p.streakType === 'W' && p.streakCount >= 2 ? ' · 🔥' + p.streakCount : '')} · ${timeAgo(p.t)}</span><br/>${esc(p.text)}</span>
         </div>`).join('') : '<p class="sub" style="margin:8px 0 0">Silence on the terrace. Someone say something spicy. 🌶️</p>'}
       </div>
     </div>
