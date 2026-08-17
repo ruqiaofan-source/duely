@@ -1,0 +1,28 @@
+# Daily IndexNow ping — resubmits every sitemap URL to Bing/Yandex/Seznam/Naver.
+# The fixture pages under /call/ churn with the football calendar, so a daily
+# push keeps the non-Google engines current. The key is public by design
+# (it is served at clashly.live/<key>.txt), so it is fine in the repo.
+name: IndexNow daily ping
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit sitemap URLs to IndexNow
+        run: |
+          python3 - <<'PY'
+          import json, re, urllib.request
+          key = 'fcd4f6c74def4c98a1aaee9c7dd867b5'
+          sm = urllib.request.urlopen('https://clashly.live/sitemap.xml', timeout=30).read().decode()
+          urls = re.findall(r'<loc>([^<]+)</loc>', sm) + ['https://clashly.live/llms.txt']
+          payload = json.dumps({'host': 'clashly.live', 'key': key,
+                                'keyLocation': f'https://clashly.live/{key}.txt',
+                                'urlList': urls}).encode()
+          req = urllib.request.Request('https://api.indexnow.org/indexnow', data=payload,
+                                       headers={'Content-Type': 'application/json; charset=utf-8'})
+          r = urllib.request.urlopen(req, timeout=30)
+          print(f'{r.status}: submitted {len(urls)} urls')
+          PY
