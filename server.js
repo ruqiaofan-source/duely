@@ -801,6 +801,157 @@ function serveHomeOg(req, res) {
   res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' }); res.end(HOME_OG_SVG);
 }
 
+
+// ---------------------------------------------------------------------------
+// v13 — search + AI answer-engine surface. Before this the whole site was two
+// indexed URLs (/ and /about), which is nothing to rank with. These pages are
+// generated from the fixture list we already hold: one per upcoming match, in
+// English and Polish, each one a landing page AND a loaded challenge starter
+// (the CTA carries ?call=<id> so an arriving visitor is one tap from a duel).
+// ---------------------------------------------------------------------------
+const slugify = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const fixtureSlug = (m) => `${slugify(m.home)}-v-${slugify(m.away)}`;
+const esc5 = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const PAGE_CSS = `:root{color-scheme:dark}body{margin:0;background:#0A0E13;color:#F4F7FB;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.65}.wrap{max-width:720px;margin:0 auto;padding:44px 20px 80px}h1{font-size:30px;line-height:1.15;letter-spacing:-.5px;margin:0 0 8px}h2{font-size:20px;margin:32px 0 8px}p,li{color:#C7D0DB;font-size:16px}a{color:#14E0C8}.lede{font-size:18px;color:#E8EDF4}.cta{display:inline-block;margin:22px 0;background:#14E0C8;color:#06140f;font-weight:800;text-decoration:none;padding:14px 22px;border-radius:12px}.tag{color:#14E0C8;font-weight:700;letter-spacing:2px;font-size:12px;text-transform:uppercase}.foot{margin-top:44px;padding-top:18px;border-top:1px solid #33414F;color:#7C8A9C;font-size:13px}.kick{color:#7C8A9C;font-size:14px;margin:0 0 18px}ul li{margin:6px 0}`;
+
+function fixturePageHtml(m, lang) {
+  const pl = lang === 'pl';
+  const slug = fixtureSlug(m);
+  const url = `https://clashly.live${pl ? '/pl' : ''}/call/${slug}`;
+  const alt = `https://clashly.live${pl ? '' : '/pl'}/call/${slug}`;
+  const when = m.utcDate ? new Date(m.utcDate).toUTCString().replace(' GMT', ' UTC') : '';
+  const comp = m.competition || (pl ? 'Mecz' : 'Match');
+  const title = pl
+    ? `${m.home} - ${m.away}: obstaw z ziomkiem i zapisz wynik | Clashly`
+    : `${m.home} v ${m.away}: call it, bet a mate, keep the receipts | Clashly`;
+  const desc = pl
+    ? `Kto ma racje w meczu ${m.home} - ${m.away}? Rzuc wyzwanie ziomkowi na Clashly: ty typujesz, on bierze druga strone, po meczu obaj potwierdzacie wynik. Bez stawek, bez nagrod, tylko honor.`
+    : `Who is right about ${m.home} v ${m.away}? Challenge a mate on Clashly: you call it, they take the other side, and after full time you both confirm the result. No money held, just the record.`;
+  const body = pl ? `
+  <div class="tag">CLASHLY · ${esc5(comp)}</div>
+  <h1>${esc5(m.home)} - ${esc5(m.away)}: kto ma racje?</h1>
+  <p class="kick">${esc5(comp)}${when ? ' · ' + esc5(when) : ''}</p>
+  <p class="lede">Kazdy ma zdanie na temat tego meczu, dopoki nie trzeba go zapisac. Wybierz strone, wyslij link ziomkowi, a po ostatnim gwizdku obaj potwierdzacie wynik. Zwyciezca ladduje w bilansie.</p>
+  <a class="cta" href="/?call=${esc5(m.id)}">Typuj ${esc5(m.home)} - ${esc5(m.away)} →</a>
+  <h2>Jak to dziala</h2>
+  <ol><li><strong>Typujesz.</strong> Wybierasz wynik i to, co jest w grze: fant albo czysty honor.</li>
+  <li><strong>Wysylasz link.</strong> Ziomek klika i bierze druga strone. Bez zakladania konta.</li>
+  <li><strong>Rozliczacie.</strong> Po meczu obaj potwierdzacie wynik i bilans sie aktualizuje.</li></ol>
+  <h2>Czy Clashly to bukmacher?</h2>
+  <p>Nie. Clashly nie przyjmuje wplat, nie trzyma stawek i nie wyplaca nagrod. <strong>Brak stawek, brak nagrod</strong> — to licznik do pojedynkow miedzy znajomymi. 18+.</p>
+  <h2>Inne mecze</h2>` : `
+  <div class="tag">CLASHLY · ${esc5(comp)}</div>
+  <h1>${esc5(m.home)} v ${esc5(m.away)}: who is right?</h1>
+  <p class="kick">${esc5(comp)}${when ? ' · ' + esc5(when) : ''}</p>
+  <p class="lede">Everyone has an opinion on this one until it is time to put it on the record. Call the outcome, send the link to whoever disagrees, and after full time you both confirm the result. The winner goes on the head-to-head record.</p>
+  <a class="cta" href="/?call=${esc5(m.id)}">Call ${esc5(m.home)} v ${esc5(m.away)} →</a>
+  <h2>How it works</h2>
+  <ol><li><strong>Call it.</strong> Back an outcome and name what is on the line: a forfeit, or just bragging rights.</li>
+  <li><strong>Send the link.</strong> Your mate taps it and takes the other side. No signup wall.</li>
+  <li><strong>Settle it.</strong> After full time you both confirm the result and the rivalry table updates.</li></ol>
+  <h2>Is Clashly a bookmaker?</h2>
+  <p>No. Clashly holds no money, takes no stakes and pays no prizes. <strong>No stake, no prize</strong> — it is a scorekeeper for bets between friends. 18+.</p>
+  <h2>Other matches</h2>`;
+  const ld = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'SportsEvent', name: `${m.home} v ${m.away}`, sport: 'Football',
+        startDate: m.utcDate || undefined, url,
+        homeTeam: { '@type': 'SportsTeam', name: m.home }, awayTeam: { '@type': 'SportsTeam', name: m.away } },
+      { '@type': 'FAQPage', mainEntity: [
+        { '@type': 'Question', name: pl ? `Jak obstawic ${m.home} - ${m.away} ze znajomym?` : `How do you bet on ${m.home} v ${m.away} with a friend?`,
+          acceptedAnswer: { '@type': 'Answer', text: pl
+            ? `Na Clashly typujesz wynik, wysylasz link ziomkowi, on bierze druga strone, a po meczu obaj potwierdzacie rezultat. Clashly nie trzyma pieniedzy.`
+            : `On Clashly you call the outcome, send a challenge link to your friend, they take the other side, and after the match you both confirm the result. Clashly holds no money.` } },
+      ] },
+    ],
+  };
+  return `<!DOCTYPE html>
+<html lang="${pl ? 'pl' : 'en'}"><head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${esc5(title)}</title>
+<meta name="description" content="${esc5(desc)}" />
+<link rel="canonical" href="${url}" />
+<link rel="alternate" hreflang="${pl ? 'en' : 'pl'}" href="${alt}" />
+<link rel="alternate" hreflang="x-default" href="https://clashly.live/call/${slug}" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="${esc5(title)}" />
+<meta property="og:description" content="${esc5(desc)}" />
+<meta property="og:url" content="${url}" />
+<meta property="og:image" content="https://clashly.live/og-home.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<script type="application/ld+json">${JSON.stringify(ld)}</script>
+<style>${PAGE_CSS}</style>
+</head><body><div class="wrap">${body}
+  <ul id="others"></ul>
+  <p><a href="/">${pl ? 'Wroc na Clashly' : 'Back to Clashly'} →</a> · <a href="/about">${pl ? 'Czym jest Clashly?' : 'What is Clashly?'}</a></p>
+  <div class="foot">Clashly ${pl ? 'nie trzyma pieniedzy — rozliczacie sie miedzy soba. 18+.' : 'holds no money — you settle up between yourselves. For the bragging rights. 18+.'}<br />contact@clashly.live</div>
+</div>
+<script>fetch('/api/matches').then(r=>r.json()).then(d=>{const s=(x)=>x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');const o=document.getElementById('others');(d.matches||[]).filter(x=>x.id!==${JSON.stringify(m.id)}).slice(0,6).forEach(x=>{const li=document.createElement('li');const a=document.createElement('a');a.href='${pl ? '/pl' : ''}/call/'+s(x.home)+'-v-'+s(x.away);a.textContent=x.home+' v '+x.away;li.appendChild(a);o.appendChild(li);});});</script>
+</body></html>`;
+}
+
+async function serveFixturePage(req, res, slug, lang) {
+  let matches = [];
+  try { matches = (await getMatches()) || []; } catch {}
+  const m = matches.find((x) => fixtureSlug(x) === slug);
+  if (!m) { res.writeHead(302, { Location: lang === 'pl' ? '/?lang=pl' : '/' }); return res.end(); }
+  const html = fixturePageHtml(m, lang);
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=900' });
+  res.end(html);
+}
+
+async function serveSitemap(req, res) {
+  let matches = [];
+  try { matches = (await getMatches()) || []; } catch {}
+  const urls = [
+    ['https://clashly.live/', 'daily', '1.0'],
+    ['https://clashly.live/about', 'monthly', '0.8'],
+  ];
+  matches.slice(0, 60).forEach((m) => {
+    const sl = fixtureSlug(m);
+    urls.push([`https://clashly.live/call/${sl}`, 'daily', '0.7']);
+    urls.push([`https://clashly.live/pl/call/${sl}`, 'daily', '0.6']);
+  });
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(([u, cf, pr]) => `  <url>\n    <loc>${u}</loc>\n    <changefreq>${cf}</changefreq>\n    <priority>${pr}</priority>\n  </url>`).join('\n')}\n</urlset>\n`;
+  res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+  res.end(xml);
+}
+
+// llms.txt — the plain-language brief an answer engine reads instead of guessing.
+async function serveLlmsTxt(req, res) {
+  let matches = [];
+  try { matches = (await getMatches()) || []; } catch {}
+  const txt = `# Clashly
+
+> Clashly (clashly.live) is a free web app for settling football bets between friends. One person calls a match outcome, a friend takes the other side through a shared link, and after full time both confirm the result. The winner goes on a running head-to-head record.
+
+## What Clashly is not
+Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, accepts no stakes, pays no prizes and takes no commission. There is no stake and no prize: it is a scorekeeper. Any forfeit or stake is settled privately between the friends themselves. It is for people aged 18 and over.
+
+## How it works
+1. Call it. Pick a match, back an outcome, and name what is on the line (a forfeit such as "loser buys the pints", or bragging rights).
+2. Send the link. Your friend opens it and takes the other side. No account is required to accept.
+3. Settle it. After the match both sides confirm the result. If they disagree the bet is voided, so the record cannot be faked.
+
+## Key facts
+- Free. Web based, works in a browser, no app store download.
+- Languages: English and Polish.
+- Features: head-to-head rivalry records, friends leagues, shareable result cards and betting-slip receipts, an open challenge Arena, weekly and all-time records.
+- Contact: contact@clashly.live
+
+## Pages
+- https://clashly.live/ (app)
+- https://clashly.live/about (what Clashly is and how it works)
+${matches.slice(0, 20).map((m) => `- https://clashly.live/call/${fixtureSlug(m)} (${m.home} v ${m.away})`).join('\n')}
+`;
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+  res.end(txt);
+}
+
 function serveAbout(req, res) {
   const html = `<!DOCTYPE html>
 <html lang="en"><head>
@@ -1679,6 +1830,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/about') return serveAbout(req, res);
+  if (url.pathname === '/llms.txt') return serveLlmsTxt(req, res);
+  if (url.pathname === '/sitemap.xml') return serveSitemap(req, res);
+  if (/^\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(6), 'en');
+  if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
   if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
   if (url.pathname.startsWith('/card/')) return serveCard(req, res, url);
   if (url.pathname.startsWith('/storycard/')) return serveStoryCard(req, res, url);
@@ -1745,6 +1900,84 @@ async function seedArena() {
   } catch (e) { console.warn('arena seed failed:', e.message); }
 }
 
+// ---------------------------------------------------------------------------
+// v13 — the LIVE terrace. The v12 seed was 29 fixed takes with frozen timestamps:
+// fine on handover day, obviously fake a week later. This generates takes from
+// what is actually happening — real upcoming fixtures, real open listings, the
+// real leaderboard — so an app opened at 11pm on a Tuesday is never dead.
+// Always bot:true and labelled in the UI. Clashly never fakes users.
+// ---------------------------------------------------------------------------
+const BOT_VOICES = {
+  pundit: ['__v_pundit', 'The Pundit'], gaffer: ['__v_gaffer', 'The Gaffer'],
+  var: ['__v_var', 'VAR Truther'], stats: ['__v_stats', 'xG Nerd'],
+  lewy: ['__v_lewy', 'Lewy Stan'], old: ['__v_old', 'Old School'],
+};
+// {H} home, {A} away, {C} competition, {N} a player name, {X} a number
+const FIXTURE_TAKES = [
+  ['pundit', '{H} v {A} and half of you still have not called it. Scared money makes no memories'],
+  ['gaffer', 'Anyone backing {A} at {H} needs a lie down in a dark room'],
+  ['stats', '{H} v {A} is the only fixture worth arguing about this week and it is not close'],
+  ['old', 'They will bore us to death in {H} v {A} and you will all still watch it'],
+  ['var', '{H} v {A}. Two penalties, one wrong, and a fortnight of screenshots. Book it \u{1F4FA}'],
+  ['gaffer', 'If {H} do not win this one the manager is gone by Christmas. Screenshot it'],
+  ['pundit', 'Everyone has an opinion on {H} v {A} until it is time to put it on the record \u{1F440}'],
+  ['lewy', '{C} is not even the best league in Europe and {H} v {A} proves it'],
+  ['stats', 'The model says {H}. The model has also been wrong every week since April \u{1F4CA}'],
+  ['old', 'In my day {H} v {A} was played in mud by men with real jobs'],
+];
+const ARENA_TAKES = [
+  ['pundit', 'There is an open challenge on {H} v {A} sat in the Arena with no taker. Cowards, all of you'],
+  ['gaffer', 'Someone has backed {O} and nobody will take the other side. Says everything about this place'],
+  ['var', 'Open bet on {H} v {A} going begging. You lot talk a big game until it counts'],
+];
+const BOARD_TAKES = [
+  ['pundit', '{N} is {X}-0 and running out of people brave enough to face them \u{1F451}'],
+  ['gaffer', '{N} sat top of the board. Somebody take that record off them, it is embarrassing'],
+  ['stats', '{N} is {X} from {X}. Either a genius or has only played their nan'],
+  ['old', 'A leaderboard with {X} names on it. Football is dying, I have said it for years'],
+];
+const IDLE_TAKES = [
+  ['gaffer', 'Quiet in here. Either everyone is right about everything or nobody has the bottle to prove it'],
+  ['pundit', 'A terrace this silent usually means the loud ones lost last week \u{1F92B}'],
+  ['old', 'Nobody has called a thing all day. In my day we argued in the rain for free'],
+  ['var', 'No duels, no receipts, no evidence. Convenient for some of you'],
+  ['stats', 'Zero calls today. Statistically, that is a lot of people who are not as sure as they sound'],
+];
+
+function terracePost(voice, text) {
+  const v = BOT_VOICES[voice] || BOT_VOICES.pundit;
+  const recent = db.terrace.slice(-40).map((p) => p.text);
+  if (recent.includes(text)) return false; // never repeat a take that is still on screen
+  db.terrace.push({ id: newId(), byId: v[0], by: v[1], bot: true, text, t: new Date().toISOString() });
+  if (db.terrace.length > 200) db.terrace = db.terrace.slice(-200);
+  return true;
+}
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+async function terraceSweep() {
+  try {
+    db.meta = db.meta || {};
+    const last = db.terrace.length ? new Date(db.terrace[db.terrace.length - 1].t).getTime() : 0;
+    // never talk over the humans: if anyone posted in the last 4h, stay quiet
+    if (Date.now() - last < 4 * 3600000) return;
+    const pools = [];
+    let matches = [];
+    try { const mm = await getMatches(); matches = (mm || []).filter((m) => new Date(m.utcDate || 0).getTime() > Date.now()); } catch {}
+    const fx = matches[0];
+    if (fx) pools.push(() => { const [v, t] = pick(FIXTURE_TAKES); return [v, t.replace(/\{H\}/g, fx.home).replace(/\{A\}/g, fx.away).replace(/\{C\}/g, fx.competition || 'This league')]; });
+    const openArena = Object.values(db.bets).filter((b) => b.arena && b.status === 'open');
+    const ab = openArena[0];
+    if (ab) pools.push(() => { const [v, t] = pick(ARENA_TAKES); return [v, t.replace(/\{H\}/g, ab.home).replace(/\{A\}/g, ab.away).replace(/\{O\}/g, outcomeLabel(ab, ab.backedOutcome))]; });
+    const humans = Object.values(db.players).filter((p) => !p.bot && !String(p.id).startsWith('__v_'));
+    const ranked = humans.map((p) => ({ n: p.name, s: playerSummary(p.id) }))
+      .filter((r) => (r.s.w + r.s.l) > 0).sort((a, b) => b.s.w - a.s.w);
+    if (ranked.length) pools.push(() => { const [v, t] = pick(BOARD_TAKES); return [v, t.replace(/\{N\}/g, ranked[0].n).replace(/\{X\}/g, String(ranked[0].s.w || ranked.length))]; });
+    if (!pools.length) pools.push(() => pick(IDLE_TAKES));
+    const [voice, text] = pick(pools)();
+    if (terracePost(voice, text)) { logEvent('terrace_bot', { voice }); saveData(); console.log('terrace bot posted:', text.slice(0, 60)); }
+  } catch (e) { console.warn('terrace sweep failed:', e.message); }
+}
+
 // --- Web push: VAPID keys live in the db (zero-config deploys), subscriptions
 // per player, best-effort delivery with pruning of dead endpoints.
 let webpush = null;
@@ -1774,6 +2007,9 @@ initData().then(() => {
   initPush();
   setTimeout(seedArena, 5000);
   setInterval(seedArena, 6 * 3600000);
+  // live terrace: checks every 90 min, only speaks if the feed has been quiet 4h+
+  setTimeout(terraceSweep, 30000);
+  setInterval(terraceSweep, 90 * 60000);
   // v11 — rivalry-streak rescue: Fri/Sat, if a pair with a 2+ week streak has no
   // clash yet this week, nudge BOTH sides once. Peer pressure beats app pressure.
   const streakNudgeSweep = () => {
