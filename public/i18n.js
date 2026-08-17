@@ -40,6 +40,17 @@
     '⚔️ Challenge a mate': '⚔️ Wyzwij ziomka',
     '⚔️ Create your first bet': '⚔️ Stwórz pierwszy zakład',
     'Get your first rivalry going 👋': 'Rozkręć pierwszą rywalizację 👋',
+    // v13: first-run home + the link-free brag
+    'Duel #1 👋': 'Pojedynek #1 👋',
+    'Pick a match, back yourself, send the link. Your mate takes the other side and the record starts.': 'Wybierz mecz, postaw na siebie, wyślij link. Ziomek bierze drugą stronę i bilans rusza.',
+    '⚔️ Challenge a mate →': '⚔️ Wyzwij ziomka →',
+    '🛒 Or take a live bet from the Arena': '🛒 Albo weź zakład z Areny',
+    '📋 Copy the scoreline': '📋 Skopiuj wynik',
+    'No link, just the record. Paste it in the group chat.': 'Bez linku, sam bilans. Wklej na grupie.',
+    // the three first-run steps — never translated before, now the whole first screen
+    'Joined Clashly': 'Dołączyłeś do Clashly',
+    'Back a call & set the stakes': 'Postaw typ i ustal stawkę',
+    'Fire the link — a mate takes the other side': 'Wyślij link — ziomek bierze drugą stronę',
     'Big games coming up 🔥': 'Wielkie mecze przed nami 🔥',
     'Call it →': 'Typuj →',
     'High scores 🏆': 'Najlepsi 🏆',

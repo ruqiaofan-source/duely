@@ -137,7 +137,7 @@ button.ghost {
 .match .meta { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
 
 /* "ON THE RECORD" stamp — slams onto the freshly printed ticket */
-.stamp { position: absolute; top: 50%; left: 50%; translate: -50% -50%; rotate: -8deg;
+.stamp-slam { position: absolute; top: 50%; left: 50%; translate: -50% -50%; rotate: -8deg;
   font-family: "Anton", sans-serif; font-size: 24px; letter-spacing: 2px; color: var(--teal-bright);
   border: 3px double var(--teal-bright); border-radius: 10px; padding: 8px 16px;
   background: rgba(10,14,19,.55); text-shadow: 0 0 18px rgba(20,224,200,.6);

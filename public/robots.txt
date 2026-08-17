@@ -1,11 +1,11 @@
-# Duely — clashly.live
+# Clashly — clashly.live
 # Search + AI crawlers welcome. The share/bet pages are per-user; the
 # marketing surfaces (/, /about) are the ones we want indexed and cited.
 User-agent: *
 Allow: /
 Disallow: /api/
 
-# AI answer engines (GEO) — explicitly welcome, so Duely can be cited as the
+# AI answer engines (GEO) — explicitly welcome, so Clashly can be cited as the
 # answer to "app to settle bets with friends" / "keep score of football bets".
 User-agent: GPTBot
 Allow: /

@@ -422,6 +422,14 @@ async function route() {
   if (id) { setTab(null); await cfgP; return renderBet(id); }
   if (code) { setTab('league'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
   if (!me.get()) { setTab(null); return renderOnboarding(); }
+  // arriving from a /call/:fixture landing page — open the create sheet on that match
+  const callId = new URLSearchParams(location.search).get('call');
+  if (callId) {
+    history.replaceState({}, '', location.pathname);
+    setTab('home'); PREFILL = { matchId: callId };
+    await renderHome(); track('call_page_land', { match: callId });
+    return renderCreate();
+  }
   const path = location.pathname;
   if (path.startsWith('/arena')) { setTab('home'); return renderArena(); }
   if (path.startsWith('/board')) { setTab('board'); return renderBoard(); }
@@ -555,7 +563,7 @@ async function renderHome() {
     : '';
 
   app.innerHTML = `
-    ${terrace.length ? (() => { const hp = terrace[0]; return `<div class="card" style="border-color:rgba(255,200,61,.5);background:linear-gradient(180deg,rgba(255,200,61,.07),transparent)">
+    ${!isNew && terrace.length ? (() => { const hp = terrace[0]; return `<div class="card" style="border-color:rgba(255,200,61,.5);background:linear-gradient(180deg,rgba(255,200,61,.07),transparent)">
       <div class="sm" style="color:var(--gold);font-weight:800;letter-spacing:1px;font-size:11px">📣 LATEST FROM THE TERRACE</div>
       <div style="font-family:Anton,sans-serif;font-size:24px;line-height:1.25;margin:8px 0 6px">“${esc(hp.text)}”</div>
       <div class="sm" style="color:var(--muted)">— ${esc(hp.by)}${hp.bot ? ' <span class="tag-rival">house bot 🤖</span>' : ` (${esc(hp.record)}${hp.streakType === 'W' && hp.streakCount >= 2 ? ' · 🔥' + hp.streakCount : ''})`} · ${timeAgo(hp.t)}</div>
@@ -564,7 +572,7 @@ async function renderHome() {
         <button class="cta commit" data-punish="${esc(hp.by)}" style="flex:1">⚔️ Make them back it</button>
       </div>
     </div>`; })() : ''}
-    ${activity.length > 1 ? `<div class="ticker"><div class="ticker-track">${(activity.concat(activity)).map((a) => `<span class="tk">⚡ ${esc(a.text)}</span>`).join('')}</div></div>` : ''}
+    ${!isNew && activity.length > 1 ? `<div class="ticker"><div class="ticker-track">${(activity.concat(activity)).map((a) => `<span class="tk">⚡ ${esc(a.text)}</span>`).join('')}</div></div>` : ''}
     ${(() => { const mineOff = m ? arena.filter((c) => c.proposerId === m.id && c.offers > 0) : [];
       return mineOff.length ? `<div class="card" style="border-color:rgba(124,58,237,.55)">
       <div class="cardhead"><h2>💬 Counter-offers waiting</h2></div>
@@ -573,14 +581,15 @@ async function renderHome() {
     ${m && (s.w + s.l + (s.rivalries || []).length) > 0 && typeof Notification !== 'undefined' && Notification.permission === 'default' && !localStorage.getItem('clashly_push_dismissed') ? `<div class="banner" style="border-style:solid;border-color:rgba(124,58,237,.4);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>🔔 Know the second your bet resolves or someone counters.</span><button class="linkbtn" id="pushOn" style="flex:none;font-weight:800">Turn on</button><button class="linkbtn" id="pushNo" style="flex:none;color:var(--muted)">✕</button></div>` : ''}
     ${m && (s.w + s.l) > 0 && !s.hasEmail ? `<div class="banner" style="border-style:solid;border-color:rgba(20,224,200,.4);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>🛡️ Protect your ${s.w}–${s.l} record — link your email so it survives any device.</span><button class="linkbtn" id="linkAcct" style="flex:none;font-weight:800">Link it →</button></div>` : ''}
     ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)">
-      <h2>Get your first rivalry going 👋</h2>
+      <h2>Duel #1 👋</h2>
+      <p class="sub" style="margin:2px 0 10px">Pick a match, back yourself, send the link. Your mate takes the other side and the record starts.</p>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:6px">
         <div style="display:flex;align-items:center;gap:10px;font-weight:800;color:var(--teal)"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--teal);color:#06140f;font-size:13px;font-weight:900">✓</span> Joined Clashly</div>
         <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">2</span> Back a call &amp; set the stakes</div>
         <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">3</span> Fire the link — a mate takes the other side</div>
       </div>
-      ${arena.filter((c) => !m || c.proposerId !== m.id).length ? `<button class="cta commit" id="firstTake" style="margin-top:16px">🛒 Take a live bet from the Arena →</button>
-      <button class="ghost" id="firstBet" style="width:100%;margin-top:8px">⚔️ Or create your own</button>` : `<button class="cta commit" id="firstBet" style="margin-top:16px">⚔️ Create your first bet</button>`}
+      <button class="cta commit" id="firstBet" style="margin-top:16px">⚔️ Challenge a mate →</button>
+      ${arena.filter((c) => !m || c.proposerId !== m.id).length ? `<button class="ghost" id="firstTake" style="width:100%;margin-top:8px">🛒 Or take a live bet from the Arena</button>` : ''}
     </div>` : ''}
     ${hot ? `<div class="card hero-duel">
       <div class="cardhead"><h2>Unfinished business ⚔️</h2></div>
@@ -588,7 +597,7 @@ async function renderHome() {
       <button class="cta commit" data-rematch="${esc(hot.opponent)}" style="margin-top:12px">Settle it with ${esc(hot.opponent)} →</button>
       ${!lg.leagues.length ? `<button class="muted-link" id="escalateLeague">Start a league with ${esc(hot.opponent)} + the group →</button>` : ''}
     </div>` : ''}
-    <div class="card">
+    ${isNew ? '' : `<div class="card">
       <div class="cardhead"><h2>Your season</h2><span class="flame ${onFire ? 'on' : ''}">${onFire ? '🔥 ' + s.streak.count + ' in a row' : ''}</span></div>
       <div class="stats">
         <div class="stat"><div class="n">${s.w}–${s.l}</div><div class="k">Record</div></div>
@@ -597,7 +606,7 @@ async function renderHome() {
       </div>
       ${!hideStreaks && s.platformRecord ? `<div class="banner" style="margin:10px 0 0;border-style:solid;border-color:rgba(255,200,61,.3)">🏆 Clashly record: <b style="color:var(--gold)">${esc(s.platformRecord.name)}'s ${s.platformRecord.count}-win streak</b>${s.streak.type === 'W' && s.streak.count >= s.platformRecord.count ? " — that's you. Defend it." : ' — beat it.'}</div>` : ''}
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
-    </div>
+    </div>`}
 
     <div class="card">
       <div class="cardhead"><h2>The Terrace 📣</h2><span class="sm" style="color:var(--muted);font-size:12px">say it to everyone</span></div>
@@ -611,7 +620,7 @@ async function renderHome() {
         <button class="linkbtn" id="terrGo" style="font-weight:800;flex:none">Post</button>
       </div>
       <div style="max-height:320px;overflow-y:auto">
-      ${terrace.length ? terrace.slice(0, 25).map((p) => `
+      ${terrace.length ? terrace.slice(0, isNew ? 3 : 25).map((p) => `
         <div class="recent" data-correct="${esc(p.by)}" role="button" tabindex="0" style="align-items:flex-start;cursor:pointer">
           <span style="min-width:0"><b style="color:var(--text)">${esc(p.by)}</b> <span style="color:var(--muted-2);font-size:11.5px">${p.bot ? 'house bot 🤖' : esc(p.record) + (p.streakType === 'W' && p.streakCount >= 2 ? ' · 🔥' + p.streakCount : '')} · ${timeAgo(p.t)}</span><br/>${esc(p.text)}</span>
         </div>`).join('') : '<p class="sub" style="margin:8px 0 0">Silence on the terrace. Someone say something spicy. 🌶️</p>'}
@@ -619,7 +628,7 @@ async function renderHome() {
     </div>
 
 
-    ${big.length ? `<div class="card">
+    ${!isNew && big.length ? `<div class="card">
       <div class="cardhead"><h2>Big games coming up 🔥</h2></div>
       ${big.map((g) => `
         <div class="riv-row" data-callit="${esc(g.id)}" role="button" tabindex="0" style="cursor:pointer">
@@ -637,15 +646,15 @@ async function renderHome() {
       <div class="cardhead"><h2>The Arena ⚡</h2><button class="linkbtn" id="arenaAll">See all →</button></div>
       <p class="sub" style="margin:2px 0 0">Open bets from all of Clashly, listed like a marketplace. Take one, win it, bank <b style="color:var(--gold)">+3 points</b>.${s.arenaPts ? ` You have <b style=\"color:var(--gold)\">\u26a1 ${s.arenaPts}</b>.` : ''}</p>
       ${(() => { const open = arena.filter((c) => !m || c.proposerId !== m.id); const mine = arena.length - open.length;
-        return (open.length ? `<div class="market">${open.slice(0, 4).map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:8px 0 0">No open challenges right now — throw the first glove. 🥊</p>')
+        return (open.length ? `<div class="market">${open.slice(0, isNew ? 2 : 4).map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:8px 0 0">No open challenges right now — throw the first glove. 🥊</p>')
           + (mine > 0 ? `<p class="sub" style="margin:8px 0 0">Your open challenge is live in the Arena — waiting for a taker. 👀</p>` : ''); })()}
-      <button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post an open challenge</button>
+      ${isNew ? '' : `<button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post an open challenge</button>`}
     </div>
 
-    <div class="card">
+    ${isNew ? '' : `<div class="card">
       <h2>Rivalries</h2>
       ${rivalriesHtml}
-    </div>
+    </div>`}
 
 
     ${motw ? `<div class="card motw"><div class="cardhead"><h2>🏟️ Match of the Week</h2></div><div class="nm" style="font-family:Anton,sans-serif;font-size:19px;letter-spacing:.3px;margin:4px 0 2px">${esc(motw.home)} <span style="color:var(--purple-text)">v</span> ${esc(motw.away)}</div><div class="sm" style="color:var(--muted);font-size:12.5px">${esc(motw.competition || '')}${motw.utcDate ? ' · ' + kickoffTxt(motw.utcDate) : ''} · everyone's calling this one</div><button class="cta" id="motwCall" style="margin-top:12px">Make your call →</button></div>` : ''}
@@ -660,9 +669,9 @@ async function renderHome() {
 
     ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
 
-    <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`;
+    ${isNew ? '' : `<div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`}`;
 
-  $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  const chBtn = $('#challenge'); if (chBtn) chBtn.addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const mc = $('#motwCall'); if (mc) mc.addEventListener('click', () => { track('motw_tap'); PREFILL = { matchId: motw.id }; renderCreate(); });
   app.querySelectorAll('[data-collect]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation(); track('forfeit_collect');
@@ -1195,7 +1204,7 @@ async function renderBet(id, opts = {}) {
           <p class="sub">You're backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b> for <b>${money(bet)}</b>. They take the other side (${esc(complementLabel(bet))}).</p>
           <div style="position:relative">
             <img class="cardimg" src="/card/${id}.svg" alt="Your bet card" loading="eager" />
-            ${(() => { try { if (sessionStorage.getItem('duely_stamp') === id) { sessionStorage.removeItem('duely_stamp'); return '<div class="stamp">ON THE RECORD</div>'; } } catch {} return ''; })()}
+            ${(() => { try { if (sessionStorage.getItem('duely_stamp') === id) { sessionStorage.removeItem('duely_stamp'); return '<div class="stamp-slam">ON THE RECORD</div>'; } } catch {} return ''; })()}
           </div>
           <button class="cta wa" id="waBtn">SEND THE CHALLENGE 📲</button>
           <div class="row" style="margin-top:10px">
@@ -1498,6 +1507,8 @@ async function renderBet(id, opts = {}) {
           ${iWon
             ? `<button class="cta wa" id="shareResult">Brag about it 🏆</button>`
             : (other ? `<button class="cta commit" id="rematchLoss">Demand a rematch ⚔️</button>` : '')}
+          ${iPlay ? `<button class="ghost" id="bragCopy" style="width:100%;margin-top:10px">📋 Copy the scoreline</button>
+          <div style="text-align:center;font-size:11.5px;color:var(--muted-2);margin-top:6px">No link, just the record. Paste it in the group chat.</div>` : ''}
           <div class="row" style="margin-top:10px">
             <button class="ghost" id="storyBtn">Story image 📲</button>
             <button class="ghost" id="receiptBtn">Receipt 🧾</button>
@@ -1517,6 +1528,25 @@ async function renderBet(id, opts = {}) {
       shareText = `That's ${rivData.aWins}–${rivData.bWins} to me, ${other} 😏${strip ? `\nUs, on the record: ${strip}` : ''}\nRematch? 👇`;
     }
     const sr = $('#shareResult'); if (sr) sr.addEventListener('click', () => shareWithCard('/card/' + id + '.png', shareText, link, 'result'));
+    // the link-free brag — the Wordle grid lesson: a scoreline that reads as bragging,
+    // not as an advert, travels further than a link ever does. No URL on purpose.
+    const bc = $('#bragCopy');
+    if (bc) bc.addEventListener('click', async () => {
+      const meNm = (m && m.name) || (iWon ? winnerNm : other) || 'Me';
+      const oppNm = other || (iWon ? bet.owes.from : winnerNm) || 'Them';
+      let head, strip;
+      if (rivData && rivData.games >= 1) {
+        head = `${meNm} ${rivData.aWins}-${rivData.bWins} ${oppNm}`;
+        strip = (rivData.recent || []).slice(0, 6).reverse().map((x) => (x.aWon ? '🟩' : '🟥')).join('');
+      } else {
+        head = `${meNm} ${iWon ? 1 : 0}-${iWon ? 0 : 1} ${oppNm}`;
+        strip = iWon ? '🟩' : '🟥';
+      }
+      const owed = bet.line ? `${bet.owes.from} owes: ${bet.line}` : '';
+      const txt = ['CLASHLY · ' + head, strip, owed].filter(Boolean).join('\n');
+      try { await navigator.clipboard.writeText(txt); sfx('clip'); toast('Copied — paste it in the chat'); track('brag_copy', { id }); }
+      catch { toast(txt); }
+    });
     const rl = $('#rematchLoss'); if (rl) rl.addEventListener('click', () => rematchConfirm(other, bet));
     const sb = $('#storyBtn'); if (sb) sb.addEventListener('click', () => shareStory(id));
     const rcb = $('#receiptBtn'); if (rcb) rcb.addEventListener('click', () => shareImage('/receipt/' + id + '.png', 'Receipts 🧾 — the terrace remembers. clashly.live/b/' + id, 'receipt'));
