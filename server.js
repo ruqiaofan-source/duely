@@ -894,6 +894,153 @@ function fixturePageHtml(m, lang) {
 </body></html>`;
 }
 
+
+// ---------------------------------------------------------------------------
+// v13.1 — evergreen guide pages. The /call/:fixture pages expire with their
+// kickoffs; these target the durable question queries ("how do you settle a
+// bet with a friend", "what should the loser do") that stay searched all
+// season. Static content, served with the same CSS as the fixture pages.
+// ---------------------------------------------------------------------------
+const GUIDES = {
+  '/how-to-settle-a-bet-with-a-friend': {
+    lang: 'en',
+    title: 'How to settle a bet with a friend (and keep the friend) | Clashly',
+    desc: 'The five rules for settling a bet with a friend: agree the terms before kickoff, write it down, confirm the result together, keep the stakes silly, and keep the receipts. Free, no money involved.',
+    h1: 'How to settle a bet with a friend',
+    body: `
+  <p class="lede">Every friend group has one unsettled bet that still comes up years later. The argument is never about the football. It is about what was actually agreed. Here is how to do it properly.</p>
+  <h2>1. Agree the terms before kickoff</h2>
+  <p>The call, the other side, and what is on the line, all fixed before the match starts. "I bet you City win" is not a bet until someone takes the other side and both of you know what the loser owes. After kickoff, no changes.</p>
+  <h2>2. Write it down where you both can see it</h2>
+  <p>This is where every friendly bet dies. Nobody writes it down, and three weeks later one of you remembers a tenner and the other remembers "a pint, maybe". Put it in writing in a place neither of you can edit alone. A scorekeeper app like <a href="/">Clashly</a> exists for exactly this: you call it, your mate taps a link to take the other side, and the terms are frozen from that moment.</p>
+  <h2>3. Both confirm the result</h2>
+  <p>The fairest rule in betting between friends: neither side can settle the bet alone. After full time, one of you reports the result and the other confirms it. If you genuinely disagree, the bet is void and nobody wins. Sounds soft, but it is the rule that makes the record impossible to cheat, which is what makes the record worth having.</p>
+  <h2>4. Keep the stakes silly</h2>
+  <p>Money between friends gets awkward fast. Forfeits do not. Loser buys the pints, loser wears the winner's shirt, loser posts a public apology in the group chat. A forfeit gets funnier with time; a fiver gets forgotten. If you need ideas, there is a <a href="/forfeit-ideas-for-friendly-bets">full list of forfeit ideas here</a>.</p>
+  <h2>5. Keep the receipts</h2>
+  <p>The whole point of a bet with a mate is being able to bring it up later. A running head to head record, who called what, who bottled it, who has paid up and who still owes. That is the difference between an argument and a rivalry.</p>
+  <h2>Frequently asked</h2>
+  <h3>Is betting with a friend legal?</h3>
+  <p>A private bet between friends with no bookmaker, no commission and nobody taking a cut is a personal arrangement in most places. Clashly holds no money at all, no stakes, no prizes, no payouts, so it is a scorekeeper, not gambling. It is for people 18 and over.</p>
+  <h3>Does Clashly handle the money?</h3>
+  <p>No, never. Whatever you put on the line is settled between the two of you. Clashly keeps the score and the receipts.</p>
+  <h3>What if my mate denies the result?</h3>
+  <p>Then the bet is voided and it goes down as nobody's win. In practice this almost never happens, because denying an obvious result in front of your own group chat costs more pride than the forfeit.</p>`,
+    faq: [
+      ['Is betting with a friend legal?', 'A private bet between friends with no bookmaker and nobody taking a cut is a personal arrangement in most places. Clashly holds no money at all, so it is a scorekeeper, not gambling. 18+.'],
+      ['How do you keep a friendly bet fair?', 'Agree the terms before kickoff, record them where neither side can edit alone, and require both sides to confirm the result. If you disagree, the bet is void.'],
+      ['What should the loser of a friendly bet do?', 'A forfeit beats money between friends: loser buys the pints, wears the winner’s shirt, or posts a public apology in the group chat.'],
+    ],
+  },
+  '/forfeit-ideas-for-friendly-bets': {
+    lang: 'en',
+    title: 'Forfeit ideas for friendly bets: what the loser owes | Clashly',
+    desc: 'Twenty forfeit ideas for bets with your mates, from loser buys the pints to wearing the rival shirt at the next watch-along. No money needed, just consequences.',
+    h1: 'Forfeit ideas: what to put on the line',
+    body: `
+  <p class="lede">Money is the worst stake for a bet between mates. It gets awkward, it gets forgotten, and it is never funny. A good forfeit is the opposite: cheap, public, and impossible to live down. Steal from this list.</p>
+  <h2>The classics</h2>
+  <ul>
+    <li>Loser buys the pints. The original and still the best.</li>
+    <li>Loser buys the kebabs after the next five-a-side.</li>
+    <li>Loser gets the breakfast in on matchday.</li>
+    <li>Loser pays for the next month of the five-a-side pitch.</li>
+  </ul>
+  <h2>Public consequences</h2>
+  <ul>
+    <li>Loser wears the winner's shirt for a full day, photos required.</li>
+    <li>Loser posts a public apology in the group chat, wording chosen by the winner.</li>
+    <li>Winner picks the loser's profile picture for a week.</li>
+    <li>Loser has to call the winner "gaffer" for a week, in person and in the chat.</li>
+    <li>Loser's next status or story is written by the winner.</li>
+  </ul>
+  <h2>Effort forfeits</h2>
+  <ul>
+    <li>Loser carries the bags and cones at five-a-side for a month.</li>
+    <li>Loser is the designated driver for the next away day.</li>
+    <li>Loser does goal-of-the-month editing duty for the group.</li>
+    <li>Loser brings the half-time oranges, actual oranges, sliced.</li>
+  </ul>
+  <h2>Football-specific pain</h2>
+  <ul>
+    <li>Loser wears the winner's club colours at the next watch-along.</li>
+    <li>Loser has to publicly rate the winner's rival team 10/10 in the chat.</li>
+    <li>Loser sings the winner's club anthem on voice note, sent to the group.</li>
+    <li>Season-long version: loser wears the shirt at the derby. Reserve for big calls.</li>
+  </ul>
+  <h2>The rules that make forfeits work</h2>
+  <p>Agree it before kickoff, keep it legal and keep it kind, set a deadline for paying up, and record it somewhere neither of you can edit alone. <a href="/">Clashly</a> tracks the forfeit on every bet and keeps an unpaid-forfeits ledger, so "I'll do it next week" has nowhere to hide. And if you are not sure how to run the bet itself, start with <a href="/how-to-settle-a-bet-with-a-friend">how to settle a bet with a friend</a>.</p>`,
+    faq: [
+      ['What is a good forfeit for a friendly bet?', 'The best forfeits are cheap, public and time-boxed: loser buys the pints, wears the winner’s shirt for a day, or posts an apology in the group chat with wording chosen by the winner.'],
+      ['Should friends bet money on football?', 'Money between friends gets awkward and forgotten. Forfeits are funnier, cost nothing, and get better with retelling. If you do use money, keep it small and settle fast.'],
+    ],
+  },
+  '/pl/jak-rozliczyc-zaklad-ze-znajomym': {
+    lang: 'pl',
+    title: 'Jak rozliczyć zakład ze znajomym (i nie stracić kumpla) | Clashly',
+    desc: 'Pięć zasad zakładów między znajomymi: warunki przed meczem, zapis którego nikt sam nie zmieni, wspólne potwierdzenie wyniku i fant zamiast pieniędzy. Bez stawek, bez nagród.',
+    h1: 'Jak rozliczyć zakład ze znajomym',
+    body: `
+  <p class="lede">W każdej paczce jest jeden nierozliczony zakład, o którym kłótnia trwa latami. Nigdy nie chodzi o mecz. Chodzi o to, co naprawdę było ustalone. Oto jak to zrobić porządnie.</p>
+  <h2>1. Warunki przed pierwszym gwizdkiem</h2>
+  <p>Typ, druga strona i to, co jest w grze, wszystko ustalone przed meczem. Po gwizdku żadnych zmian.</p>
+  <h2>2. Zapisz to tam, gdzie obaj widzicie</h2>
+  <p>Na tym umierają zakłady między kumplami: nikt nic nie zapisuje i po trzech tygodniach jeden pamięta dychę, a drugi "no może piwo". <a href="/">Clashly</a> istnieje dokładnie po to: typujesz, kumpel klika link i bierze drugą stronę, warunki zamrożone.</p>
+  <h2>3. Wynik potwierdzacie obaj</h2>
+  <p>Najuczciwsza zasada: nikt nie rozlicza zakładu sam. Jeden zgłasza wynik, drugi potwierdza. Spór oznacza unieważnienie i nikt nie wygrywa. To właśnie dlatego bilansu nie da się oszukać.</p>
+  <h2>4. Fant zamiast pieniędzy</h2>
+  <p>Pieniądze między znajomymi robią się niezręczne. Fanty nie. Przegrany stawia piwo, nosi koszulkę zwycięzcy, publicznie przeprasza na grupie, śpiewa hymn klubu rywala na głosówce. Fant z czasem robi się śmieszniejszy; dycha idzie w zapomnienie.</p>
+  <h2>5. Trzymaj paragony</h2>
+  <p>Cały sens zakładu z kumplem to móc go wypomnieć. Bilans głowa w głowę, kto co typował, kto zbottlował, kto spłacił fant a kto dalej wisi. To różnica między kłótnią a rywalizacją.</p>
+  <h2>Częste pytania</h2>
+  <h3>Czy to legalne?</h3>
+  <p>Prywatny zakład między znajomymi bez bukmachera i bez prowizji to prywatna umowa. Clashly nie trzyma żadnych pieniędzy: <strong>brak stawek, brak nagród</strong>, to licznik wyników, nie hazard. 18+.</p>
+  <h3>Czy Clashly obsługuje pieniądze?</h3>
+  <p>Nie, nigdy. Cokolwiek jest w grze, rozliczacie między sobą. Clashly trzyma wynik i paragony.</p>`,
+    faq: [
+      ['Czy zakład ze znajomym jest legalny?', 'Prywatny zakład między znajomymi bez bukmachera i prowizji to prywatna umowa. Clashly nie trzyma pieniędzy, brak stawek i brak nagród, więc to licznik, nie hazard. 18+.'],
+      ['Co powinien zrobić przegrany?', 'Fant zamiast pieniędzy: przegrany stawia piwo, nosi koszulkę zwycięzcy albo publicznie przeprasza na grupie.'],
+    ],
+  },
+};
+
+function guidePageHtml(path, g) {
+  const url = 'https://clashly.live' + path;
+  const ld = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'Article', headline: g.h1, inLanguage: g.lang, url,
+        author: { '@type': 'Organization', name: 'Clashly', url: 'https://clashly.live/' } },
+      { '@type': 'FAQPage', mainEntity: g.faq.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
+    ],
+  };
+  const pl = g.lang === 'pl';
+  return `<!DOCTYPE html>
+<html lang="${g.lang}"><head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${esc5(g.title)}</title>
+<meta name="description" content="${esc5(g.desc)}" />
+<link rel="canonical" href="${url}" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="${esc5(g.title)}" />
+<meta property="og:description" content="${esc5(g.desc)}" />
+<meta property="og:url" content="${url}" />
+<meta property="og:image" content="https://clashly.live/og-home.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<script type="application/ld+json">${JSON.stringify(ld)}</script>
+<style>${PAGE_CSS}</style>
+</head><body><div class="wrap">
+  <div class="tag">CLASHLY</div>
+  <h1>${esc5(g.h1)}</h1>
+  ${g.body}
+  <a class="cta" href="/">${pl ? 'Rzuć wyzwanie ziomkowi →' : 'Challenge a mate →'}</a>
+  <p><a href="/about">${pl ? 'Czym jest Clashly?' : 'What is Clashly?'}</a></p>
+  <div class="foot">Clashly ${pl ? 'nie trzyma pieniędzy, rozliczacie się między sobą. 18+.' : 'holds no money, you settle up between yourselves. For the bragging rights. 18+.'}<br />contact@clashly.live</div>
+</div></body></html>`;
+}
+
 async function serveFixturePage(req, res, slug, lang) {
   let matches = [];
   try { matches = (await getMatches()) || []; } catch {}
@@ -911,6 +1058,7 @@ async function serveSitemap(req, res) {
     ['https://clashly.live/', 'daily', '1.0'],
     ['https://clashly.live/about', 'monthly', '0.8'],
   ];
+  Object.keys(GUIDES).forEach((p) => urls.push(['https://clashly.live' + p, 'monthly', '0.8']));
   matches.slice(0, 60).forEach((m) => {
     const sl = fixtureSlug(m);
     urls.push([`https://clashly.live/call/${sl}`, 'daily', '0.7']);
@@ -946,6 +1094,7 @@ Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, 
 ## Pages
 - https://clashly.live/ (app)
 - https://clashly.live/about (what Clashly is and how it works)
+${Object.entries(GUIDES).map(([p, g]) => `- https://clashly.live${p} (${g.h1})`).join('\n')}
 ${matches.slice(0, 20).map((m) => `- https://clashly.live/call/${fixtureSlug(m)} (${m.home} v ${m.away})`).join('\n')}
 `;
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
@@ -1831,6 +1980,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/about') return serveAbout(req, res);
   if (url.pathname === '/llms.txt') return serveLlmsTxt(req, res);
+  if (GUIDES[url.pathname]) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return res.end(guidePageHtml(url.pathname, GUIDES[url.pathname]));
+  }
   if (url.pathname === '/sitemap.xml') return serveSitemap(req, res);
   if (/^\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(6), 'en');
   if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
