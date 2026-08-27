@@ -1434,7 +1434,7 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && parts[1] === 'arena' && parts.length === 2) {
     const now = Date.now();
     const rows = Object.values(db.bets)
-      .filter((b) => b.arena && b.status === 'open' && (!b.utcDate || new Date(b.utcDate).getTime() > now))
+      .filter((b) => b.arena && b.status === 'open' && !isGhostBet(b) && (!b.utcDate || new Date(b.utcDate).getTime() > now))
       .sort((a, c) => new Date(c.createdAt) - new Date(a.createdAt))
       .slice(0, 30)
       .map((b) => {
@@ -1700,6 +1700,7 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && parts[1] === 'activity' && parts.length === 2) {
     const items = [];
     for (const b of Object.values(db.bets)) {
+      if (isGhostBet(b)) continue;   // the ticker is public too — no QA accounts here either
       if (b.arena && b.createdAt) items.push({ t: b.createdAt, text: `${b.proposerName} listed ${matchLabel(b)} in the Arena` });
       if (b.acceptedAt && b.opponentName) items.push({ t: b.acceptedAt, text: `${b.opponentName} took ${b.proposerName}'s bet` });
       if (b.resolvedAt && b.owes) items.push({ t: b.resolvedAt, text: `${b.owes.to} beat ${b.owes.from} (${matchLabel(b)})` });
