@@ -123,6 +123,17 @@ const newCode = () => {
 const norm = (s) => String(s || '').trim().toLowerCase();
 const normEmail = (s) => String(s || '').trim().toLowerCase();
 const OUTCOMES = ['HOME', 'DRAW', 'AWAY'];
+// The only client events the server will record. Anything else is dropped.
+// These are the steps the server genuinely cannot observe for itself — every
+// one of them sits on a side of a known funnel leak.
+const CLIENT_EVENTS = new Set([
+  'onboard_view', 'onboard_done',      // landed → signed up
+  'sheet_open', 'outcome_picked',      // signed up → started a call → picked a side
+  'season_picked',                     // did anyone find season calls?
+  'accept_view', 'accept_tap',         // saw a challenge → tapped take it (before the name ask)
+  'settle_card_tap', 'brag_copy',      // the v14/v13 loops
+  'table_send',                        // the v15 group-table share
+]);
 
 // ---------------------------------------------------------------------------
 // Identity — server-authoritative players (id public, secret private)
@@ -1500,6 +1511,18 @@ async function handleApi(req, res, url) {
   // -------------------------------------------------------------------------
 
   // POST /api/players  {name}  — register this device (or rename if already authed)
+  // POST /api/track — the funnel steps that only the client can see. Strictly
+  // whitelisted and count-only: no ids, no bodies, no free text, so it can never
+  // become a way to write junk into the store. Mirrors what PostHog gets, so the
+  // funnel is answerable from /api/stats alone.
+  if (req.method === 'POST' && parts[1] === 'track' && parts.length === 2) {
+    const b = await readBody(req).catch(() => ({}));
+    const ev = String(b.e || '');
+    if (!CLIENT_EVENTS.has(ev)) return sendJson(res, 400, { error: 'unknown event' });
+    logEvent('c_' + ev, {}, false);        // c_ prefix: client-reported, never trusted as truth
+    return sendJson(res, 204, {});
+  }
+
   if (req.method === 'POST' && parts[1] === 'players' && parts.length === 2) {
     const b = await readBody(req);
     const existing = authPlayer(req);
@@ -1508,6 +1531,7 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, selfPlayer(existing));
     }
     const p = createPlayer(b.name || 'Player');
+    logEvent('player_created', {}, false);
     saveData();
     return sendJson(res, 201, selfPlayer(p));
   }
