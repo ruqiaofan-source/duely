@@ -375,7 +375,12 @@ function addRematchReceipt(bet) {
 // ---------------------------------------------------------------------------
 // QA ghosts: throwaway accounts used for live smoke tests. Their bets are real
 // records but must never pollute public rankings, crowns, or results strips.
-const QA_GHOST = /^(ZqSmoke|ZvElev|XwProbe|XyElev|ZzTest|QaProbe|ZzSweep|XqSmoke)\d+$/;
+// QA accounts from live smoke tests must never reach a real user's leaderboard.
+// The old pattern required trailing digits, so the 23-27 Aug audit accounts
+// (AuditA_0823, LiveDeepB_f22a6, DeepC_1b4a49, ZzSweepQA) slipped through and sat
+// on the public board with W-L records. Any future probe name MUST start with one
+// of these stems — that is the contract, enforce it when writing tests.
+const QA_GHOST = /^(ZqSmoke|ZvElev|XwProbe|XyElev|ZzTest|QaProbe|ZzSweep|XqSmoke|Audit[A-C]|LiveDeep[A-C]|Deep[A-C]|Smoke[A-C]|Probe[A-C])([_-]?[A-Za-z0-9]{0,12})?$/;
 const isGhostBet = (b) => QA_GHOST.test(b.proposerName || '') || QA_GHOST.test(b.opponentName || '');
 const decidedBets = () => (_decided ||= Object.values(db.bets).filter((b) => (b.status === 'resolved' || b.status === 'settled') && !isGhostBet(b)));
 const involvesId = (b, id) => b.proposerId === id || b.opponentId === id;
