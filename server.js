@@ -888,7 +888,7 @@ function fixturePageHtml(m, lang) {
 </head><body><div class="wrap">${body}
   <ul id="others"></ul>
   <p><a href="/">${pl ? 'Wroc na Clashly' : 'Back to Clashly'} →</a> · <a href="/about">${pl ? 'Czym jest Clashly?' : 'What is Clashly?'}</a></p>
-  <div class="foot">Clashly ${pl ? 'nie trzyma pieniedzy — rozliczacie sie miedzy soba. 18+.' : 'holds no money — you settle up between yourselves. For the bragging rights. 18+.'}<br />contact@clashly.live</div>
+  <div class="foot">Clashly ${pl ? 'nie trzyma pieniedzy — rozliczacie sie miedzy soba. 18+.' : 'holds no money — you settle up between yourselves. For the bragging rights. 18+.'}<br />contact@clashly.live · <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
 </div>
 <script>fetch('/api/matches').then(r=>r.json()).then(d=>{const s=(x)=>x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');const o=document.getElementById('others');(d.matches||[]).filter(x=>x.id!==${JSON.stringify(m.id)}).slice(0,6).forEach(x=>{const li=document.createElement('li');const a=document.createElement('a');a.href='${pl ? '/pl' : ''}/call/'+s(x.home)+'-v-'+s(x.away);a.textContent=x.home+' v '+x.away;li.appendChild(a);o.appendChild(li);});});</script>
 </body></html>`;
@@ -1037,7 +1037,7 @@ function guidePageHtml(path, g) {
   ${g.body}
   <a class="cta" href="/">${pl ? 'Rzuć wyzwanie ziomkowi →' : 'Challenge a mate →'}</a>
   <p><a href="/about">${pl ? 'Czym jest Clashly?' : 'What is Clashly?'}</a></p>
-  <div class="foot">Clashly ${pl ? 'nie trzyma pieniędzy, rozliczacie się między sobą. 18+.' : 'holds no money, you settle up between yourselves. For the bragging rights. 18+.'}<br />contact@clashly.live</div>
+  <div class="foot">Clashly ${pl ? 'nie trzyma pieniędzy, rozliczacie się między sobą. 18+.' : 'holds no money, you settle up between yourselves. For the bragging rights. 18+.'}<br />contact@clashly.live · <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
 </div></body></html>`;
 }
 
@@ -1090,6 +1090,7 @@ Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, 
 - Languages: English and Polish.
 - Features: head-to-head rivalry records, friends leagues, shareable result cards and betting-slip receipts, an open challenge Arena, weekly and all-time records.
 - Contact: contact@clashly.live
+- On X: https://x.com/clashlylive (@clashlylive)
 
 ## Pages
 - https://clashly.live/ (app)
@@ -1160,7 +1161,7 @@ function serveAbout(req, res) {
   <p>Football fans and friend groups who are always betting on matches but never keep track — five-a-side teams, fantasy-league mini-leagues, office rivalries, and family group chats. If your mates argue about who called it right, Clashly settles it.</p>
 
   <a class="cta" href="/">Back yourself — start a duel →</a>
-  <div class="foot">Clashly keeps score and holds no money — you and your mates settle up between yourselves. For the bragging rights. 18+. · <a href="/">clashly.live</a> · <a href="mailto:contact@clashly.live">contact@clashly.live</a></div>
+  <div class="foot">Clashly keeps score and holds no money — you and your mates settle up between yourselves. For the bragging rights. 18+. · <a href="/">clashly.live</a> · <a href="mailto:contact@clashly.live">contact@clashly.live</a> · <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
 </div>
 </body></html>`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
@@ -1507,7 +1508,11 @@ async function handleApi(req, res, url) {
         // or the match has kicked off with nothing reported yet
         yourMove: b.status === 'accepted' && (
           (b.pendingResult && b.pendingResult.byId !== me.id) ||
-          (!b.pendingResult && b.utcDate && Date.now() > new Date(b.utcDate).getTime())
+          (!b.pendingResult && b.utcDate && Date.now() > new Date(b.utcDate).getTime()) ||
+          // custom calls carry no kickoff time, so they would never surface at all.
+          // A day after the handshake is the honest moment to ask "well? who won?"
+          (!b.pendingResult && !b.utcDate && b.acceptedAt
+            && Date.now() - new Date(b.acceptedAt).getTime() > 24 * 3600000)
         ),
       });
       const active = mine.filter((b) => b.status === 'open' || b.status === 'accepted')
@@ -1842,11 +1847,11 @@ async function handleApi(req, res, url) {
         }
         // the two players disagree → flag a dispute (resolved via /void, not a forced result)
         bet.disputed = { claims: [{ outcome: prev.outcome, by: prev.by, byId: prev.byId }, { outcome: b.actualOutcome, by: me.name, byId: me.id }] };
-        bet.pendingResult = { outcome: b.actualOutcome, byId: me.id, by: me.name };
+        bet.pendingResult = { outcome: b.actualOutcome, byId: me.id, by: me.name, t: new Date().toISOString() };
         saveData();
         return sendJson(res, 200, bet);
       }
-      bet.pendingResult = { outcome: b.actualOutcome, byId: me.id, by: me.name };
+      bet.pendingResult = { outcome: b.actualOutcome, byId: me.id, by: me.name, t: new Date().toISOString() };
       delete bet.disputed;
       saveData();
       return sendJson(res, 200, bet);
@@ -2131,6 +2136,61 @@ async function terraceSweep() {
   } catch (e) { console.warn('terrace sweep failed:', e.message); }
 }
 
+// ---------------------------------------------------------------------------
+// v14 — the full-time sweep. The funnel data showed the product dying at
+// resolution: accepted bets just sat there because settling needed someone to
+// remember. Fixture bets now settle THEMSELVES from the results API (same
+// trusted path the resolve endpoint already uses); custom bets get one push at
+// full time; a reported result the other side ignores gets one confirm nudge
+// after 24h. Every action here fires at most once per bet.
+// ---------------------------------------------------------------------------
+const FT_GRACE_MS = 125 * 60000;      // kickoff + ~2h05 covers ET-free league football
+async function ftSweep() {
+  try {
+    const now = Date.now();
+    const due = Object.values(db.bets).filter((b) => b.status !== 'accepted' ? false
+      : b.utcDate ? now > new Date(b.utcDate).getTime() + FT_GRACE_MS
+      // dateless custom calls ("loser buys the pints") never hit a kickoff, so they
+      // fall out of the sweep entirely. Chase them a day after the handshake instead.
+      : Boolean(b.acceptedAt) && now - new Date(b.acceptedAt).getTime() > 24 * 3600000);
+    let fetches = 0, changed = false;
+    for (const bet of due) {
+      // fixture bets: settle automatically from the results API (trusted source,
+      // mirrors the no-confirmation path in POST /bets/:id/resolve)
+      if (FOOTBALL_TOKEN && bet.externalId && fetches < 5) {
+        fetches++;
+        try {
+          const live = await fetchLiveResult(bet.externalId);
+          if (live) {
+            resolveBet(bet, live); delete bet.pendingResult;
+            notifyResolved(bet);
+            logEvent('bet_resolved', { id: bet.id, auto: true, sweep: true });
+            console.log('ft sweep auto-resolved:', bet.home, 'v', bet.away, '->', live);
+            changed = true; continue;
+          }
+        } catch (e) { console.warn('ft sweep result failed:', e.message); }
+      }
+      // custom bets (or result not published yet): one "who called it?" push
+      if (!bet.pendingResult && !bet.ftNudged) {
+        bet.ftNudged = true; changed = true;
+        const label = `${bet.home} v ${bet.away}`;
+        sendPush(bet.proposerId, { title: 'Full time 🏁', body: `${label} — who called it? Report the result.`, url: '/b/' + bet.id });
+        if (bet.opponentId) sendPush(bet.opponentId, { title: 'Full time 🏁', body: `${label} — who called it? Report the result.`, url: '/b/' + bet.id });
+        logEvent('ft_nudge', { id: bet.id });
+      }
+      // one side reported, the other has sat on it for a day: nudge the confirmer
+      if (bet.pendingResult && bet.pendingResult.t && !bet.confirmNudged
+          && now - new Date(bet.pendingResult.t).getTime() > 24 * 3600000) {
+        bet.confirmNudged = true; changed = true;
+        const waiterId = bet.pendingResult.byId === bet.proposerId ? bet.opponentId : bet.proposerId;
+        if (waiterId) sendPush(waiterId, { title: 'Confirm the result ✓', body: `${bet.pendingResult.by} reported ${bet.home} v ${bet.away}. One tap makes it official.`, url: '/b/' + bet.id });
+        logEvent('confirm_nudge', { id: bet.id });
+      }
+    }
+    if (changed) saveData();
+  } catch (e) { console.warn('ft sweep failed:', e.message); }
+}
+
 // --- Web push: VAPID keys live in the db (zero-config deploys), subscriptions
 // per player, best-effort delivery with pruning of dead endpoints.
 let webpush = null;
@@ -2163,6 +2223,9 @@ initData().then(() => {
   // live terrace: checks every 90 min, only speaks if the feed has been quiet 4h+
   setTimeout(terraceSweep, 30000);
   setInterval(terraceSweep, 90 * 60000);
+  // v14 full-time sweep: fixture bets settle themselves, everyone else gets nudged
+  setTimeout(ftSweep, 45000);
+  setInterval(ftSweep, 30 * 60000);
   // v11 — rivalry-streak rescue: Fri/Sat, if a pair with a 2+ week streak has no
   // clash yet this week, nudge BOTH sides once. Peer pressure beats app pressure.
   const streakNudgeSweep = () => {
