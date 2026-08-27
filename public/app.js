@@ -279,8 +279,16 @@ const prefs = {
   set(k, v) { const p = prefs.get(); p[k] = v; try { localStorage.setItem('settle_prefs', JSON.stringify(p)); } catch {} },
 };
 
-const outcomeLabel = (b, code) => code === 'HOME' ? `${b.home} win` : code === 'AWAY' ? `${b.away} win` : code === 'DRAW' ? 'Draw' : code;
-const complementLabel = (b) => b.backedOutcome === 'DRAW' ? "it's not a draw" : b.backedOutcome === 'HOME' ? `${b.home} don't win` : `${b.away} don't win`;
+// A season-long call is a one-sided claim ("Arsenal finish above Spurs"): no away
+// team, no fixture, no draw. It rides the existing HOME/AWAY axis — HOME = the
+// claim lands, AWAY = it doesn't — so rivalry tables, receipts and the ledger all
+// keep working with no branching of their own.
+const isSeason = (b) => Boolean(b) && b.kind === 'season';
+const matchLabel = (b) => (isSeason(b) ? b.home : `${b.home} v ${b.away}`);
+const outcomeLabel = (b, code) => isSeason(b) ? (code === 'HOME' ? 'Yes — it happens' : 'No chance')
+  : code === 'HOME' ? `${b.home} win` : code === 'AWAY' ? `${b.away} win` : code === 'DRAW' ? 'Draw' : code;
+const complementLabel = (b) => isSeason(b) ? (b.backedOutcome === 'HOME' ? "it doesn't happen" : 'it happens')
+  : b.backedOutcome === 'DRAW' ? "it's not a draw" : b.backedOutcome === 'HOME' ? `${b.home} don't win` : `${b.away} don't win`;
 
 let CONFIG = { brand: 'Clashly', live: false };
 let PREFILL = null; // for rematch
@@ -562,7 +570,7 @@ async function renderHome() {
   const recentHtml = s.recent.length
     ? s.recent.map((r) => `
         <div class="recent">
-          <span>${esc(r.home)} v ${esc(r.away)} · <span style="color:var(--muted)">${esc(r.opponent)}</span></span>
+          <span>${esc(matchLabel(r))} · <span style="color:var(--muted)">${esc(r.opponent)}</span></span>
           <span class="res ${r.won ? 'w' : 'l'}">${r.won ? '+' : '−'}${sym(r.currency)}${r.amount}</span>
         </div>`).join('')
     : '';
@@ -762,7 +770,7 @@ async function renderArena() {
       <button class="muted-link" id="homeLink">← Back to home</button>
     </div>
     ${recent.length ? `<div class="card"><div class="cardhead"><h2>Latest results 🏁</h2></div>${recent.map((r) => `
-      <div class="recent"><span><b style="color:var(--text)">${esc(r.winner)}</b> beat ${esc(r.loser)}${r.arena ? ' ⚡' : ''} · <span style="color:var(--muted)">${esc(r.home)} v ${esc(r.away)}</span></span><span class="res" style="color:var(--muted)">${esc(r.stakeLbl)}</span></div>`).join('')}</div>` : ''}`;
+      <div class="recent"><span><b style="color:var(--text)">${esc(r.winner)}</b> beat ${esc(r.loser)}${r.arena ? ' ⚡' : ''} · <span style="color:var(--muted)">${esc(matchLabel(r))}</span></span><span class="res" style="color:var(--muted)">${esc(r.stakeLbl)}</span></div>`).join('')}</div>` : ''}`;
   app.querySelectorAll('[data-arena]').forEach((el) =>
     el.addEventListener('click', () => { track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
   const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
@@ -823,7 +831,7 @@ async function renderDuels() {
   try { d = await api('/players/me/bets'); } catch {}
   const row = (b) => `
     <div class="recent" data-bet="${b.id}" role="button" tabindex="0" style="cursor:pointer">
-      <span>${b.yourMove ? '<span class="pill accepted" style="margin-right:6px">your move</span>' : ''}${esc(b.home)} v ${esc(b.away)}${b.opponent ? ' · <span style="color:var(--muted)">' + esc(b.opponent) + '</span>' : ''}</span>
+      <span>${b.yourMove ? '<span class="pill accepted" style="margin-right:6px">your move</span>' : ''}${esc(matchLabel(b))}${b.opponent ? ' · <span style="color:var(--muted)">' + esc(b.opponent) + '</span>' : ''}</span>
       <span class="res ${b.won === true ? 'w' : b.won === false ? 'l' : ''}">${statusLabel(b)}</span>
     </div>`;
   // whatever needs YOUR action surfaces first — the open loop you came back to close
@@ -1001,12 +1009,20 @@ async function renderLeague(code, full) {
       ${tbl}
       ${canSlice ? `<button class="muted-link" id="toggleTable">${full ? 'Show just my spot' : 'Show full table →'}</button>` : ''}
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
+      ${solo ? '' : '<button class="cta gold" id="sendTable">📲 Send the table to the group</button>'}
       ${solo ? '' : '<button class="cta wa" id="invite">Invite mates on WhatsApp</button>'}
       <button class="ghost" id="copyInvite">Copy invite link</button>
       <button class="muted-link" id="homeLink">Back to my season</button>
     </div>
     <div class="banner">League table counts bets between members only. Win to climb. 🪜</div>`;
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  const st0 = $('#sendTable');
+  if (st0) st0.addEventListener('click', () => {
+    const top = (lg.standings || []).find((r) => r.games);
+    shareImage('/ltable/' + code + '.png',
+      top ? `${lg.name} as it stands — ${top.name} on top. Get involved: ${link}` : `${lg.name} on Clashly — ${link}`,
+      'table');
+  });
   const iv = $('#invite'); if (iv) iv.addEventListener('click', () => { track('league_invite_tap'); window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'); });
   const it = $('#inviteTop'); if (it) it.addEventListener('click', () => { track('league_invite_tap', { solo: true }); shareLink(link, waText); });
   $('#copyInvite').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); sfx('clip'); toast('Invite copied'); } catch { toast(link); } });
@@ -1035,6 +1051,18 @@ async function renderCreate() {
       <label for="matchSel">The match</label>
       <select id="matchSel"></select>
       <div id="customWrap" style="display:none"><div class="row"><div><label>Home team</label><input id="home" placeholder="Spain" maxlength="40" /></div><div><label>Away team</label><input id="away" placeholder="Uruguay" maxlength="40" /></div></div></div>
+      <div id="seasonWrap" style="display:none">
+        <label for="claim">The call</label>
+        <input id="claim" maxlength="80" placeholder="Arsenal finish above Spurs" />
+        <div class="reacts" style="margin-top:8px">
+          <button type="button" class="react-chip" data-claim="Arsenal finish above Spurs">finish above</button>
+          <button type="button" class="react-chip" data-claim="Man United sack their manager before Christmas">sacked by Xmas</button>
+          <button type="button" class="react-chip" data-claim="Haaland is the top scorer">top scorer</button>
+          <button type="button" class="react-chip" data-claim="We get relegated">relegation</button>
+        </div>
+        <label for="deadline" style="margin-top:10px">Settle by (optional)</label>
+        <input id="deadline" type="date" />
+      </div>
       <label>What are you backing?</label>
       <div class="seg" id="seg"></div>
       <label for="lineInput">What's on the line?</label>
@@ -1068,7 +1096,7 @@ async function renderCreate() {
   }
 
   const sel = $('#matchSel');
-  const CUSTOM_OPT = '<option value="custom">+ Custom match…</option>';
+  const CUSTOM_OPT = '<option value="custom">+ Custom match…</option><option value="season">🗓️ Season-long call…</option>';
   sel.innerHTML = '<option value="" disabled selected>⏳ Loading fixtures…</option>' + CUSTOM_OPT;
 
   // "€10" / "10 gbp" / "£5" reads as a money stake; anything else is a forfeit line
@@ -1086,8 +1114,12 @@ async function renderCreate() {
     const mm = matches.find((x) => x.id === sel.value);
     const home = mm ? mm.home : ($('#home')?.value || 'Home');
     const away = mm ? mm.away : ($('#away')?.value || 'Away');
-    const backedLbl = state.backedOutcome === 'HOME' ? home + ' win' : state.backedOutcome === 'AWAY' ? away + ' win' : 'Draw';
-    const compl = state.backedOutcome === 'DRAW' ? 'not a draw' : state.backedOutcome === 'HOME' ? home + " don't win" : away + " don't win";
+    const seasonMode = sel.value === 'season';
+    const claim = seasonMode ? (($('#claim')?.value || '').trim() || 'your call') : '';
+    const backedLbl = seasonMode ? `${claim} — ${state.backedOutcome === 'HOME' ? 'yes' : 'no chance'}`
+      : state.backedOutcome === 'HOME' ? home + ' win' : state.backedOutcome === 'AWAY' ? away + ' win' : 'Draw';
+    const compl = seasonMode ? (state.backedOutcome === 'HOME' ? "it doesn't happen" : 'it happens')
+      : state.backedOutcome === 'DRAW' ? 'not a draw' : state.backedOutcome === 'HOME' ? home + " don't win" : away + " don't win";
     const p = parseLine($('#lineInput')?.value);
     const lineLbl = p.line || (p.stake > 0 ? sym(p.currency) + p.stake : 'bragging rights');
     const el = $('#previewLine');
@@ -1105,16 +1137,33 @@ async function renderCreate() {
     // keyboard: the rebuild destroys the focused button — restore focus only when it
     // was inside the seg group (never hijack focus from the team inputs while typing)
     const hadFocus = seg.contains(document.activeElement) ? document.activeElement.dataset.o : null;
-    seg.innerHTML = [['HOME', `${home} win`], ['DRAW', 'Draw'], ['AWAY', `${away} win`]]
+    const sides = sel.value === 'season'
+      ? [['HOME', 'It happens ✅'], ['AWAY', "No chance ❌"]]
+      : [['HOME', `${home} win`], ['DRAW', 'Draw'], ['AWAY', `${away} win`]];
+    // a draw carried over from a match pick would be un-selectable here
+    if (sel.value === 'season' && state.backedOutcome === 'DRAW') state.backedOutcome = 'HOME';
+    seg.innerHTML = sides
       .map(([code, lbl]) => `<button data-o="${code}" class="${state.backedOutcome === code ? 'active' : ''}">${esc(lbl)}</button>`).join('');
     seg.querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => { state.backedOutcome = btn.dataset.o; haptic(8); renderSeg(); }));
     if (hadFocus) seg.querySelector(`[data-o="${hadFocus}"]`)?.focus();
     updatePreview();
   };
-  const onMatchChange = () => { $('#customWrap').style.display = sel.value === 'custom' ? 'block' : 'none'; renderSeg(); };
+  const onMatchChange = () => {
+    const season = sel.value === 'season';
+    $('#customWrap').style.display = sel.value === 'custom' ? 'block' : 'none';
+    $('#seasonWrap').style.display = season ? 'block' : 'none';
+    // a season call has no kickoff to wait for, so it can't be an Arena listing
+    // a stranger stumbles onto months later — keep it between mates
+    const ar = $('#arenaChk')?.closest('.checkrow');
+    if (ar) ar.style.display = season ? 'none' : '';
+    renderSeg();
+  };
   sel.addEventListener('change', onMatchChange);
   $('#home').addEventListener('input', renderSeg);
   $('#away').addEventListener('input', renderSeg);
+  const cl = $('#claim'); if (cl) cl.addEventListener('input', updatePreview);
+  document.querySelectorAll('#sheetPanel [data-claim]').forEach((chip) =>
+    chip.addEventListener('click', () => { const c = $('#claim'); if (c) { c.value = chip.dataset.claim; haptic(8); updatePreview(); } }));
   $('#lineInput').addEventListener('input', updatePreview);
   document.querySelectorAll('#sheetPanel [data-line]').forEach((chip) =>
     chip.addEventListener('click', () => { $('#lineInput').value = chip.dataset.line; haptic(8); updatePreview(); }));
@@ -1138,17 +1187,21 @@ async function renderCreate() {
   });
 
   const doCreate = async () => {
+    const season = sel.value === 'season';
     const mm = matches.find((x) => x.id === sel.value);
-    const home = mm ? mm.home : $('#home').value.trim();
-    const away = mm ? mm.away : $('#away').value.trim();
-    if (!home || !away) return toast('Add both teams');
+    const home = season ? ($('#claim')?.value || '').trim() : (mm ? mm.home : $('#home').value.trim());
+    const away = season ? '' : (mm ? mm.away : $('#away').value.trim());
+    if (season && !home) return toast('What are you calling?');
+    if (!season && (!home || !away)) return toast('Add both teams');
     const p = parseLine($('#lineInput').value);
     if (!p.line && !(p.stake > 0)) return toast("Put something on the line — a forfeit or a number");
     const btn = $('#createBtn'); btn.disabled = true; btn.textContent = 'Locking in…'; haptic(22);
     try {
       const bet = await api('/bets', { method: 'POST', body: JSON.stringify({
-        home, away, competition: mm ? mm.competition : (copy?.competition || ''),
-        utcDate: mm ? mm.utcDate : null, externalId: mm ? mm.externalId || null : null,
+        home, away, kind: season ? 'season' : undefined,
+        competition: season ? '' : (mm ? mm.competition : (copy?.competition || '')),
+        utcDate: season ? ($('#deadline')?.value ? new Date($('#deadline').value + 'T21:00:00Z').toISOString() : null) : (mm ? mm.utcDate : null),
+        externalId: season ? null : (mm ? mm.externalId || null : null),
         backedOutcome: state.backedOutcome, stake: p.stake, currency: p.currency, line: p.line, note: $('#note').value.trim(), arena: Boolean($('#arenaChk')?.checked), rematch: Boolean(rematchOf || copy),
       }) });
       roleStore.set(bet.id, 'proposer'); PREFILL = null;
@@ -1192,8 +1245,8 @@ async function renderBet(id, opts = {}) {
   const link = location.origin + '/b/' + id;
   const matchCard = `
     <div class="match">
-      <div class="teams">${esc(bet.home)} <span class="vs">VS</span> ${esc(bet.away)}</div>
-      <div class="meta">${bet.competition ? esc(bet.competition) + ' · ' : ''}${bet.utcDate ? new Date(bet.utcDate).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) : ''}</div>
+      <div class="teams">${isSeason(bet) ? esc(bet.home) : `${esc(bet.home)} <span class="vs">VS</span> ${esc(bet.away)}`}</div>
+      <div class="meta">${isSeason(bet) ? '🗓️ Season-long call' + (bet.competition ? ' · ' + esc(bet.competition) : '') : (bet.competition ? esc(bet.competition) + ' · ' : '')}${bet.utcDate ? (isSeason(bet) ? ' · settle by ' + new Date(bet.utcDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : new Date(bet.utcDate).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })) : ''}</div>
     </div>`;
   const pill = `<span class="pill ${bet.status}">${bet.status}</span>`;
 
@@ -1300,7 +1353,10 @@ async function renderBet(id, opts = {}) {
     const ko = bet.utcDate ? new Date(bet.utcDate).getTime() - Date.now() : 0;
     // the label sits in its own text node so the i18n observer can swap it —
     // interpolated sentences fall back to English, split ones don't
-    const koTxt = ko > 0
+    const koTxt = isSeason(bet)
+      // a season call has no kickoff to count down to — a deadline, if any
+      ? (bet.utcDate ? `🗓️ <span>Settle by</span> ${new Date(bet.utcDate).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}` : '')
+      : ko > 0
       ? (ko > 86400000 ? `⏱ <span>Kickoff in</span> ${Math.floor(ko / 86400000)}d ${Math.floor((ko % 86400000) / 3600000)}h`
         : ko > 3600000 ? `⏱ <span>Kickoff in</span> ${Math.floor(ko / 3600000)}h ${Math.floor((ko % 3600000) / 60000)}m`
         : `⏱ <span>Kicks off in</span> ${Math.max(1, Math.floor(ko / 60000))} <span>minutes</span>`)
@@ -1454,11 +1510,13 @@ async function renderBet(id, opts = {}) {
     }
     const showReportSeg = () => {
       zone.innerHTML = `
-        <label>Report the final result</label>
+        <label>${isSeason(bet) ? 'How did it end up?' : 'Report the final result'}</label>
         <div class="seg" id="resSeg">
-          <button data-o="HOME">${esc(bet.home)} won</button>
+          ${isSeason(bet)
+            ? `<button data-o="HOME">It happened ✅</button><button data-o="AWAY">It didn't ❌</button>`
+            : `<button data-o="HOME">${esc(bet.home)} won</button>
           <button data-o="DRAW">Draw</button>
-          <button data-o="AWAY">${esc(bet.away)} won</button>
+          <button data-o="AWAY">${esc(bet.away)} won</button>`}
         </div>
         <div class="banner">Your mate confirms it before it's final — keeps it honest 🤝</div>`;
       $('#resSeg').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => doResolve(id, b.dataset.o)));
@@ -1488,7 +1546,9 @@ async function renderBet(id, opts = {}) {
       $('#confirmBtn').addEventListener('click', () => doConfirm(id, pend.outcome));
       $('#disputeBtn').addEventListener('click', showReportSeg);
     } else if (kickoffFuture) {
-      zone.innerHTML = `<div class="banner">🔒 Locked in — kicks off ${esc(new Date(bet.utcDate).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}. Come back after full time to settle.</div>`;
+      zone.innerHTML = isSeason(bet)
+        ? `<div class="banner">🔒 On the record — settle it by ${esc(new Date(bet.utcDate).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }))}. No rush, it isn't going anywhere.</div>`
+        : `<div class="banner">🔒 Locked in — kicks off ${esc(new Date(bet.utcDate).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}. Come back after full time to settle.</div>`;
     } else if (CONFIG.live && bet.externalId) {
       zone.innerHTML = `<button class="cta" id="autoBtn">Check final result</button><div class="banner" id="autoState">Auto-resolves from the live feed once the match is finished.</div><button class="muted-link" id="manualBtn">Match over but the feed's not updating? Report it manually</button>`;
       $('#autoBtn').addEventListener('click', async () => {
@@ -1522,7 +1582,7 @@ async function renderBet(id, opts = {}) {
 
     app.innerHTML = `
       <div class="card">
-        <div class="cardhead"><h2>Full time 🏁</h2>${pill}</div>
+        <div class="cardhead"><h2>${isSeason(bet) ? 'Settled 🗓️' : 'Full time 🏁'}</h2>${pill}</div>
         ${matchCard}
         <div class="stamprow"><span class="stamp ${stampCls} stamp-in">${stampTxt}</span></div>
         <div class="banner reveal" style="margin-bottom:12px">Result: <b style="color:var(--text)">${esc(outcomeLabel(bet, bet.actualOutcome))}</b></div>
@@ -1651,7 +1711,7 @@ async function rematchConfirm(other, lastBet) {
     <div class="card">
       <h2>${lost ? `Run it back on ${esc(other)}?` : `Rematch ${esc(other)}?`}</h2>
       <p class="sub">${lost ? 'No rush — only when you fancy it.' : 'Quick gut-check before you go again.'}</p>
-      <div class="side"><div><div class="who">Last duel</div><div class="pick">${esc(lastBet.home)} v ${esc(lastBet.away)}</div></div></div>
+      <div class="side"><div><div class="who">Last duel</div><div class="pick">${esc(matchLabel(lastBet))}</div></div></div>
       <div class="resp" style="margin-top:14px;text-align:center;display:block">${recLine}</div>
       <div class="banner" style="margin-top:12px">Winner takes the bragging rights. Set your own stake on the next screen.</div>
       <button class="cta${lost ? '' : ' commit'}" id="goRematch">Set up the rematch${lost ? '' : ' →'}</button>
@@ -1732,7 +1792,7 @@ async function openRivalrySheet(oppId, oppName) {
   const verb = r.aWins > r.bWins ? 'You lead' : r.aWins < r.bWins ? 'You trail' : 'All level with';
   const rows = (r.recent || []).map((x) => `
     <div class="recent" data-bet="${x.id}" role="button" tabindex="0" style="cursor:pointer">
-      <span>${esc(x.home)} v ${esc(x.away)}</span>
+      <span>${esc(matchLabel(x))}</span>
       <span class="res ${x.aWon ? 'w' : 'l'}">${x.aWon ? 'W' : 'L'}${x.stake > 0 ? ' · ' + sym(x.currency) + x.stake : ''}</span>
     </div>`).join('');
   openSheet(`

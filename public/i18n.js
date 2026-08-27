@@ -49,6 +49,16 @@
     'No link, just the record. Paste it in the group chat.': 'Bez linku, sam bilans. Wklej na grupie.',
     // v14: settle-up card, accept reassurance, league solo state
     'Kickoff in': 'Start za', 'Kicks off in': 'Start za', 'minutes': 'minut',
+    // v15: season-long calls
+    'Settle by': 'Rozliczcie do', 'It happens ✅': 'Wydarzy się ✅', 'No chance ❌': 'Nie ma szans ❌',
+    'It happened ✅': 'Wydarzyło się ✅', "It didn't ❌": 'Nie wydarzyło się ❌',
+    'How did it end up?': 'Jak to się skończyło?', 'The call': 'Typ',
+    '🗓️ Season-long call…': '🗓️ Typ na cały sezon…', 'Settle by (optional)': 'Rozliczcie do (opcjonalnie)',
+    'Yes — it happens': 'Tak — wydarzy się', 'No chance': 'Nie ma szans',
+    'Settled 🗓️': 'Rozliczone 🗓️',
+    '📲 Send the table to the group': '📲 Wyślij tabelę na grupę',
+    'finish above': 'wyżej w tabeli', 'sacked by Xmas': 'zwolniony do świąt',
+    'top scorer': 'król strzelców', 'relegation': 'spadek',
     "By accepting you confirm you're 18 or over.": 'Akceptując potwierdzasz, że masz ukończone 18 lat.',
     'Full time 🏁 Settle up': 'Koniec meczu 🏁 Rozliczcie się',
     'Your mate reported the result — confirm it': 'Ziomek zgłosił wynik, potwierdź go',
