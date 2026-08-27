@@ -252,7 +252,15 @@ async function getMatches() {
 // ---------------------------------------------------------------------------
 // Bet logic
 // ---------------------------------------------------------------------------
+// A season-long call is a one-sided claim ("Arsenal finish above Spurs") with no
+// away team and no fixture. Rather than invent a YES/NO axis and branch the ~65
+// places that speak HOME/DRAW/AWAY, it rides the existing axis: HOME = the claim
+// lands, AWAY = it doesn't, DRAW never offered. Every downstream surface —
+// receipts, rivalry tables, the forfeit ledger — keeps working untouched.
+const isSeason = (b) => Boolean(b) && b.kind === 'season';
+const matchLabel = (b) => (isSeason(b) ? b.home : `${b.home} v ${b.away}`);
 function outcomeLabel(bet, code) {
+  if (isSeason(bet)) return code === 'HOME' ? 'Yes — it happens' : 'No chance';
   if (code === 'HOME') return `${bet.home} win`;
   if (code === 'AWAY') return `${bet.away} win`;
   if (code === 'DRAW') return 'Draw';
@@ -261,13 +269,14 @@ function outcomeLabel(bet, code) {
 const sym = (c) => (c === 'EUR' ? '€' : c === 'GBP' ? '£' : c === 'USD' ? '$' : c + ' ');
 const abbr = (s) => (String(s || '').replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 3) || '?');
 function complementLabel(bet) {
+  if (isSeason(bet)) return bet.backedOutcome === 'HOME' ? "it doesn't happen" : 'it happens';
   if (bet.backedOutcome === 'DRAW') return "it's not a draw";
   if (bet.backedOutcome === 'HOME') return `${bet.home} don't win`;
   return `${bet.away} don't win`;
 }
 function notifyResolved(bet) {
   try {
-    const label = `${bet.home} v ${bet.away}`;
+    const label = matchLabel(bet);
     if (bet.owes) {
       sendPush(bet.owes.toId, { title: 'You WON 🏆', body: `${label} — ${bet.owes.from} owes you. Rub it in.`, url: '/b/' + bet.id });
       sendPush(bet.owes.fromId, { title: 'You lost 💀', body: `${label} — time to settle up with ${bet.owes.to}.`, url: '/b/' + bet.id });
@@ -309,13 +318,13 @@ const PUNDIT_POOLS = {
   created: [
     '{P} is backing {BACKED}. Big words. Someone take the other side before it goes to their head.',
     '{BACKED}, says {P}. The terrace awaits a challenger…',
-    "Fresh duel on the board: {HOME} v {AWAY}. {P}'s called {BACKED} — who's got the minerals?",
+    "Fresh duel on the board: {MATCHUP}. {P}'s called {BACKED} — who's got the minerals?",
     '{P} puts {STAKE} on {BACKED}. Talk is cheap until someone locks in.',
   ],
   accepted: [
     "It's ON. {P} says {BACKED}, {O} says no chance. {STAKE} on the line.",
     '{O} steps in. 90 minutes will sort this out. 🍿',
-    'Handshakes done — {HOME} v {AWAY} just got personal.',
+    'Handshakes done — {MATCHUP} just got personal.',
     'Locked: {P} vs {O}. The loser lives with it.',
   ],
   resolved: [
@@ -330,7 +339,7 @@ function addPundit(bet, phase) {
   const winner = bet.winner === 'proposer' ? bet.proposerName : bet.opponentName;
   const loser = bet.winner === 'proposer' ? bet.opponentName : bet.proposerName;
   const ctx = {
-    P: bet.proposerName, O: bet.opponentName || 'someone', HOME: bet.home, AWAY: bet.away,
+    P: bet.proposerName, O: bet.opponentName || 'someone', HOME: bet.home, AWAY: bet.away, MATCHUP: matchLabel(bet),
     BACKED: outcomeLabel(bet, bet.backedOutcome), RESULT: bet.actualOutcome ? outcomeLabel(bet, bet.actualOutcome) : '',
     STAKE: stakeLabel(bet), WINNER: winner || '', LOSER: loser || '',
     RIV: (bet.proposerId && bet.opponentId) ? rivalryLine(bet) : '',
@@ -469,7 +478,7 @@ function playerSummary(id) {
     .slice(0, 8)
     .map((b) => ({ betId: b.id, line: b.line, from: b.owes.from, to: b.owes.to, owedByMe: b.owes.fromId === id, since: b.resolvedAt }));
   const recent = mine.slice(0, 8).map((b) => ({
-    id: b.id, home: b.home, away: b.away, opponent: nameForId(b, otherId(b, id)),
+    id: b.id, home: b.home, away: b.away, kind: b.kind, opponent: nameForId(b, otherId(b, id)),
     won: winnerId(b) === id, amount: b.owes ? b.owes.amount : b.stake,
     currency: b.currency, status: b.status,
   }));
@@ -495,7 +504,7 @@ function rivalry(idA, idB) {
   // last few duels between the pair — the match-by-match history that makes the
   // rivalry a durable shared asset
   const recent = both.slice(0, 6).map((x) => ({
-    id: x.id, home: x.home, away: x.away, resolvedAt: x.resolvedAt,
+    id: x.id, home: x.home, away: x.away, kind: x.kind, resolvedAt: x.resolvedAt,
     aWon: winnerId(x) === idA, line: x.line || '', stake: x.stake, currency: x.currency,
   }));
   return { aId: idA, bId: idB, a: aName, b: bName, aWins, bWins, aNet: nv.net, games: both.length, currency: nv.currency, recent, streakWeeks: pairWeekStreak(idA, idB) };
@@ -568,6 +577,28 @@ function leagueSvgFor(league) {
     NAME: league.name, CODE: league.code,
     MEMBERS: `${league.members.length} ${league.members.length === 1 ? 'mate' : 'mates'}`,
     LEADER: leader,
+  });
+}
+
+// The weekly table image. The league page is a destination nobody visits; the
+// group chat is where the season actually lives, so the table has to travel.
+function tableSvgFor(league) {
+  const rows = leagueStandings(league);
+  const played = rows.filter((r) => r.games).length;
+  const top = rows[0];
+  const sub = !played ? 'No duels settled yet — someone start it'
+    : rows.length > 1 && top.w === rows[1].w ? `${top.name} and ${rows[1].name} inseparable`
+    : `${top.name} leads on ${top.w} ${top.w === 1 ? 'win' : 'wins'}`;
+  return cards.tableSvg({
+    NAME: league.name,
+    WEEK: `MATCHWEEK ${weekIdx(Date.now()) - weekIdx(new Date(league.createdAt || Date.now()).getTime()) + 1}`,
+    SUB: sub,
+    ROWS: rows.map((r) => ({
+      NAME: r.name,
+      WL: `${r.w}-${r.l}`,
+      NET: r.net ? (r.net > 0 ? '+' : '\u2212') + sym(r.currency || 'EUR') + Math.abs(r.net) : '—',
+      POS: r.net > 0, NEG: r.net < 0,
+    })),
   });
 }
 
@@ -676,9 +707,11 @@ function receiptSvgForBet(bet) {
   const loser = bet.winner === 'proposer' ? bet.opponentName : bet.proposerName;
   const take = bet.winner === 'proposer' ? complementLabel(bet) : outcomeLabel(bet, bet.backedOutcome);
   return cards.receiptSvg({
-    HOME: trimCp(bet.home, 16), AWAY: trimCp(bet.away, 16),
+    // a season claim is the whole line, so it gets the room a team name doesn't need
+    HOME: trimCp(bet.home, isSeason(bet) ? 44 : 16), AWAY: trimCp(bet.away, 16),
     LOSER: trimCp(loser, 16), TAKE: trimCp(take, 24),
     RESULT: outcomeLabel(bet, bet.actualOutcome),
+    RESULT_LABEL: isSeason(bet) ? 'HOW IT ENDED' : 'FULL TIME',
     STAKE: stakeLabel(bet), RIV: rivalryLine(bet),
     DATE: fmtDate(bet.resolvedAt || bet.createdAt), ID: bet.id,
   });
@@ -757,13 +790,13 @@ function ogTextForBet(bet) {
     const rl = rivalryLine(bet);
     return {
       title: `${bet.proposerName} v ${bet.opponentName} — bet's on 🔒`,
-      desc: `${rl}. ${bet.home} v ${bet.away}: ${outcomeLabel(bet, bet.backedOutcome)} · ${stakeLabel(bet)} on the line. May the best mate win.`,
+      desc: `${rl}. ${matchLabel(bet)}: ${outcomeLabel(bet, bet.backedOutcome)} · ${stakeLabel(bet)} on the line. May the best mate win.`,
     };
   }
   return {
     // title carries the full hook: iMessage/Apple render ONLY og:title + og:image
     // (they drop og:description), so the matchup lives here, not just in desc.
-    title: `${bet.proposerName} calls ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.home} v ${bet.away} 🤝`,
+    title: `${bet.proposerName} calls ${outcomeLabel(bet, bet.backedOutcome)} — ${matchLabel(bet)} 🤝`,
     desc: `${bet.note ? maskProfanity(bet.note) + ' — ' : ''}${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Clashly.`,
   };
 }
@@ -1181,7 +1214,7 @@ function serveShareHtml(req, res, id) {
       // accept/resolve unfurls the NEW card instead of a scraper's stale copy
       const v = encodeURIComponent(bet.status + (bet.resolvedAt || bet.acceptedAt || bet.createdAt || ''));
       const img = `${origin}/card/${id}.png?v=${v}`;
-      const meta = ogMeta({ title, desc, img, pageUrl: `${origin}/b/${id}`, alt: `${bet.home} v ${bet.away} — ${title}`, stamp: bet.resolvedAt || bet.acceptedAt || bet.createdAt });
+      const meta = ogMeta({ title, desc, img, pageUrl: `${origin}/b/${id}`, alt: `${matchLabel(bet)} — ${title}`, stamp: bet.resolvedAt || bet.acceptedAt || bet.createdAt });
       html = html.replace('</head>', meta + '  </head>');
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1402,7 +1435,7 @@ async function handleApi(req, res, url) {
       .map((b) => {
         const ps = playerSummary(b.proposerId);
         return {
-          id: b.id, home: b.home, away: b.away, competition: b.competition, utcDate: b.utcDate,
+          id: b.id, home: b.home, away: b.away, kind: b.kind, competition: b.competition, utcDate: b.utcDate,
           backedOutcome: b.backedOutcome, stake: b.stake, currency: b.currency, line: b.line, note: b.note,
           proposerId: b.proposerId, proposerName: b.proposerName,
           proposerStats: { w: ps.w, l: ps.l, streakType: ps.streak.type, streakCount: ps.streak.count, arenaPts: ps.arenaPts },
@@ -1410,7 +1443,7 @@ async function handleApi(req, res, url) {
         };
       });
     const recent = [...decidedBets()].sort(byRecent).slice(0, 8).map((b) => ({
-      home: b.home, away: b.away,
+      home: b.home, away: b.away, kind: b.kind,
       winner: b.owes ? b.owes.to : (b.winner === 'proposer' ? b.proposerName : b.opponentName),
       loser: b.owes ? b.owes.from : (b.winner === 'proposer' ? b.opponentName : b.proposerName),
       stakeLbl: b.line || (b.stake > 0 ? (b.currency || 'EUR') + ' ' + b.stake : 'bragging rights'),
@@ -1498,7 +1531,7 @@ async function handleApi(req, res, url) {
     if (req.method === 'GET' && parts[3] === 'bets') {
       const mine = Object.values(db.bets).filter((b) => involvesId(b, me.id));
       const map = (b) => ({
-        id: b.id, home: b.home, away: b.away, status: b.status,
+        id: b.id, home: b.home, away: b.away, kind: b.kind, status: b.status,
         opponent: b.opponentId ? nameForId(b, otherId(b, me.id)) : null,
         backed: outcomeLabel(b, b.backedOutcome), stake: b.stake, currency: b.currency,
         mine: b.proposerId === me.id,
@@ -1662,9 +1695,9 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && parts[1] === 'activity' && parts.length === 2) {
     const items = [];
     for (const b of Object.values(db.bets)) {
-      if (b.arena && b.createdAt) items.push({ t: b.createdAt, text: `${b.proposerName} listed ${b.home} v ${b.away} in the Arena` });
+      if (b.arena && b.createdAt) items.push({ t: b.createdAt, text: `${b.proposerName} listed ${matchLabel(b)} in the Arena` });
       if (b.acceptedAt && b.opponentName) items.push({ t: b.acceptedAt, text: `${b.opponentName} took ${b.proposerName}'s bet` });
-      if (b.resolvedAt && b.owes) items.push({ t: b.resolvedAt, text: `${b.owes.to} beat ${b.owes.from} (${b.home} v ${b.away})` });
+      if (b.resolvedAt && b.owes) items.push({ t: b.resolvedAt, text: `${b.owes.to} beat ${b.owes.from} (${matchLabel(b)})` });
     }
     for (const p of (db.terrace || []).slice(-10)) items.push({ t: p.t, text: `${p.by} sounded off on the Terrace` });
     items.sort((a, c) => new Date(c.t) - new Date(a.t));
@@ -1705,13 +1738,17 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && parts[1] === 'bets' && parts.length === 2) {
     const me = authPlayer(req); if (!me) return need401();
     const b = await readBody(req);
-    if (!b.home || !b.away || !OUTCOMES.includes(b.backedOutcome))
+    const season = b.kind === 'season';
+    // a season call has no opponent team, and no draw to sit on
+    if (!b.home || (!season && !b.away) || !OUTCOMES.includes(b.backedOutcome)
+        || (season && b.backedOutcome === 'DRAW'))
       return sendJson(res, 400, { error: 'Missing or invalid fields' });
     const id = newId();
     const bet = {
       id, status: 'open',
       proposerId: me.id, proposerName: me.name, opponentId: null, opponentName: null,
-      home: String(b.home).slice(0, 40), away: String(b.away).slice(0, 40),
+      home: String(b.home).slice(0, season ? 80 : 40), away: season ? '' : String(b.away).slice(0, 40),
+      kind: season ? 'season' : undefined,
       competition: b.competition ? String(b.competition).slice(0, 60) : '',
       utcDate: b.utcDate || null, externalId: b.externalId || null,
       backedOutcome: b.backedOutcome, stake: Math.max(0, Number(b.stake) || 0),
@@ -1770,7 +1807,7 @@ async function handleApi(req, res, url) {
           addRematchReceipt(bet);
           logEvent('offer_accepted', { id: bet.id });
           saveData();
-          sendPush(off.byId, { title: 'Deal — counter accepted 🤝', body: `${me.name} took your terms on ${bet.home} v ${bet.away}.`, url: '/b/' + bet.id });
+          sendPush(off.byId, { title: 'Deal — counter accepted 🤝', body: `${me.name} took your terms on ${matchLabel(bet)}.`, url: '/b/' + bet.id });
           return sendJson(res, 200, bet);
         }
         return sendJson(res, 400, { error: 'Unknown offer action' });
@@ -1797,7 +1834,7 @@ async function handleApi(req, res, url) {
       bet.offers.push(off);
       logEvent('offer_made', { id: bet.id });
       saveData();
-      sendPush(bet.proposerId, { title: 'Counter-offer on your listing 💬', body: `${me.name} wants different terms on ${bet.home} v ${bet.away}.`, url: '/b/' + bet.id });
+      sendPush(bet.proposerId, { title: 'Counter-offer on your listing 💬', body: `${me.name} wants different terms on ${matchLabel(bet)}.`, url: '/b/' + bet.id });
       return sendJson(res, 201, bet);
     }
 
@@ -1816,7 +1853,7 @@ async function handleApi(req, res, url) {
       addPundit(bet, 'accepted');
       addRematchReceipt(bet);
       logEvent('bet_accepted', { id: bet.id });
-      sendPush(bet.proposerId, { title: 'Your bet is ON ⚔️', body: `${me.name} took the other side of ${bet.home} v ${bet.away}.`, url: '/b/' + bet.id });
+      sendPush(bet.proposerId, { title: 'Your bet is ON ⚔️', body: `${me.name} took the other side of ${matchLabel(bet)}.`, url: '/b/' + bet.id });
       return sendJson(res, 200, bet);
     }
 
@@ -1943,6 +1980,18 @@ async function handleApi(req, res, url) {
   return sendJson(res, 404, { error: 'Unknown endpoint' });
 }
 
+function serveLeagueTable(req, res, url) {
+  const m = url.pathname.match(/^\/ltable\/([A-Z0-9]+)\.(svg|png)$/);
+  if (!m) { res.writeHead(404); return res.end('Not found'); }
+  const league = db.leagues[m[1]];
+  if (!league) { res.writeHead(404); return res.end('No such league'); }
+  const svg = tableSvgFor(league);
+  if (m[2] === 'svg') { res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-cache' }); return res.end(svg); }
+  const png = cards.renderPng(svg);
+  if (png) { res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' }); return res.end(png); }
+  res.writeHead(302, { Location: `/ltable/${m[1]}.svg` }); res.end();
+}
+
 function serveLeagueCard(req, res, url) {
   const m = url.pathname.match(/^\/lcard\/([A-Z0-9]+)\.(svg|png)$/);
   if (!m) { res.writeHead(404); return res.end('Not found'); }
@@ -1992,6 +2041,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/sitemap.xml') return serveSitemap(req, res);
   if (/^\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(6), 'en');
   if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
+  if (url.pathname.startsWith('/ltable/')) return serveLeagueTable(req, res, url);
   if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
   if (url.pathname.startsWith('/card/')) return serveCard(req, res, url);
   if (url.pathname.startsWith('/storycard/')) return serveStoryCard(req, res, url);
@@ -2144,6 +2194,36 @@ async function terraceSweep() {
 // full time; a reported result the other side ignores gets one confirm nudge
 // after 24h. Every action here fires at most once per bet.
 // ---------------------------------------------------------------------------
+// Monday morning: the table goes back to the group. The league page is a place
+// nobody thinks to visit; the chat is where the season is actually argued about,
+// so once a week we hand every member the image and a reason to paste it.
+// Once per league per week, and never for a table nobody has played in.
+async function tableSweep() {
+  try {
+    const now = new Date();
+    if (now.getUTCDay() !== 1 || now.getUTCHours() < 8) return; // Mondays, after 08:00 UTC
+    const wk = weekIdx(Date.now());
+    if (!db.meta.tableNudges) db.meta.tableNudges = {};
+    let changed = false;
+    for (const league of Object.values(db.leagues || {})) {
+      if (!league || league.members.length < 2) continue;
+      if (db.meta.tableNudges[league.code] === wk) continue;
+      const rows = leagueStandings(league);
+      const top = rows.find((r) => r.games);
+      if (!top) continue;                       // an empty table is not news
+      db.meta.tableNudges[league.code] = wk; changed = true;
+      const body = rows.length > 1 && rows[1].w === top.w
+        ? `${top.name} and ${rows[1].name} can't be split. Send the table to the group.`
+        : `${top.name} leads on ${top.w} ${top.w === 1 ? 'win' : 'wins'}. Send the table to the group.`;
+      for (const m of league.members) {
+        sendPush(m.id, { title: `${league.name} — this week's table 🏆`, body, url: '/l/' + league.code });
+      }
+      logEvent('table_nudge', { code: league.code, members: league.members.length });
+    }
+    if (changed) saveData();
+  } catch (e) { console.warn('table sweep failed:', e.message); }
+}
+
 const FT_GRACE_MS = 125 * 60000;      // kickoff + ~2h05 covers ET-free league football
 async function ftSweep() {
   try {
@@ -2152,7 +2232,9 @@ async function ftSweep() {
       : b.utcDate ? now > new Date(b.utcDate).getTime() + FT_GRACE_MS
       // dateless custom calls ("loser buys the pints") never hit a kickoff, so they
       // fall out of the sweep entirely. Chase them a day after the handshake instead.
-      : Boolean(b.acceptedAt) && now - new Date(b.acceptedAt).getTime() > 24 * 3600000);
+      // a season call runs to May; chasing it a day after the handshake would be
+      // nonsense. Without a deadline it simply waits.
+      : !isSeason(b) && Boolean(b.acceptedAt) && now - new Date(b.acceptedAt).getTime() > 24 * 3600000);
     let fetches = 0, changed = false;
     for (const bet of due) {
       // fixture bets: settle automatically from the results API (trusted source,
@@ -2173,7 +2255,7 @@ async function ftSweep() {
       // custom bets (or result not published yet): one "who called it?" push
       if (!bet.pendingResult && !bet.ftNudged) {
         bet.ftNudged = true; changed = true;
-        const label = `${bet.home} v ${bet.away}`;
+        const label = matchLabel(bet);
         sendPush(bet.proposerId, { title: 'Full time 🏁', body: `${label} — who called it? Report the result.`, url: '/b/' + bet.id });
         if (bet.opponentId) sendPush(bet.opponentId, { title: 'Full time 🏁', body: `${label} — who called it? Report the result.`, url: '/b/' + bet.id });
         logEvent('ft_nudge', { id: bet.id });
@@ -2183,7 +2265,7 @@ async function ftSweep() {
           && now - new Date(bet.pendingResult.t).getTime() > 24 * 3600000) {
         bet.confirmNudged = true; changed = true;
         const waiterId = bet.pendingResult.byId === bet.proposerId ? bet.opponentId : bet.proposerId;
-        if (waiterId) sendPush(waiterId, { title: 'Confirm the result ✓', body: `${bet.pendingResult.by} reported ${bet.home} v ${bet.away}. One tap makes it official.`, url: '/b/' + bet.id });
+        if (waiterId) sendPush(waiterId, { title: 'Confirm the result ✓', body: `${bet.pendingResult.by} reported ${matchLabel(bet)}. One tap makes it official.`, url: '/b/' + bet.id });
         logEvent('confirm_nudge', { id: bet.id });
       }
     }
@@ -2226,6 +2308,8 @@ initData().then(() => {
   // v14 full-time sweep: fixture bets settle themselves, everyone else gets nudged
   setTimeout(ftSweep, 45000);
   setInterval(ftSweep, 30 * 60000);
+  setTimeout(tableSweep, 60000);
+  setInterval(tableSweep, 60 * 60000);
   // v11 — rivalry-streak rescue: Fri/Sat, if a pair with a 2+ week streak has no
   // clash yet this week, nudge BOTH sides once. Peer pressure beats app pressure.
   const streakNudgeSweep = () => {

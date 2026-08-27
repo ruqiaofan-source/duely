@@ -26,7 +26,7 @@
 <!-- HERO: the pick -->
 <text x="66" y="184" class="inter" font-size="22" font-weight="900" fill="#14E0C8" letter-spacing="6">{{PROPOSER}} IS BACKING</text>
 <text x="60" y="310" class="anton" font-size="{{BACKED_SIZE}}" fill="#14E0C8">{{BACKED}}</text>
-<text x="66" y="360" class="inter" font-size="27" font-weight="700" fill="#9AA7B8">{{HOME}}  v  {{AWAY}}</text>
+<text x="66" y="360" class="inter" font-size="27" font-weight="700" fill="#9AA7B8">{{MATCHUP}}</text>
 
 <rect x="64" y="400" width="1072" height="1.5" fill="#2A3340"/>
 

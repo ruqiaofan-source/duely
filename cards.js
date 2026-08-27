@@ -24,6 +24,14 @@ try { Resvg = require('@resvg/resvg-js').Resvg; } catch { Resvg = null; }
 const FONTS = path.join(__dirname, 'fonts');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// A season-long call has no away side, so every card joins the two itself
+// rather than baking " v " into the artwork. Long claims step the type down so
+// they still fit the plate.
+const matchup = (d) => (d.AWAY ? `${d.HOME}  v  ${d.AWAY}` : String(d.HOME || ''));
+const withMatchup = (d, base) => {
+  const m = matchup(d);
+  return { ...d, MATCHUP: m, MATCHUP_SIZE: d.MATCHUP_SIZE || (m.length > 42 ? Math.round(base * 0.62) : m.length > 28 ? Math.round(base * 0.78) : base) };
+};
 const fill = (tpl, data) => tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => esc(data[k] ?? ''));
 
 function loadTemplate(name, fallback) {
@@ -83,7 +91,7 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 <text x="72" y="580" class="inter" font-size="36" font-weight="700" fill="#93A1B3">{{SUB}}</text>
 <text x="72" y="720" class="anton" font-size="{{HERO_SIZE}}" fill="{{ACCENT}}">{{HERO}}</text>
 <rect x="72" y="840" width="936" height="104" rx="24" fill="#161C26" stroke="#2A3340" stroke-width="2"/>
-<text x="540" y="906" class="inter" text-anchor="middle" font-size="42" font-weight="800" fill="#F5F7FA">{{HOME}}  v  {{AWAY}}</text>
+<text x="540" y="906" class="inter" text-anchor="middle" font-size="{{MATCHUP_SIZE}}" font-weight="800" fill="#F5F7FA">{{MATCHUP}}</text>
 <text x="72" y="1110" class="inter" font-size="28" font-weight="800" fill="#93A1B3" letter-spacing="2">THE STAKE</text>
 <text x="72" y="1250" class="anton" font-size="140" fill="#2BD17E">{{STAKE}}</text>
 <text x="72" y="1320" class="inter" font-size="30" font-weight="700" fill="#93A1B3">winner takes the bragging rights</text>
@@ -113,10 +121,10 @@ const RECEIPT_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/s
 <text x="132" y="126" font-size="13" font-weight="800" fill="#8A8171" letter-spacing="4">OFFICIAL RECEIPT &#183; THE TERRACE REMEMBERS</text>
 <text x="1066" y="108" text-anchor="end" font-size="14" font-weight="700" fill="#8A8171">{{DATE}}</text>
 <line x1="130" y1="148" x2="1066" y2="148" stroke="#C9BFA8" stroke-width="2" stroke-dasharray="8 6"/>
-<text x="130" y="206" class="anton" font-size="44" fill="#1B1B22">{{HOME}}  v  {{AWAY}}</text>
+<text x="130" y="206" class="anton" font-size="{{MATCHUP_SIZE}}" fill="#1B1B22">{{MATCHUP}}</text>
 <text x="130" y="266" font-size="15" font-weight="900" fill="#8A8171" letter-spacing="3">THE CALL</text>
 <text x="130" y="312" font-size="30" font-weight="800" fill="#1B1B22">{{LOSER}} backed {{TAKE}}</text>
-<text x="130" y="368" font-size="15" font-weight="900" fill="#8A8171" letter-spacing="3">FULL TIME</text>
+<text x="130" y="368" font-size="15" font-weight="900" fill="#8A8171" letter-spacing="3">{{RESULT_LABEL}}</text>
 <text x="130" y="414" font-size="30" font-weight="800" fill="#1B1B22">{{RESULT}}</text>
 <line x1="130" y1="448" x2="1066" y2="448" stroke="#C9BFA8" stroke-width="2" stroke-dasharray="8 6"/>
 <text x="130" y="486" font-size="17" font-weight="700" fill="#5A5344">ON THE SLIP&#160;&#160;{{STAKE}}</text>
@@ -138,7 +146,7 @@ function challengeSvg(data) {
     BADGE: 'OPEN BET', CTA_MAIN: 'TAKE THE OTHER SIDE', CTA_SUB: '', BACKED_SIZE: 122,
     ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'called it.',
   };
-  return fill(CHALLENGE_TPL, d);
+  return fill(CHALLENGE_TPL, withMatchup(d, 27));
 }
 
 // neutral "called off" card for voided bets — a cancelled bet must not keep
@@ -157,17 +165,58 @@ const VOID_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg"
 <text x="62" y="46" class="inter" font-size="12" font-weight="700" fill="#14E0C8" letter-spacing="2.5">BACK YOURSELF.</text>
 </g>
 <text x="60" y="330" class="anton" font-size="96" fill="#93A1B3">CALLED OFF</text>
-<text x="66" y="386" class="inter" font-size="26" font-weight="700" fill="#5E6B7C">{{HOME}} v {{AWAY}} &#183; this one didn't count</text>
+<text x="66" y="386" class="inter" font-size="26" font-weight="700" fill="#5E6B7C">{{MATCHUP}} &#183; this one didn't count</text>
 <text x="66" y="560" class="inter" font-size="20" font-weight="800" fill="#14E0C8">Start your own on clashly.live &#8594;</text>
 </svg>`;
-function voidSvg(data) { return fill(VOID_TPL, data); }
+function voidSvg(data) { return fill(VOID_TPL, withMatchup(data, 26)); }
 function resultSvg(data) {
   const d = { ...data, NOTE: (data.NOTE && data.NOTE.trim()) ? data.NOTE : 'told you so.' };
   return fill(RESULT_TPL, d);
 }
+// The weekly table — the artefact that goes back into the group chat every
+// Monday. A join card sells the league; this one settles arguments, so it is
+// the standings themselves, big enough to read on a phone in a WhatsApp thread.
+const TABLE_ROW = (r, i) => {
+  const y = 268 + i * 62;
+  const gold = i === 0;
+  return `<g>
+<rect x="72" y="${y - 40}" width="1056" height="54" rx="12" fill="${gold ? 'rgba(255,200,61,.10)' : (i % 2 ? 'rgba(255,255,255,.025)' : 'transparent')}"/>
+<text x="106" y="${y}" class="anton" font-size="30" fill="${gold ? '#FFC83D' : '#5E6B7C'}">${i + 1}</text>
+<text x="168" y="${y}" class="inter" font-size="27" font-weight="${gold ? 900 : 700}" fill="${gold ? '#FFC83D' : '#F5F7FA'}">${esc(r.NAME)}</text>
+${gold ? `<rect x="${168 + String(r.NAME).length * 15 + 14}" y="${y - 22}" width="52" height="24" rx="12" fill="#FFC83D"/><text x="${168 + String(r.NAME).length * 15 + 40}" y="${y - 5}" text-anchor="middle" class="inter" font-size="13" font-weight="900" fill="#1B1B22" letter-spacing="1">TOP</text>` : ''}
+<text x="880" y="${y}" text-anchor="middle" class="inter" font-size="25" font-weight="800" fill="#9AA7B8">${esc(r.WL)}</text>
+<text x="1096" y="${y}" text-anchor="end" class="inter" font-size="25" font-weight="900" fill="${r.POS ? '#14E0C8' : r.NEG ? '#FF5A6E' : '#5E6B7C'}">${esc(r.NET)}</text>
+</g>`;
+};
+function tableSvg(data) {
+  const rows = (data.ROWS || []).slice(0, 6);
+  const h = 300 + rows.length * 62;
+  return `<svg viewBox="0 0 1200 ${h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Clashly league table">
+<defs>
+<style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}
+.inter{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;}</style>
+<linearGradient id="tBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0B0F14"/></linearGradient>
+<radialGradient id="tGlow" cx="0.5" cy="0" r="0.9"><stop offset="0" stop-color="#14E0C8" stop-opacity="0.13"/><stop offset="1" stop-color="#14E0C8" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="${h}" fill="url(#tBg)"/><rect width="1200" height="${h}" fill="url(#tGlow)"/>
+<rect x="0" y="0" width="1200" height="8" fill="#14E0C8"/>
+<g transform="translate(64,44) scale(0.44)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></g>
+<text x="120" y="68" class="anton" font-size="31" fill="#F5F7FA" letter-spacing="1">CLASHLY</text>
+<text x="122" y="86" class="inter" font-size="11.5" font-weight="700" fill="#14E0C8" letter-spacing="2">BACK YOURSELF.</text>
+<text x="1136" y="76" text-anchor="end" class="inter" font-size="17" font-weight="800" fill="#5E6B7C" letter-spacing="2">${esc(data.WEEK || '')}</text>
+<text x="72" y="176" class="anton" font-size="${(data.NAME || '').length > 18 ? 52 : 68}" fill="#F5F7FA">${esc(data.NAME || 'The table')}</text>
+<text x="72" y="216" class="inter" font-size="20" font-weight="700" fill="#14E0C8" letter-spacing="1">${esc(data.SUB || '')}</text>
+<line x1="72" y1="240" x2="1128" y2="240" stroke="#22303F" stroke-width="2"/>
+<text x="880" y="228" text-anchor="middle" class="inter" font-size="15" font-weight="800" fill="#3E4B5A" letter-spacing="2">W-L</text>
+<text x="1096" y="228" text-anchor="end" class="inter" font-size="15" font-weight="800" fill="#3E4B5A" letter-spacing="2">NET</text>
+<text x="72" y="${h - 36}" class="inter" font-size="17" font-weight="800" fill="#14E0C8">clashly.live</text>
+<text x="1128" y="${h - 36}" text-anchor="end" class="inter" font-size="15" font-weight="700" fill="#3E4B5A">settle the season on the record</text>
+${rows.map(TABLE_ROW).join('')}
+</svg>`;
+}
 function leagueSvg(data) { return fill(LEAGUE_TPL, data); }
-function receiptSvg(data) { return fill(RECEIPT_TPL, data); }
-function storySvg(data) { return fill(STORY_TPL, data); }
+function receiptSvg(data) { return fill(RECEIPT_TPL, { RESULT_LABEL: 'FULL TIME', ...withMatchup(data, 44) }); }
+function storySvg(data) { return fill(STORY_TPL, withMatchup(data, 42)); }
 
 function renderPng(svg) {
   if (!Resvg) return null;
@@ -181,4 +230,4 @@ function renderPng(svg) {
   } catch (e) { console.warn('card png render failed:', e.message); return null; }
 }
 
-module.exports = { challengeSvg, resultSvg, leagueSvg, storySvg, voidSvg, receiptSvg, renderPng, hasRasterizer: Boolean(Resvg) };
+module.exports = { challengeSvg, resultSvg, leagueSvg, tableSvg, storySvg, voidSvg, receiptSvg, renderPng, hasRasterizer: Boolean(Resvg) };
