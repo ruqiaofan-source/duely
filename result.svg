@@ -15,7 +15,7 @@
 <rect x="0" y="0" width="1200" height="6" fill="#FFC83D"/>
 
 <g transform="translate(64,48)">
-<g transform="scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#rDuel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<g transform="scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></g>
 <text x="60" y="28" class="anton" font-size="30" fill="#F4F7FB" letter-spacing="1">CLASHLY</text>
 <text x="62" y="46" class="inter" font-size="12" font-weight="700" fill="#14E0C8" letter-spacing="2.5">BACK YOURSELF.</text>
 </g>

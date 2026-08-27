@@ -784,7 +784,7 @@ const HOME_OG_SVG = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/s
 </defs>
 <rect width="1200" height="630" fill="url(#bg)"/><rect width="1200" height="630" fill="url(#gl)"/>
 <rect x="0" y="0" width="1200" height="8" fill="#14E0C8"/>
-<g transform="translate(72,80) scale(0.62)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#duel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<g transform="translate(72,80) scale(0.62)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></g>
 <text x="145" y="128" class="anton" font-size="46" fill="#F4F7FB" letter-spacing="1">CLASHLY</text>
 <text x="147" y="156" class="inter" font-size="17" font-weight="700" fill="#14E0C8" letter-spacing="3">BACK YOURSELF.</text>
 <text x="72" y="290" class="anton" font-size="82" fill="#F4F7FB">SETTLE THE BET.</text>

@@ -49,7 +49,7 @@ const LEAGUE_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/sv
 <rect x="0" y="0" width="1200" height="8" fill="#14E0C8"/>
 <g opacity="0.05" stroke="#9AA7B8" stroke-width="2" fill="none"><line x1="600" y1="120" x2="600" y2="470"/><circle cx="600" cy="295" r="78"/></g>
 <g class="inter">
-<g transform="translate(56,48) scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#lDuel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<g transform="translate(56,48) scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></g>
 <text x="116" y="74" class="anton" font-size="34" fill="#F5F7FA" letter-spacing="1">CLASHLY</text>
 <text x="118" y="92" class="inter" font-size="12.5" font-weight="700" fill="#14E0C8" letter-spacing="2">BACK YOURSELF.</text>
 </g>
@@ -74,7 +74,7 @@ const STORY_TPL = `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/sv
 <rect width="1080" height="1920" fill="url(#sGlow)"/>
 <rect x="0" y="0" width="1080" height="10" fill="{{ACCENT}}"/>
 <g class="inter">
-<g transform="translate(72,100) scale(0.78)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#sDuel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<g transform="translate(72,100) scale(0.78)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></g>
 <text x="172" y="144" class="anton" font-size="56" fill="#F5F7FA" letter-spacing="1">CLASHLY</text>
 <text x="174" y="176" class="inter" font-size="20" font-weight="700" fill="#14E0C8" letter-spacing="3">BACK YOURSELF.</text>
 </g>
@@ -152,7 +152,7 @@ const VOID_TPL = `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg"
 <rect width="1200" height="630" fill="#0A0E13"/><rect width="1200" height="630" fill="url(#vBg)"/>
 <rect x="0" y="0" width="1200" height="6" fill="#33414F"/>
 <g transform="translate(64,48)">
-<g transform="scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M74 30 A31 31 0 1 0 74 70 L64 61 A18 18 0 1 1 64 39 Z" fill-rule="evenodd" fill="url(#vDuel)"/><rect x="48.5" y="19" width="3" height="62" fill="#0A0E13"/></g>
+<g transform="scale(0.46)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></g>
 <text x="60" y="28" class="anton" font-size="30" fill="#F4F7FB" letter-spacing="1">CLASHLY</text>
 <text x="62" y="46" class="inter" font-size="12" font-weight="700" fill="#14E0C8" letter-spacing="2.5">BACK YOURSELF.</text>
 </g>
