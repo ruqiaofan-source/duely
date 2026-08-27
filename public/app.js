@@ -36,7 +36,19 @@ const initials = (n) => String(n || '?').trim().slice(0, 2).toUpperCase();
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1900); }
 // haptics — progressive enhancement (Android Chrome; iOS Safari no-ops). Respects reduced-motion.
 function haptic(p) { try { if (navigator.vibrate && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(p); } catch {} }
-function track(ev, props) { try { if (window.posthog) window.posthog.capture(ev, props || {}); } catch {} }
+const SERVER_TRACKED = new Set(['onboard_view', 'onboard_done', 'sheet_open', 'outcome_picked',
+  'season_picked', 'accept_view', 'accept_tap', 'settle_card_tap', 'brag_copy', 'table_send']);
+function track(ev, props) {
+  try { if (window.posthog) window.posthog.capture(ev, props || {}); } catch {}
+  // mirror the funnel steps to our own store too — PostHog holds the detail, but
+  // /api/stats has to be able to answer "where do people drop" on its own
+  if (SERVER_TRACKED.has(ev)) {
+    try {
+      fetch('/api/track', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ e: ev }), keepalive: true }).catch(() => {});
+    } catch {}
+  }
+}
 
 // ---- bottom sheet (accessible: labelled, focus-trapped, Escape-to-close) ----
 let _sheetReturnFocus = null;
@@ -296,6 +308,19 @@ let RECWIN = 'week'; // high-scores window: week | all
 const _betCache = {}; // last-fetched bet per id (optimistic reactions reconcile against it)
 let _gen = 0; // render generation — a newer render invalidates a slower older one
 
+// Season-call prompts. Rotates daily so the card never reads like static furniture,
+// and every one is a real argument someone in a group chat is already having.
+const SEASON_IDEAS = [
+  'Arsenal finish above Spurs',
+  'Man United sack their manager before Christmas',
+  'Haaland is the top scorer',
+  'We finish in the top four',
+  'Liverpool win the league',
+  'Chelsea finish above Man United',
+  'Our lot get relegated',
+  'Salah is still here in May',
+];
+
 // rank fixtures for the Home "Big games" spotlight: tournament > big competition,
 // big-club bonus, near-kickoff bonus. Threshold keeps filler fixtures out.
 const COMP_W = [[/world cup|fifa|\bwc\b/i, 100], [/champions league/i, 80], [/europa/i, 55], [/premier league/i, 50], [/la ?liga/i, 45], [/serie a/i, 42], [/bundesliga/i, 42], [/eredivisie/i, 40], [/ligue 1/i, 38]];
@@ -451,6 +476,7 @@ async function route() {
 // Onboarding
 // ---------------------------------------------------------------------------
 function renderOnboarding(next) {
+  track('onboard_view');
   app.innerHTML = `
     <div class="card">
       <h2>Think you know ball? Prove it. ⚽</h2>
@@ -473,7 +499,7 @@ function renderOnboarding(next) {
     const btn = $('#go'); btn.disabled = true; btn.textContent = 'Setting up…';
     // go through the router (not the render fn directly) so setTab runs and the
     // tab bar actually appears now that an identity exists
-    try { await register(name); renderHeader(); route(); }
+    try { await register(name); track('onboard_done'); renderHeader(); route(); }
     catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Let's go →"; }
   });
   $('#signin').addEventListener('click', () => openLoginSheet());
@@ -662,6 +688,15 @@ async function renderHome() {
           <button class="linkbtn" data-callit="${esc(g.id)}" style="font-weight:800">Call it →</button>
         </div>`).join('')}
     </div>` : ''}
+    ${/* Season calls were invisible: the only way in was a dropdown at the bottom of
+          the create sheet. This is the entry point — and it is the ONLY thing on the
+          page that still works during the 21 Sep - 6 Oct break, when there are no
+          fixtures to put in "Big games" at all. */ ''}
+    <div class="card" style="border-color:rgba(124,58,237,.45);background:linear-gradient(180deg,rgba(124,58,237,.07),transparent)">
+      <div class="cardhead"><h2>🗓️ Call the whole season</h2></div>
+      <p class="sub" style="margin:2px 0 10px">No fixture needed. "${esc(SEASON_IDEAS[new Date().getDate() % SEASON_IDEAS.length])}" — settled in May, on the record until then.</p>
+      <button class="cta" id="seasonCall" style="background:var(--purple);color:#fff">Make a season call →</button>
+    </div>
 
 
 
@@ -719,6 +754,10 @@ async function renderHome() {
   app.querySelectorAll('[data-arena]').forEach((el) =>
     el.addEventListener('click', (e) => { e.stopPropagation(); track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
   const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
+  const sc = $('#seasonCall'); if (sc) sc.addEventListener('click', () => {
+    PREFILL = { season: true, claim: SEASON_IDEAS[new Date().getDate() % SEASON_IDEAS.length] };
+    renderCreate();
+  });
   const aa = $('#arenaAll'); if (aa) aa.addEventListener('click', () => { history.pushState({}, '', '/arena'); route(); });
   app.querySelectorAll('[data-correct]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const ti = $('#terrIn'); if (ti) { ti.value = '@' + b.dataset.correct + ' '; ti.focus(); ti.scrollIntoView({ behavior: 'smooth', block: 'center' }); haptic(8); } }));
   app.querySelectorAll('[data-punish]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); PREFILL = { opponent: b.dataset.punish }; renderCreate(); }));
@@ -774,6 +813,10 @@ async function renderArena() {
   app.querySelectorAll('[data-arena]').forEach((el) =>
     el.addEventListener('click', () => { track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
   const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
+  const sc = $('#seasonCall'); if (sc) sc.addEventListener('click', () => {
+    PREFILL = { season: true, claim: SEASON_IDEAS[new Date().getDate() % SEASON_IDEAS.length] };
+    renderCreate();
+  });
   const hl = $('#homeLink'); if (hl) hl.addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
 }
 
@@ -1019,6 +1062,7 @@ async function renderLeague(code, full) {
   const st0 = $('#sendTable');
   if (st0) st0.addEventListener('click', () => {
     const top = (lg.standings || []).find((r) => r.games);
+    track('table_send');
     shareImage('/ltable/' + code + '.png',
       top ? `${lg.name} as it stands — ${top.name} on top. Get involved: ${link}` : `${lg.name} on Clashly — ${link}`,
       'table');
@@ -1034,6 +1078,7 @@ async function renderLeague(code, full) {
 // Create a bet
 // ---------------------------------------------------------------------------
 async function renderCreate() {
+  track('sheet_open');
   const m = me.get();
   // the sheet opens INSTANTLY; fixtures stream in (the primary tap must never feel dead)
   let matches = [], live = false;
@@ -1144,12 +1189,13 @@ async function renderCreate() {
     if (sel.value === 'season' && state.backedOutcome === 'DRAW') state.backedOutcome = 'HOME';
     seg.innerHTML = sides
       .map(([code, lbl]) => `<button data-o="${code}" class="${state.backedOutcome === code ? 'active' : ''}">${esc(lbl)}</button>`).join('');
-    seg.querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => { state.backedOutcome = btn.dataset.o; haptic(8); renderSeg(); }));
+    seg.querySelectorAll('button').forEach((btn) => btn.addEventListener('click', () => { state.backedOutcome = btn.dataset.o; track('outcome_picked'); haptic(8); renderSeg(); }));
     if (hadFocus) seg.querySelector(`[data-o="${hadFocus}"]`)?.focus();
     updatePreview();
   };
   const onMatchChange = () => {
     const season = sel.value === 'season';
+    if (season) track('season_picked');
     $('#customWrap').style.display = sel.value === 'custom' ? 'block' : 'none';
     $('#seasonWrap').style.display = season ? 'block' : 'none';
     // a season call has no kickoff to wait for, so it can't be an Arena listing
@@ -1173,11 +1219,12 @@ async function renderCreate() {
   if (PREFILL?.arena) { const ac = $('#arenaChk'); if (ac) ac.checked = true; syncArenaUi(); }
 
   if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; }
+  if (PREFILL?.season) { sel.value = 'season'; const cl = $('#claim'); if (cl && PREFILL.claim) cl.value = PREFILL.claim; }
   onMatchChange();
   matchesP.then((r) => {
     if (!document.getElementById('matchSel')) return; // sheet closed meanwhile
     if (r) { matches = r.matches; live = r.live; }
-    const keep = sel.value === 'custom' ? 'custom' : null;
+    const keep = (sel.value === 'custom' || sel.value === 'season') ? sel.value : null;
     sel.innerHTML = matches.map((mm) => `<option value="${mm.id}">${esc(mm.home)} vs ${esc(mm.away)}${mm.competition ? ' · ' + esc(mm.competition) : ''}</option>`).join('') + CUSTOM_OPT;
     if (keep) sel.value = keep;
     else if (PREFILL?.matchId && matches.some((x) => x.id === PREFILL.matchId)) sel.value = PREFILL.matchId;
@@ -1275,7 +1322,11 @@ async function renderBet(id, opts = {}) {
       app.innerHTML = `
         <div class="card">
           <div class="cardhead"><h2>Send it to your mate 📲</h2>${pill}</div>
-          <p class="sub">You're backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b> for <b>${money(bet)}</b>. They take the other side (${esc(complementLabel(bet))}).</p>
+          <p class="sub">${isSeason(bet)
+            /* "You're backing Yes — it happens" is meaningless on its own: for a
+               season call the claim IS the sentence, so it has to be in it. */
+            ? `You're calling <b>${esc(bet.home)}</b> for <b>${money(bet)}</b>. They take the other side (${esc(complementLabel(bet))}).`
+            : `You're backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b> for <b>${money(bet)}</b>. They take the other side (${esc(complementLabel(bet))}).`}</p>
           <div style="position:relative">
             <img class="cardimg" src="/card/${id}.svg" alt="Your bet card" loading="eager" />
             ${(() => { try { if (sessionStorage.getItem('duely_stamp') === id) { sessionStorage.removeItem('duely_stamp'); return '<div class="stamp-slam">ON THE RECORD</div>'; } } catch {} return ''; })()}
@@ -1321,7 +1372,9 @@ async function renderBet(id, opts = {}) {
           catch (e) { toast(e.message); b.disabled = false; }
         }));
       }
-      const waText = `${m ? m.name + ' reckons' : 'I reckon'} ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`;
+      const waText = isSeason(bet)
+        ? `${m ? m.name + ' reckons' : 'I reckon'} ${bet.home}${bet.backedOutcome === 'AWAY' ? " — isn't happening" : ''} — ${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`
+        : `${m ? m.name + ' reckons' : 'I reckon'} ${outcomeLabel(bet, bet.backedOutcome)} — ${bet.note ? '“' + bet.note + '” ' : ''}you taking the other side? 👇`;
       // primary: WhatsApp deep-link (unfurls the card AND keeps the link tappable)
       if (bet.arena) { const wa = $('#waBtn'); if (wa) wa.insertAdjacentHTML('beforebegin', '<div class="banner" style="border-style:solid;border-color:rgba(124,58,237,.45);text-align:left;margin-bottom:10px">🌍 <b>Live in the Arena</b> — anyone on Clashly can take the other side right now. Firing the link at a mate still works too.</div>'); }
       $('#waBtn').addEventListener('click', () => { track('share', { kind: 'whatsapp' }); shareLink(link, waText); });
@@ -1366,7 +1419,9 @@ async function renderBet(id, opts = {}) {
       <div class="card">
         <div class="cardhead"><h2>${esc(bet.proposerName)} wants to bet you 👀</h2>${pill}</div>
         ${koTxt ? `<div class="banner" style="margin:0 0 6px;border-style:solid;border-color:rgba(255,200,61,.35);color:var(--gold);font-weight:800">${koTxt}</div>` : ''}
-        <p class="sub"><b>${esc(bet.proposerName)}</b> is backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b>. You take the other side.</p>
+        <p class="sub">${isSeason(bet)
+          ? `<b>${esc(bet.proposerName)}</b> is calling <b>${esc(bet.home)}</b>${bet.backedOutcome === 'AWAY' ? ' <b>not</b> to happen' : ''}. You take the other side.`
+          : `<b>${esc(bet.proposerName)}</b> is backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b>. You take the other side.`}</p>
         ${rb}${proof}
         ${matchCard}
         ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}

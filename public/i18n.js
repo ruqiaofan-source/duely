@@ -58,6 +58,7 @@
     'Settled 🗓️': 'Rozliczone 🗓️',
     '📲 Send the table to the group': '📲 Wyślij tabelę na grupę',
     'finish above': 'wyżej w tabeli', 'sacked by Xmas': 'zwolniony do świąt',
+    '🗓️ Call the whole season': '🗓️ Typuj cały sezon', 'Make a season call →': 'Typuj na sezon →',
     'top scorer': 'król strzelców', 'relegation': 'spadek',
     "By accepting you confirm you're 18 or over.": 'Akceptując potwierdzasz, że masz ukończone 18 lat.',
     'Full time 🏁 Settle up': 'Koniec meczu 🏁 Rozliczcie się',
