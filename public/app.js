@@ -494,6 +494,7 @@ async function renderHome() {
   const my = ++_gen; const live = () => my === _gen;
   const m = me.get();
   const actP = api('/activity').catch(() => null);
+  const myBetsP = m ? api('/players/me/bets').catch(() => null) : Promise.resolve(null);
   const motwP = api('/motw').catch(() => null);
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
   const recP = api('/records?window=' + RECWIN).catch(() => null);
@@ -514,6 +515,10 @@ async function renderHome() {
   try { const av = await actP; if (av && av.items) activity = av.items; } catch {}
   let motw = null;
   try { const mw = await motwP; if (mw && mw.match && new Date(mw.match.utcDate || 0).getTime() > Date.now()) motw = mw.match; } catch {}
+  // v14 — bets waiting on ME to settle or confirm: the single most valuable tap
+  // on the whole site, so it renders above everything else on home.
+  let toSettle = [];
+  try { const mb = await myBetsP; if (mb && mb.active) toSettle = mb.active.filter((b) => b.status === 'accepted' && b.yourMove); } catch {}
   if (!live()) return; // superseded by a newer navigation
   const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
   const recHtml = rec ? [
@@ -563,6 +568,16 @@ async function renderHome() {
     : '';
 
   app.innerHTML = `
+    ${toSettle.length ? `<div class="card" style="border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.06),transparent)">
+      <div class="cardhead"><h2>Full time 🏁 Settle up</h2></div>
+      ${toSettle.slice(0, 3).map((b) => `
+        <div class="riv-row" data-settle="${esc(b.id)}" role="button" tabindex="0" style="cursor:pointer">
+          <div><div class="nm">${esc(b.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(b.away)}</div>
+          <div class="sm">${b.pending ? 'Your mate reported the result — confirm it' : 'Match finished — report the result'}${b.opponent ? ' · vs ' + esc(b.opponent) : ''}</div></div>
+          <button class="linkbtn" data-settle="${esc(b.id)}" style="font-weight:800;color:var(--gold)">${b.pending ? 'Confirm ✓' : 'Report →'}</button>
+        </div>`).join('')}
+      <p class="sub" style="margin:8px 0 0">Unsettled duels never reach the record. Thirty seconds, on it goes.</p>
+    </div>` : ''}
     ${!isNew && terrace.length ? (() => { const hp = terrace[0]; return `<div class="card" style="border-color:rgba(255,200,61,.5);background:linear-gradient(180deg,rgba(255,200,61,.07),transparent)">
       <div class="sm" style="color:var(--gold);font-weight:800;letter-spacing:1px;font-size:11px">📣 LATEST FROM THE TERRACE</div>
       <div style="font-family:Anton,sans-serif;font-size:24px;line-height:1.25;margin:8px 0 6px">“${esc(hp.text)}”</div>
@@ -671,6 +686,7 @@ async function renderHome() {
 
     ${isNew ? '' : `<div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`}`;
 
+  app.querySelectorAll('[data-settle]').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); track('settle_card_tap'); history.pushState({}, '', '/b/' + el.dataset.settle); renderBet(el.dataset.settle); }));
   const chBtn = $('#challenge'); if (chBtn) chBtn.addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const mc = $('#motwCall'); if (mc) mc.addEventListener('click', () => { track('motw_tap'); PREFILL = { matchId: motw.id }; renderCreate(); });
   app.querySelectorAll('[data-collect]').forEach((b) => b.addEventListener('click', (e) => {
@@ -973,22 +989,26 @@ async function renderLeague(code, full) {
     </div>`).join('');
   const waText = `Join our Clashly league "${lg.name}" 🏆 — settle football bets, climb the table.`;
 
+  const solo = lg.members.length === 1;
   app.innerHTML = `
     <div class="card">
-      <div class="cardhead"><h2>${esc(lg.name)} 🏆</h2><span class="pill resolved">${lg.members.length} mates</span></div>
+      <div class="cardhead"><h2>${esc(lg.name)} 🏆</h2><span class="pill resolved">${lg.members.length} mate${lg.members.length === 1 ? '' : 's'}</span></div>
+      ${solo ? `<div class="banner" style="margin:2px 0 10px;border-style:solid;border-color:rgba(255,200,61,.4);text-align:left">👑 A table of one wins nothing. Send the link and the season starts when the first mate joins.</div>
+      <button class="cta wa" id="inviteTop">Send it to the group 📲</button>` : ''}
       ${gapLine ? `<div class="banner" style="margin:2px 0 10px;border-style:solid;border-color:rgba(20,224,200,.3);color:var(--text)">${gapLine}</div>` : ''}
       ${lg.banter ? `<div class="banner" style="margin:0 0 10px">⚔️ Fiercest rivalry: <b style="color:var(--text)">${esc(lg.banter.a)} v ${esc(lg.banter.b)}</b> · ${lg.banter.games} duels</div>` : ''}
       <div class="lg-head"><div class="lg-rank">#</div><div class="lg-name">Player</div><div class="lg-rec">W-L</div><div class="lg-net">Net</div></div>
       ${tbl}
       ${canSlice ? `<button class="muted-link" id="toggleTable">${full ? 'Show just my spot' : 'Show full table →'}</button>` : ''}
       <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
-      <button class="cta wa" id="invite">Invite mates on WhatsApp</button>
+      ${solo ? '' : '<button class="cta wa" id="invite">Invite mates on WhatsApp</button>'}
       <button class="ghost" id="copyInvite">Copy invite link</button>
       <button class="muted-link" id="homeLink">Back to my season</button>
     </div>
     <div class="banner">League table counts bets between members only. Win to climb. 🪜</div>`;
   $('#challenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
-  $('#invite').addEventListener('click', () => window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'));
+  const iv = $('#invite'); if (iv) iv.addEventListener('click', () => { track('league_invite_tap'); window.open('https://wa.me/?text=' + encodeURIComponent(waText + ' ' + link), '_blank'); });
+  const it = $('#inviteTop'); if (it) it.addEventListener('click', () => { track('league_invite_tap', { solo: true }); shareLink(link, waText); });
   $('#copyInvite').addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); sfx('clip'); toast('Invite copied'); } catch { toast(link); } });
   const tt = $('#toggleTable'); if (tt) tt.addEventListener('click', () => renderLeague(code, !full));
   $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
@@ -1198,6 +1218,7 @@ async function renderBet(id, opts = {}) {
     // the device-local role is only a hint for the signed-out case (a stale role from
     // a previous user on a shared device must never trump the current identity).
     if ((m && bet.proposerId === m.id) || (!m && role === 'proposer')) {
+      track('proposer_open', { id });
       app.innerHTML = `
         <div class="card">
           <div class="cardhead"><h2>Send it to your mate 📲</h2>${pill}</div>
@@ -1275,9 +1296,20 @@ async function renderBet(id, opts = {}) {
           ? `<div class="banner" style="margin:0 0 4px">${esc(bet.proposerName)} has settled ${ps.duels} duel${ps.duels === 1 ? '' : 's'} on Clashly.</div>`
           : `<div class="banner" style="margin:0 0 4px">Duel #1 between you and ${esc(bet.proposerName)} — the record starts here.</div>`
     );
+    // v14 — honest urgency: how long until this call locks
+    const ko = bet.utcDate ? new Date(bet.utcDate).getTime() - Date.now() : 0;
+    // the label sits in its own text node so the i18n observer can swap it —
+    // interpolated sentences fall back to English, split ones don't
+    const koTxt = ko > 0
+      ? (ko > 86400000 ? `⏱ <span>Kickoff in</span> ${Math.floor(ko / 86400000)}d ${Math.floor((ko % 86400000) / 3600000)}h`
+        : ko > 3600000 ? `⏱ <span>Kickoff in</span> ${Math.floor(ko / 3600000)}h ${Math.floor((ko % 3600000) / 60000)}m`
+        : `⏱ <span>Kicks off in</span> ${Math.max(1, Math.floor(ko / 60000))} <span>minutes</span>`)
+      : '';
+    track('invitee_open', { id });
     app.innerHTML = `
       <div class="card">
         <div class="cardhead"><h2>${esc(bet.proposerName)} wants to bet you 👀</h2>${pill}</div>
+        ${koTxt ? `<div class="banner" style="margin:0 0 6px;border-style:solid;border-color:rgba(255,200,61,.35);color:var(--gold);font-weight:800">${koTxt}</div>` : ''}
         <p class="sub"><b>${esc(bet.proposerName)}</b> is backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b>. You take the other side.</p>
         ${rb}${proof}
         ${matchCard}
@@ -1293,6 +1325,8 @@ async function renderBet(id, opts = {}) {
           <input id="opponentName" placeholder="Your name" maxlength="40" autocapitalize="words" />
         </div>`}
         <button class="cta commit" id="acceptBtn">Take the bet 🤝</button>
+        <div style="text-align:center;font-size:11.5px;color:var(--muted-2);margin-top:6px">Free. No money. No sign-up. You're just going on the record.</div>
+        <div style="text-align:center;font-size:11px;color:var(--muted-2);margin-top:3px">By accepting you confirm you're 18 or over.</div>
         <button class="ghost" id="haggleBtn" style="width:100%;margin-top:8px">💬 Haggle — counter the terms</button>
         <div id="haggleWrap" style="display:none;margin-top:10px">
           <label>Your counter — what should be on the line?</label>
@@ -1311,6 +1345,7 @@ async function renderBet(id, opts = {}) {
       const mm0 = me.get();
       const nameWrap = $('#nameWrap');
       if (!mm0 && nameWrap && nameWrap.style.display === 'none') {
+        track('accept_tap', { id });
         nameWrap.style.display = 'block';
         $('#acceptBtn').textContent = 'Lock it in 🤝';
         try { $('#opponentName').focus(); } catch {}

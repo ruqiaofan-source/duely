@@ -337,6 +337,9 @@ button.cta.commit { animation: commitPulse 3s ease-in-out 3; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    /* delays survive a duration override, so the C mark's .95s wait left the
+       splash logo-less for half its life on every load. Zero them too. */
+    animation-delay: 0s !important; transition-delay: 0s !important;
     transition-duration: .001ms !important; scroll-behavior: auto !important;
   }
   /* reduced motion: keep the floodlit splash but freeze it — no beams, no zoom.

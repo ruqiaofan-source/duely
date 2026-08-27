@@ -47,6 +47,17 @@
     '🛒 Or take a live bet from the Arena': '🛒 Albo weź zakład z Areny',
     '📋 Copy the scoreline': '📋 Skopiuj wynik',
     'No link, just the record. Paste it in the group chat.': 'Bez linku, sam bilans. Wklej na grupie.',
+    // v14: settle-up card, accept reassurance, league solo state
+    'Kickoff in': 'Start za', 'Kicks off in': 'Start za', 'minutes': 'minut',
+    "By accepting you confirm you're 18 or over.": 'Akceptując potwierdzasz, że masz ukończone 18 lat.',
+    'Full time 🏁 Settle up': 'Koniec meczu 🏁 Rozliczcie się',
+    'Your mate reported the result — confirm it': 'Ziomek zgłosił wynik, potwierdź go',
+    'Match finished — report the result': 'Mecz zakończony, zgłoś wynik',
+    'Confirm ✓': 'Potwierdź ✓', 'Report →': 'Zgłoś →',
+    'Unsettled duels never reach the record. Thirty seconds, on it goes.': 'Nierozliczone pojedynki nie trafiają do bilansu. Trzydzieści sekund i gra.',
+    "Free. No money. No sign-up. You're just going on the record.": 'Za darmo. Bez pieniędzy. Bez rejestracji. Po prostu idzie na zapis.',
+    '👑 A table of one wins nothing. Send the link and the season starts when the first mate joins.': '👑 Tabela jednego nic nie wygrywa. Wyślij link, sezon rusza gdy dołączy pierwszy ziomek.',
+    'Send it to the group 📲': 'Wyślij na grupę 📲',
     // the three first-run steps — never translated before, now the whole first screen
     'Joined Clashly': 'Dołączyłeś do Clashly',
     'Back a call & set the stakes': 'Postaw typ i ustal stawkę',
