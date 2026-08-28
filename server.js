@@ -1131,6 +1131,17 @@ async function serveThisWeek(req, res) {
 .wk .cta{display:block;width:100%;box-sizing:border-box;text-align:center;margin:14px 0 0;padding:16px 18px;border-radius:16px;font-size:16px;border:0;cursor:pointer;font-family:inherit}
 .wk h1.q{margin:0 0 6px}
 .wk .cta.ghost2{background:transparent;color:#14E0C8;border:1.5px solid #22303F;font-weight:800}
+.ft{background:rgba(255,200,61,.10);border:1.5px solid rgba(255,200,61,.5);border-radius:16px;padding:13px 15px;margin:0 0 14px;font-size:15px;color:#FFC83D}
+.ft b{color:#FFC83D}
+.ftsub{display:block;color:#9AA7B8;font-size:12.5px;font-weight:600;margin-top:3px}
+.rule{border-left:2.2px solid #22303F;padding:2px 0 2px 12px;margin:16px 0 0;font-size:12.6px;line-height:1.55;color:#7C8A9C}
+.rule b{color:#C7D0DB}
+#you{margin-top:14px;padding:13px 15px;border-radius:16px;background:rgba(20,224,200,.08);border:1.5px solid rgba(20,224,200,.45);font-size:14.5px;color:#F4F7FB}
+#you .big{font-family:Anton,Impact,sans-serif;font-size:27px;color:#14E0C8;display:block;line-height:1.1}
+.brd div span:first-child{display:flex;gap:9px;align-items:baseline}
+.rk{color:#5E6B7C;font-size:12px;min-width:14px;display:inline-block}
+.pts{color:#14E0C8}
+.pl{color:#5E6B7C;font-size:12px;font-weight:600}
 .q{font-family:Anton,Impact,sans-serif;font-size:clamp(30px,7vw,46px);line-height:1.03;margin:6px 0 4px}
 .sub2{color:#9AA7B8;font-size:14px;margin:0 0 18px}
 .opts{display:grid;gap:10px;margin:18px 0}
@@ -1154,7 +1165,7 @@ async function serveThisWeek(req, res) {
   <h1 class="q">${esc5(q)}</h1>
   <p class="sub2">${esc5(w.competition || 'Football')}${w.utcDate ? ' &middot; ' + new Date(w.utcDate).toUTCString().slice(0, 22) : ''}${locked ? ' &middot; calls closed' : ''}</p>
 
-  ${w.result ? `<div class="cta" style="background:#FFC83D;color:#1B1B22">Full time: ${esc5(w.result === 'HOME' ? w.home + ' won' : w.result === 'AWAY' ? w.away + ' won' : 'Draw')}</div>` : ''}
+  ${w.result ? `<div class="ft">Full time &nbsp;·&nbsp; <b>${esc5(w.result === 'HOME' ? w.home + ' won' : w.result === 'AWAY' ? w.away + ' won' : 'Draw')}</b>${(() => { const c = weeklyCrowdPct(w); return c === null ? '' : `<span class="ftsub">${c}% of callers had it. Worth ${weeklyPointsFor(w, w.result)} points.</span>`; })()}</div>` : ''}
 
   <div class="opts" id="opts"${locked ? ' hidden' : ''}>
     <button class="opt" data-o="HOME">${esc5(w.home)} win</button>
@@ -1169,6 +1180,12 @@ async function serveThisWeek(req, res) {
     <p class="note" id="cnt">${t.total} ${t.total === 1 ? 'call' : 'calls'} so far</p>
   </div>
 
+  <div class="rule">
+    <b>How it scores.</b> Get it right and you bank points. The fewer people who agreed
+    with you, the more it is worth &mdash; up to five times. Get it wrong and you score
+    nothing. Nothing to lose, no balance, no money anywhere.
+  </div>
+  <div id="you" hidden></div>
   <button class="cta" id="share" hidden>Copy it for the group 📋</button>
   <div id="nameWrap" hidden>
     <p class="note" style="margin-bottom:6px">Put your name on the board so everyone can see you called it.</p>
@@ -1176,8 +1193,8 @@ async function serveThisWeek(req, res) {
     <button class="cta ghost2" id="saveNm" style="margin-top:8px">On the board →</button>
   </div>
 
-  ${board.length ? `<div class="brd"><p class="note" style="margin:0 0 6px">Most calls right</p>
-    ${board.map((b) => `<div><span>${esc5(b.name)}</span><span>${b.right}/${b.played}</span></div>`).join('')}</div>` : ''}
+  ${board.length ? `<div class="brd"><p class="note" style="margin:0 0 8px">The board</p>
+    ${board.map((b, i) => `<div><span><b class="rk">${i + 1}</b> ${esc5(b.name)}</span><span><b class="pts">${b.points}</b> <span class="pl">pts &middot; ${b.right}/${b.played}</span></span></div>`).join('')}</div>` : ''}
 
   <a class="cta" href="/" style="margin-top:22px;background:#7C3AED;color:#fff">Now settle one with a mate →</a>
   <p class="note" style="text-align:center">Same idea, but against someone who has to look you in the eye afterwards.</p>
@@ -1206,15 +1223,32 @@ async function serveThisWeek(req, res) {
     document.getElementById('share').hidden=false;
     try{ if(!localStorage.getItem('clashly_named')) document.getElementById('nameWrap').hidden=false; }catch(e){}
   }
+  function you(d){
+    var el=document.getElementById('you'); if(!el) return;
+    var rec=d.record||{}, bits=[];
+    if(d.result && d.myCall){
+      var won = d.myCall===d.result;
+      bits.push('<span class="big">'+(won?('+'+d.points+' points'):'0 points')+'</span>'
+        + (won ? ('You called it'+(d.crowd!=null?', and only '+d.crowd+'% agreed with you.':'.'))
+               : 'Wrong one this week. Nothing lost, go again.'));
+    } else if(d.myCall){
+      bits.push('<span class="big">You are on the record</span>Come back after full time to see if you called it.');
+    }
+    if(rec.points) bits.push('<div style="margin-top:8px;color:#9AA7B8;font-size:12.6px">'
+      + rec.points+' points all time · '+rec.right+'/'+rec.played+' right'
+      + (rec.streak>1?' · '+rec.streak+' weeks running':'')+'</div>');
+    if(bits.length){ el.innerHTML=bits.join(''); el.hidden=false; }
+  }
   fetch('/api/weekly?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
     if(d.tally) paint(d.tally);
     if(d.myCall) mark(d.myCall);
+    you(d);
   }).catch(function(){});
   document.getElementById('opts') && document.getElementById('opts').addEventListener('click', function(e){
     var b=e.target.closest('.opt'); if(!b) return;
     var o=b.getAttribute('data-o');
     fetch('/api/weekly/call',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({outcome:o,v:v})})
-      .then(function(r){return r.json();}).then(function(d){ if(d.tally){ paint(d.tally); mark(o); } })
+      .then(function(r){return r.json();}).then(function(d){ if(d.tally){ paint(d.tally); mark(o); d.myCall=o; you(d); } })
       .catch(function(){});
   });
   document.getElementById('share').addEventListener('click', function(){
@@ -1603,10 +1637,14 @@ async function handleApi(req, res, url) {
       myCall: vid ? (w.calls[vid] || null) : null,
       named: Boolean(vid && (w.names[vid] || (me && me.name))),
       result: w.result || null,
+      crowd: weeklyCrowdPct(w),
+      points: vid ? weeklyPointsFor(w, w.calls[vid]) : 0,
       locked: Boolean(w.utcDate && new Date(w.utcDate).getTime() < Date.now()),
       record: vid ? weeklyRecord(vid) : null,
       last: last ? { home: last.home, away: last.away, result: last.result,
-                     myCall: vid ? (last.calls[vid] || null) : null, tally: weeklyTally(last) } : null,
+                     myCall: vid ? (last.calls[vid] || null) : null, tally: weeklyTally(last),
+                     crowd: weeklyCrowdPct(last),
+                     points: vid ? weeklyPointsFor(last, last.calls[vid]) : 0 } : null,
       board: weeklyBoard(),
     });
   }
@@ -2569,16 +2607,44 @@ const weeklyTally = (w) => {
 };
 
 // how many weeks running this voter has called, and how many they got right
+// Scoring. Flat scoring rewards picking the favourite, which is not a skill:
+// the thing worth measuring is being right when the crowd was wrong. So a
+// correct call is worth more the fewer people agreed with you.
+//
+//   points = 10 x (1 / share of callers who picked the winner), clamped 1x..5x
+//
+// Wrong call scores zero. There is deliberately NO bankroll and no way to go
+// backwards: a starting balance you can lose just churns out the people who need
+// keeping, which is why FPL and Superbru accumulate rather than stake. And there
+// is deliberately no such thing as "odds" here — the multiplier comes from our
+// own callers, never from a bookmaker feed, which is the line the guardrails
+// research says never to cross.
+const WEEKLY_BASE = 10;
+function weeklyPointsFor(w, call) {
+  if (!w || !w.result || call !== w.result) return 0;
+  const t = weeklyTally(w);
+  if (!t.total) return WEEKLY_BASE;
+  const share = (t[w.result] || 0) / t.total;
+  if (share <= 0) return WEEKLY_BASE;
+  return Math.round(WEEKLY_BASE * Math.min(5, Math.max(1, 1 / share)));
+}
+const weeklyCrowdPct = (w) => {
+  if (!w || !w.result) return null;
+  const t = weeklyTally(w);
+  return t.total ? Math.round(((t[w.result] || 0) / t.total) * 100) : null;
+};
+
 function weeklyRecord(voterId) {
-  let right = 0, played = 0, streak = 0;
+  let right = 0, played = 0, streak = 0, points = 0;
   const weeks = Object.keys(db.weekly || {}).map(Number).sort((a, b) => b - a);
   for (const wk of weeks) {
     const w = db.weekly[wk]; const call = w.calls && w.calls[voterId];
     if (!call) { if (played) break; continue; }   // a gap ends the streak
     played++; streak++;
     if (w.result && w.result === call) right++;
+    points += weeklyPointsFor(w, call);
   }
-  return { played, right, streak };
+  return { played, right, streak, points };
 }
 
 function weeklyBoard(limit = 10) {
@@ -2589,12 +2655,15 @@ function weeklyBoard(limit = 10) {
       const nm = (w.names && w.names[vid]) || (db.players[vid] && db.players[vid].name);
       if (!nm) continue;                          // anonymous callers stay off the board
       if (QA_GHOST.test(nm)) continue;
-      const a = (agg[vid] ||= { name: nm, right: 0, played: 0 });
+      const a = (agg[vid] ||= { name: nm, right: 0, played: 0, points: 0 });
       a.name = nm; a.played++; if (call === w.result) a.right++;
+      a.points += weeklyPointsFor(w, call);
     }
   }
+  // ranked on points, not hit rate: calling the unpopular one right should beat
+  // going with the crowd every week
   return Object.values(agg)
-    .sort((x, y) => y.right - x.right || x.played - y.played || x.name.localeCompare(y.name))
+    .sort((x, y) => y.points - x.points || y.right - x.right || x.name.localeCompare(y.name))
     .slice(0, limit);
 }
 
