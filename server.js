@@ -2556,9 +2556,15 @@ async function getWeekly(wk) {
   return w;
 }
 
+const isGhostVoter = (w, vid) => QA_GHOST.test(vid)
+  || QA_GHOST.test((w.names && w.names[vid]) || '')
+  || QA_GHOST.test((db.players[vid] && db.players[vid].name) || '');
 const weeklyTally = (w) => {
   const t = { HOME: 0, DRAW: 0, AWAY: 0, total: 0 };
-  for (const o of Object.values(w.calls || {})) if (t[o] !== undefined) { t[o]++; t.total++; }
+  for (const [vid, o] of Object.entries(w.calls || {})) {
+    if (isGhostVoter(w, vid)) continue;
+    if (t[o] !== undefined) { t[o]++; t.total++; }
+  }
   return t;
 };
 
