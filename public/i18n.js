@@ -59,6 +59,11 @@
     '📲 Send the table to the group': '📲 Wyślij tabelę na grupę',
     // v17: the weekly call
     '📣 The weekly call': '📣 Typ tygodnia', 'Draw': 'Remis',
+    // v18: telling the three public surfaces apart
+    'public · no bet': 'publicznie · bez zakładu', 'Announce →': 'Ogłoś →',
+    'An announcement to everyone on Clashly. No opponent, no stake, no link — just a take on the record.': 'Ogłoszenie do wszystkich na Clashly. Bez przeciwnika, bez stawki, bez linku, po prostu twoja opinia na zapis.',
+    '🗣️ Reply on the Terrace': '🗣️ Odpowiedz na Trybunie', '⚔️ Duel them on it': '⚔️ Wyzwij go o to',
+    'Reply is public and free. A duel makes a link you send them.': 'Odpowiedź jest publiczna i za darmo. Pojedynek tworzy link, który mu wysyłasz.',
     'Copy it for the group 📋': 'Skopiuj na grupę 📋',
     '🔒 Kicked off. Calls are closed.': '🔒 Mecz się zaczął. Typowanie zamknięte.',
     'Full time.': 'Koniec meczu.', '✅ You called it.': '✅ Trafiłeś.', '❌ You got this one wrong.': '❌ Tym razem pudło.',

@@ -660,9 +660,10 @@ async function renderHome() {
       <div style="font-family:Anton,sans-serif;font-size:24px;line-height:1.25;margin:8px 0 6px">“${esc(hp.text)}”</div>
       <div class="sm" style="color:var(--muted)">— ${esc(hp.by)}${hp.bot ? ' <span class="tag-rival">house bot 🤖</span>' : ` (${esc(hp.record)}${hp.streakType === 'W' && hp.streakCount >= 2 ? ' · 🔥' + hp.streakCount : ''})`} · ${timeAgo(hp.t)}</div>
       <div style="display:flex;gap:10px;margin-top:12px">
-        <button class="cta" data-correct="${esc(hp.by)}" style="flex:1">🗣️ That's nonsense →</button>
-        <button class="cta commit" data-punish="${esc(hp.by)}" style="flex:1">⚔️ Make them back it</button>
+        <button class="cta" data-correct="${esc(hp.by)}" style="flex:1">🗣️ Reply on the Terrace</button>
+        <button class="cta commit" data-punish="${esc(hp.by)}" style="flex:1">⚔️ Duel them on it</button>
       </div>
+      <p class="sub" style="margin:8px 0 0;font-size:11.5px">Reply is public and free. A duel makes a link you send them.</p>
     </div>`; })() : ''}
     ${!isNew && activity.length > 1 ? `<div class="ticker"><div class="ticker-track">${(activity.concat(activity)).map((a) => `<span class="tk">⚡ ${esc(a.text)}</span>`).join('')}</div></div>` : ''}
     ${(() => { const mineOff = m ? arena.filter((c) => c.proposerId === m.id && c.offers > 0) : [];
@@ -701,7 +702,8 @@ async function renderHome() {
     </div>`}
 
     <div class="card">
-      <div class="cardhead"><h2>The Terrace 📣</h2><span class="sm" style="color:var(--muted);font-size:12px">say it to everyone</span></div>
+      <div class="cardhead"><h2>The Terrace 📣</h2><span class="pill open" style="font-size:10.5px">public · no bet</span></div>
+      <p class="sub" style="margin:2px 0 8px">An announcement to everyone on Clashly. No opponent, no stake, no link — just a take on the record.</p>
       <div class="reacts" id="terrChips" style="margin:6px 0 6px">
         <button type="button" class="react-chip" data-terr="Nobody in this app knows ball. Prove me wrong 😤">😤 rage bait</button>
         <button type="button" class="react-chip" data-terr="Free Arena points on my open challenge — if you dare 🌍">🌍 call-out</button>
@@ -709,7 +711,7 @@ async function renderHome() {
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <input id="terrIn" maxlength="180" placeholder="Announce it to all of Clashly…" style="flex:1" />
-        <button class="linkbtn" id="terrGo" style="font-weight:800;flex:none">Post</button>
+        <button class="linkbtn" id="terrGo" style="font-weight:800;flex:none">Announce →</button>
       </div>
       <div style="max-height:320px;overflow-y:auto">
       ${terrace.length ? terrace.slice(0, isNew ? 3 : 25).map((p) => `
@@ -1196,7 +1198,7 @@ async function renderCreate() {
       <input id="note" placeholder="No chance they keep it close 😏" maxlength="140" value="${copy?.note ? esc(copy.note) : ''}" />
       <div class="checkrow" style="margin-top:14px">
         <input type="checkbox" id="arenaChk" />
-        <label for="arenaChk">🌍 <b>Open challenge</b> — list it in the Arena so <b>anyone</b> on Clashly can take the other side. Beat a stranger, bank <b style="color:var(--gold)">+3 Arena points</b>.</label>
+        <label for="arenaChk">🌍 <b>Also list it in the Arena</b> — it stays a bet and you still get a link, but <b>anyone</b> on Clashly can take the other side too. Beat a stranger, bank <b style="color:var(--gold)">+3 Arena points</b>.<br /><span style="color:var(--muted-2);font-size:11.5px">Want to say something publicly without a bet? That's the Terrace, on the home tab.</span></label>
       </div>
       <div class="banner" style="margin-top:14px;text-align:left"><span id="previewLine">…</span></div>
       <div class="banner" id="fixSrc" style="margin-top:8px">⏳ Loading fixtures…</div>
