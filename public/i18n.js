@@ -57,6 +57,12 @@
     'Yes — it happens': 'Tak — wydarzy się', 'No chance': 'Nie ma szans',
     'Settled 🗓️': 'Rozliczone 🗓️',
     '📲 Send the table to the group': '📲 Wyślij tabelę na grupę',
+    // v17: the weekly call
+    '📣 The weekly call': '📣 Typ tygodnia', 'Draw': 'Remis',
+    'Copy it for the group 📋': 'Skopiuj na grupę 📋',
+    '🔒 Kicked off. Calls are closed.': '🔒 Mecz się zaczął. Typowanie zamknięte.',
+    'Full time.': 'Koniec meczu.', '✅ You called it.': '✅ Trafiłeś.', '❌ You got this one wrong.': '❌ Tym razem pudło.',
+    'On the record 📣': 'Zapisane 📣',
     'finish above': 'wyżej w tabeli', 'sacked by Xmas': 'zwolniony do świąt',
     '🗓️ Call the whole season': '🗓️ Typuj cały sezon', 'Make a season call →': 'Typuj na sezon →',
     'top scorer': 'król strzelców', 'relegation': 'spadek',

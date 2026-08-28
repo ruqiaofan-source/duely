@@ -36,8 +36,20 @@ const initials = (n) => String(n || '?').trim().slice(0, 2).toUpperCase();
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1900); }
 // haptics — progressive enhancement (Android Chrome; iOS Safari no-ops). Respects reduced-motion.
 function haptic(p) { try { if (navigator.vibrate && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(p); } catch {} }
+// Per-device voter id for the weekly call. Separate from `settle_me` on purpose:
+// the whole point of the weekly is that it works before you are anybody, so it
+// must never depend on, or disturb, the player identity.
+function voterId() {
+  try {
+    let v = localStorage.getItem('clashly_voter');
+    if (!v) { v = 'v' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('clashly_voter', v); }
+    return v;
+  } catch { return 'v' + Date.now().toString(36); }
+}
+
 const SERVER_TRACKED = new Set(['onboard_view', 'onboard_done', 'sheet_open', 'outcome_picked',
-  'season_picked', 'accept_view', 'accept_tap', 'settle_card_tap', 'brag_copy', 'table_send']);
+  'season_picked', 'accept_view', 'accept_tap', 'settle_card_tap', 'brag_copy', 'table_send',
+  'weekly_view', 'weekly_call_tap', 'weekly_share']);
 function track(ev, props) {
   try { if (window.posthog) window.posthog.capture(ev, props || {}); } catch {}
   // mirror the funnel steps to our own store too — PostHog holds the detail, but
@@ -529,6 +541,7 @@ async function renderHome() {
   const m = me.get();
   const actP = api('/activity').catch(() => null);
   const myBetsP = m ? api('/players/me/bets').catch(() => null) : Promise.resolve(null);
+  const weeklyP = api('/weekly?v=' + encodeURIComponent(voterId())).catch(() => null);
   const motwP = api('/motw').catch(() => null);
   const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
   const recP = api('/records?window=' + RECWIN).catch(() => null);
@@ -553,6 +566,9 @@ async function renderHome() {
   // on the whole site, so it renders above everything else on home.
   let toSettle = [];
   try { const mb = await myBetsP; if (mb && mb.active) toSettle = mb.active.filter((b) => b.status === 'accepted' && b.yourMove); } catch {}
+  let wk = null;
+  try { wk = await weeklyP; } catch {}
+  if (wk && wk.match) track('weekly_view');
   if (!live()) return; // superseded by a newer navigation
   const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
   const recHtml = rec ? [
@@ -602,6 +618,33 @@ async function renderHome() {
     : '';
 
   app.innerHTML = `
+    ${wk && wk.match ? (() => {
+      const t = wk.tally || { HOME: 0, DRAW: 0, AWAY: 0, total: 0 };
+      const pc = (n) => (t.total ? Math.round((n / t.total) * 100) : 0);
+      const done = Boolean(wk.result);
+      const rightOne = done && wk.myCall && wk.myCall === wk.result;
+      const opts = [['HOME', wk.match.home + ' win'], ['DRAW', 'Draw'], ['AWAY', wk.match.away + ' win']];
+      return `<div class="card" style="border-color:rgba(20,224,200,.5);background:linear-gradient(180deg,rgba(20,224,200,.06),transparent)">
+        <div class="cardhead"><h2>📣 The weekly call</h2>${wk.record && wk.record.streak > 1 ? `<span class="pill accepted">${wk.record.streak} weeks running</span>` : ''}</div>
+        <div class="match" style="margin:2px 0 10px"><div class="teams">${esc(wk.match.home)} <span class="vs">VS</span> ${esc(wk.match.away)}</div>
+          <div class="meta">${esc(wk.match.competition || 'Football')}${wk.match.utcDate ? ' · ' + kickoffTxt(wk.match.utcDate) : ''}</div></div>
+        ${done
+          ? `<div class="banner" style="border-style:solid;border-color:${rightOne ? 'rgba(20,224,200,.5)' : 'rgba(255,90,110,.45)'};color:var(--text)">${wk.myCall ? (rightOne ? '✅ You called it.' : '❌ You got this one wrong.') : 'Full time.'} Result: <b>${esc(wk.result === 'HOME' ? wk.match.home + ' won' : wk.result === 'AWAY' ? wk.match.away + ' won' : 'Draw')}</b></div>`
+          : wk.locked
+            ? `<div class="banner">🔒 Kicked off. Calls are closed.</div>`
+            : `<div class="seg" id="wkSeg">${opts.map(([c, l]) => `<button data-w="${c}" class="${wk.myCall === c ? 'active' : ''}">${esc(l)}</button>`).join('')}</div>`}
+        <div id="wkSplit" ${t.total ? '' : 'style="display:none"'}>
+          ${opts.map(([c, l], i) => `<div class="riv-row" style="padding:6px 0;border:0">
+            <div style="flex:1"><div class="sm" style="margin-bottom:3px">${esc(l)}</div>
+              <div style="height:9px;border-radius:6px;background:rgba(255,255,255,.06);overflow:hidden">
+                <div style="height:100%;width:${pc(t[c])}%;background:${i === 0 ? 'var(--teal)' : i === 1 ? 'var(--muted)' : 'var(--purple)'};transition:width .5s"></div></div></div>
+            <span class="sm" style="width:44px;text-align:right;font-weight:800">${t.total ? pc(t[c]) + '%' : '—'}</span>
+          </div>`).join('')}
+          <p class="sub" style="margin:6px 0 0">${t.total} ${t.total === 1 ? 'person has' : 'people have'} called it${wk.record && wk.record.played ? ` · you're ${wk.record.right}/${wk.record.played} all time` : ''}</p>
+        </div>
+        <button class="ghost" id="wkShare" style="margin-top:10px${wk.myCall ? '' : ';display:none'}">Copy it for the group 📋</button>
+      </div>`;
+    })() : ''}
     ${toSettle.length ? `<div class="card" style="border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.06),transparent)">
       <div class="cardhead"><h2>Full time 🏁 Settle up</h2></div>
       ${toSettle.slice(0, 3).map((b) => `
@@ -729,6 +772,36 @@ async function renderHome() {
 
     ${isNew ? '' : `<div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`}`;
 
+  const wkSeg = $('#wkSeg');
+  if (wkSeg) wkSeg.querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
+    const o = b.dataset.w; haptic(10); track('weekly_call_tap');
+    wkSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+    try {
+      const r = await api('/weekly/call', { method: 'POST', body: JSON.stringify({ outcome: o, v: voterId() }) });
+      const t = r.tally || {}; const tot = t.total || 0;
+      const split = $('#wkSplit'); if (split) {
+        split.style.display = '';
+        const bars = split.querySelectorAll('div[style*="height:100%"]');
+        const codes = ['HOME', 'DRAW', 'AWAY'];
+        bars.forEach((bar, i) => { bar.style.width = (tot ? Math.round((t[codes[i]] || 0) / tot * 100) : 0) + '%'; });
+        split.querySelectorAll('span.sm').forEach((sp, i) => { sp.textContent = (tot ? Math.round((t[codes[i]] || 0) / tot * 100) : 0) + '%'; });
+        const p = split.querySelector('p'); if (p) p.textContent = `${tot} ${tot === 1 ? 'person has' : 'people have'} called it`;
+      }
+      const sh = $('#wkShare'); if (sh) { sh.style.display = ''; sh.dataset.call = o; }
+      sfx('ping'); toast('On the record 📣');
+    } catch (e) { toast(e.message); }
+  }));
+  const wkSh = $('#wkShare');
+  if (wkSh && wk && wk.match) wkSh.addEventListener('click', async () => {
+    const call = wkSh.dataset.call || wk.myCall;
+    const lbl = call === 'HOME' ? wk.match.home + ' win' : call === 'AWAY' ? wk.match.away + ' win' : 'a draw';
+    // no link, on purpose: a scoreline reads as bragging, a link reads as an advert
+    const txt = `CLASHLY · ${wk.match.home} v ${wk.match.away}\nI called ${lbl}.` +
+      (wk.result ? (call === wk.result ? '\nCalled it. ✅' : '\nGot it wrong. ❌') : '\nCall it before kickoff and we will see who was right.');
+    track('weekly_share');
+    try { await navigator.clipboard.writeText(txt); sfx('clip'); toast('Copied — paste it in the chat'); }
+    catch { toast(txt); }
+  });
   app.querySelectorAll('[data-settle]').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); track('settle_card_tap'); history.pushState({}, '', '/b/' + el.dataset.settle); renderBet(el.dataset.settle); }));
   const chBtn = $('#challenge'); if (chBtn) chBtn.addEventListener('click', () => { PREFILL = null; renderCreate(); });
   const mc = $('#motwCall'); if (mc) mc.addEventListener('click', () => { track('motw_tap'); PREFILL = { matchId: motw.id }; renderCreate(); });
