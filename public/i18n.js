@@ -61,6 +61,8 @@
     '📣 The weekly call': '📣 Typ tygodnia', 'Draw': 'Remis',
     // v18: telling the three public surfaces apart
     'public · no bet': 'publicznie · bez zakładu', 'Announce →': 'Ogłoś →',
+    'points banked': 'punktów zdobytych',
+    "Right calls bank points. The fewer people who agreed with you, the more it's worth. Wrong calls score nothing — there's nothing to lose.": 'Trafione typy dają punkty. Im mniej osób się z tobą zgadzało, tym więcej warte. Za pudło zero, nie da się nic stracić.',
     'An announcement to everyone on Clashly. No opponent, no stake, no link — just a take on the record.': 'Ogłoszenie do wszystkich na Clashly. Bez przeciwnika, bez stawki, bez linku, po prostu twoja opinia na zapis.',
     '🗣️ Reply on the Terrace': '🗣️ Odpowiedz na Trybunie', '⚔️ Duel them on it': '⚔️ Wyzwij go o to',
     'Reply is public and free. A duel makes a link you send them.': 'Odpowiedź jest publiczna i za darmo. Pojedynek tworzy link, który mu wysyłasz.',

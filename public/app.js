@@ -629,7 +629,7 @@ async function renderHome() {
         <div class="match" style="margin:2px 0 10px"><div class="teams">${esc(wk.match.home)} <span class="vs">VS</span> ${esc(wk.match.away)}</div>
           <div class="meta">${esc(wk.match.competition || 'Football')}${wk.match.utcDate ? ' · ' + kickoffTxt(wk.match.utcDate) : ''}</div></div>
         ${done
-          ? `<div class="banner" style="border-style:solid;border-color:${rightOne ? 'rgba(20,224,200,.5)' : 'rgba(255,90,110,.45)'};color:var(--text)">${wk.myCall ? (rightOne ? '✅ You called it.' : '❌ You got this one wrong.') : 'Full time.'} Result: <b>${esc(wk.result === 'HOME' ? wk.match.home + ' won' : wk.result === 'AWAY' ? wk.match.away + ' won' : 'Draw')}</b></div>`
+          ? `<div class="banner" style="border-style:solid;border-color:${rightOne ? 'rgba(20,224,200,.5)' : 'rgba(255,90,110,.45)'};color:var(--text);text-align:left">${wk.myCall ? (rightOne ? `✅ <b>You called it.</b>${wk.crowd != null ? ` Only ${wk.crowd}% agreed with you.` : ''} <b style="color:var(--teal)">+${wk.points} points</b>` : '❌ <b>Wrong one this week.</b> Nothing lost, go again.') : 'Full time.'}<br /><span class="sm">Result: ${esc(wk.result === 'HOME' ? wk.match.home + ' won' : wk.result === 'AWAY' ? wk.match.away + ' won' : 'Draw')}</span></div>`
           : wk.locked
             ? `<div class="banner">🔒 Kicked off. Calls are closed.</div>`
             : `<div class="seg" id="wkSeg">${opts.map(([c, l]) => `<button data-w="${c}" class="${wk.myCall === c ? 'active' : ''}">${esc(l)}</button>`).join('')}</div>`}
@@ -641,6 +641,8 @@ async function renderHome() {
             <span class="sm" style="width:44px;text-align:right;font-weight:800">${t.total ? pc(t[c]) + '%' : '—'}</span>
           </div>`).join('')}
           <p class="sub" style="margin:6px 0 0">${t.total} ${t.total === 1 ? 'person has' : 'people have'} called it${wk.record && wk.record.played ? ` · you're ${wk.record.right}/${wk.record.played} all time` : ''}</p>
+          ${wk.record && wk.record.points ? `<p class="sub" style="margin:3px 0 0;color:var(--teal);font-weight:800">${wk.record.points} points banked</p>` : ''}
+          <p class="sub" style="margin:6px 0 0;font-size:11.5px">Right calls bank points. The fewer people who agreed with you, the more it's worth. Wrong calls score nothing — there's nothing to lose.</p>
         </div>
         <button class="ghost" id="wkShare" style="margin-top:10px${wk.myCall ? '' : ';display:none'}">Copy it for the group 📋</button>
       </div>`;
