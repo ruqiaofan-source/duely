@@ -133,6 +133,7 @@ const CLIENT_EVENTS = new Set([
   'accept_view', 'accept_tap',         // saw a challenge → tapped take it (before the name ask)
   'settle_card_tap', 'brag_copy',      // the v14/v13 loops
   'table_send',                        // the v15 group-table share
+  'weekly_view', 'weekly_call_tap', 'weekly_share',  // the v17 public weekly call
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1053,6 +1054,188 @@ const GUIDES = {
   },
 };
 
+
+async function serveWeekCard(req, res) {
+  const w = await getWeekly(weekIdx(Date.now()));
+  if (!w) { res.writeHead(404); return res.end('Not found'); }
+  const t = weeklyTally(w);
+  const svg = cards.weekCardSvg({
+    HOME: w.home, AWAY: w.away, H: t.HOME, D: t.DRAW, A: t.AWAY, TOTAL: t.total,
+    META: [w.competition, w.result ? 'FULL TIME' : (w.utcDate ? new Date(w.utcDate).toUTCString().slice(0, 16) : '')]
+      .filter(Boolean).join('  \u00b7  '),
+  });
+  if (/\.svg$/.test(req.url.split('?')[0])) {
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-cache' });
+    return res.end(svg);
+  }
+  const png = cards.renderPng(svg);
+  if (png) { res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=300' }); return res.end(png); }
+  res.writeHead(302, { Location: '/weekcard.svg' }); res.end();
+}
+
+// /this-week — the public face of the weekly call. Server-rendered so it
+// unfurls on X and WhatsApp and can be crawled; the buttons post straight to
+// the API, so it works with no account and no app shell.
+async function serveThisWeek(req, res) {
+  const wk = weekIdx(Date.now());
+  const w = await getWeekly(wk);
+  const url = 'https://clashly.live/this-week';
+  if (!w) { res.writeHead(302, { Location: '/' }); return res.end(); }
+  const t = weeklyTally(w);
+  const pct = (n) => (t.total ? Math.round((n / t.total) * 100) : 0);
+  const q = `Will ${w.home} beat ${w.away}?`;
+  const title = `${w.home} v ${w.away} — call it | Clashly`;
+  const desc = t.total
+    ? `${t.total} ${t.total === 1 ? 'person has' : 'people have'} called ${w.home} v ${w.away}. ${pct(t.HOME)}% say ${w.home}. One tap, no account, and your record is public. Free, no money, no prizes.`
+    : `Call ${w.home} v ${w.away} before kickoff. One tap, no account. Your call goes on the record and everyone sees who was right. Free, no money, no prizes.`;
+  const locked = Boolean(w.utcDate && new Date(w.utcDate).getTime() < Date.now());
+  const ld = { '@context': 'https://schema.org', '@graph': [
+    { '@type': 'SportsEvent', name: `${w.home} v ${w.away}`, sport: 'Football',
+      startDate: w.utcDate || undefined, url,
+      homeTeam: { '@type': 'SportsTeam', name: w.home }, awayTeam: { '@type': 'SportsTeam', name: w.away } },
+    { '@type': 'FAQPage', mainEntity: [
+      { '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: t.total
+        ? `${pct(t.HOME)}% of Clashly callers say ${w.home}, ${pct(t.DRAW)}% say a draw and ${pct(t.AWAY)}% say ${w.away}, from ${t.total} calls so far.`
+        : `Nobody has called it yet. Make the first call on Clashly: one tap, no account, and the result goes on the record after full time.` } },
+      { '@type': 'Question', name: 'Does Clashly take money?', acceptedAnswer: { '@type': 'Answer',
+        text: 'No. Clashly holds no money, takes no stake and gives no prize. It is a scorekeeper for football calls between friends. 18+.' } },
+    ] },
+  ] };
+  const board = weeklyBoard(8);
+  const bar = (lbl, n, colour) => `
+    <div class="row">
+      <div class="lbl">${esc5(lbl)}</div>
+      <div class="track"><div class="fill" style="width:${pct(n)}%;background:${colour}"></div></div>
+      <div class="pc">${t.total ? pct(n) + '%' : '—'}</div>
+    </div>`;
+  const html = `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${esc5(title)}</title>
+<meta name="description" content="${esc5(desc)}" />
+<link rel="canonical" href="${url}" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="${esc5(q)}" />
+<meta property="og:description" content="${esc5(desc)}" />
+<meta property="og:url" content="${url}" />
+<meta property="og:image" content="https://clashly.live/weekcard.png?w=${wk}" />
+<meta name="twitter:card" content="summary_large_image" />
+<script type="application/ld+json">${JSON.stringify(ld)}</script>
+<style>${PAGE_CSS}
+.wk{max-width:540px;padding-top:34px}
+.brandrow{display:flex;align-items:center;gap:11px;margin:0 0 20px}
+.mk{width:40px;height:40px;flex:none;border-radius:11px}
+.bn{font-family:Anton,Impact,sans-serif;font-size:23px;letter-spacing:.5px;line-height:1}
+.wk .cta{display:block;width:100%;box-sizing:border-box;text-align:center;margin:14px 0 0;padding:16px 18px;border-radius:16px;font-size:16px;border:0;cursor:pointer;font-family:inherit}
+.wk h1.q{margin:0 0 6px}
+.wk .cta.ghost2{background:transparent;color:#14E0C8;border:1.5px solid #22303F;font-weight:800}
+.q{font-family:Anton,Impact,sans-serif;font-size:clamp(30px,7vw,46px);line-height:1.03;margin:6px 0 4px}
+.sub2{color:#9AA7B8;font-size:14px;margin:0 0 18px}
+.opts{display:grid;gap:10px;margin:18px 0}
+.opt{display:block;width:100%;padding:16px 18px;border-radius:16px;border:1.5px solid #22303F;background:#111823;color:#F4F7FB;font:800 17px Inter,system-ui,sans-serif;text-align:left;cursor:pointer}
+.opt:hover{border-color:#14E0C8}
+.opt.on{border-color:#14E0C8;background:rgba(20,224,200,.10)}
+.row{display:grid;grid-template-columns:110px 1fr 44px;gap:10px;align-items:center;margin:8px 0;font-size:14px;font-weight:700}
+.track{height:12px;border-radius:8px;background:#161E29;overflow:hidden}
+.fill{height:100%;border-radius:8px;transition:width .5s ease}
+.pc{text-align:right;color:#9AA7B8}
+.brd{margin:22px 0 0;border-top:1px solid #22303F;padding-top:14px}
+.brd div{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:1px solid rgba(34,48,63,.5)}
+.note{font-size:12.5px;color:#5E6B7C;margin-top:14px}
+#share{margin-top:12px}
+</style>
+</head><body><div class="wrap wk">
+  <div class="brandrow">
+    <svg class="mk" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></svg>
+    <div><div class="bn">CLASHLY</div><div class="tag" style="margin:0">THE WEEKLY CALL</div></div>
+  </div>
+  <h1 class="q">${esc5(q)}</h1>
+  <p class="sub2">${esc5(w.competition || 'Football')}${w.utcDate ? ' &middot; ' + new Date(w.utcDate).toUTCString().slice(0, 22) : ''}${locked ? ' &middot; calls closed' : ''}</p>
+
+  ${w.result ? `<div class="cta" style="background:#FFC83D;color:#1B1B22">Full time: ${esc5(w.result === 'HOME' ? w.home + ' won' : w.result === 'AWAY' ? w.away + ' won' : 'Draw')}</div>` : ''}
+
+  <div class="opts" id="opts"${locked ? ' hidden' : ''}>
+    <button class="opt" data-o="HOME">${esc5(w.home)} win</button>
+    <button class="opt" data-o="DRAW">Draw</button>
+    <button class="opt" data-o="AWAY">${esc5(w.away)} win</button>
+  </div>
+
+  <div id="split"${t.total ? '' : ' hidden'}>
+    ${bar(w.home, t.HOME, '#14E0C8')}
+    ${bar('Draw', t.DRAW, '#5E6B7C')}
+    ${bar(w.away, t.AWAY, '#7C3AED')}
+    <p class="note" id="cnt">${t.total} ${t.total === 1 ? 'call' : 'calls'} so far</p>
+  </div>
+
+  <button class="cta" id="share" hidden>Copy it for the group 📋</button>
+  <div id="nameWrap" hidden>
+    <p class="note" style="margin-bottom:6px">Put your name on the board so everyone can see you called it.</p>
+    <input id="nm" placeholder="Your name" maxlength="40" style="width:100%;padding:13px 14px;border-radius:14px;border:1.5px solid #22303F;background:#111823;color:#F4F7FB;font:600 16px Inter,sans-serif" />
+    <button class="cta ghost2" id="saveNm" style="margin-top:8px">On the board →</button>
+  </div>
+
+  ${board.length ? `<div class="brd"><p class="note" style="margin:0 0 6px">Most calls right</p>
+    ${board.map((b) => `<div><span>${esc5(b.name)}</span><span>${b.right}/${b.played}</span></div>`).join('')}</div>` : ''}
+
+  <a class="cta" href="/" style="margin-top:22px;background:#7C3AED;color:#fff">Now settle one with a mate →</a>
+  <p class="note" style="text-align:center">Same idea, but against someone who has to look you in the eye afterwards.</p>
+  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
+</div>
+<script>
+(function(){
+  var KEY='clashly_voter';
+  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
+  var HOME=${JSON.stringify(w.home)}, AWAY=${JSON.stringify(w.away)}, RESULT=${JSON.stringify(w.result)};
+  var mine=null;
+  function pct(n,tot){ return tot?Math.round(n/tot*100):0; }
+  function paint(t){
+    var s=document.getElementById('split'); s.hidden=false;
+    var rows=s.querySelectorAll('.row'), vals=[t.HOME,t.DRAW,t.AWAY];
+    for(var i=0;i<rows.length;i++){
+      rows[i].querySelector('.fill').style.width=pct(vals[i],t.total)+'%';
+      rows[i].querySelector('.pc').textContent=pct(vals[i],t.total)+'%';
+    }
+    document.getElementById('cnt').textContent=t.total+(t.total===1?' call':' calls')+' so far';
+  }
+  function mark(o){
+    mine=o;
+    var bs=document.querySelectorAll('.opt');
+    for(var i=0;i<bs.length;i++) bs[i].classList.toggle('on', bs[i].getAttribute('data-o')===o);
+    document.getElementById('share').hidden=false;
+    try{ if(!localStorage.getItem('clashly_named')) document.getElementById('nameWrap').hidden=false; }catch(e){}
+  }
+  fetch('/api/weekly?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
+    if(d.tally) paint(d.tally);
+    if(d.myCall) mark(d.myCall);
+  }).catch(function(){});
+  document.getElementById('opts') && document.getElementById('opts').addEventListener('click', function(e){
+    var b=e.target.closest('.opt'); if(!b) return;
+    var o=b.getAttribute('data-o');
+    fetch('/api/weekly/call',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({outcome:o,v:v})})
+      .then(function(r){return r.json();}).then(function(d){ if(d.tally){ paint(d.tally); mark(o); } })
+      .catch(function(){});
+  });
+  document.getElementById('share').addEventListener('click', function(){
+    var lbl = mine==='HOME'?HOME+' win':mine==='AWAY'?AWAY+' win':'a draw';
+    var txt = 'CLASHLY · '+HOME+' v '+AWAY+'\\nI called '+lbl+'.'+(RESULT?'':'\\nCall it before kickoff and we will see who was right.');
+    if(navigator.clipboard){ navigator.clipboard.writeText(txt).then(function(){ var b=document.getElementById('share'); b.textContent='Copied — paste it in the chat'; }); }
+  });
+  var sv=document.getElementById('saveNm');
+  sv && sv.addEventListener('click', function(){
+    var n=document.getElementById('nm').value.trim(); if(n.length<2) return;
+    fetch('/api/weekly/name',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({v:v,name:n})})
+      .then(function(r){return r.json();}).then(function(){ try{localStorage.setItem('clashly_named','1');}catch(e){}
+        document.getElementById('nameWrap').hidden=true; });
+  });
+})();
+</script>
+</body></html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(html);
+}
+
 function guidePageHtml(path, g) {
   const url = 'https://clashly.live' + path;
   const ld = {
@@ -1106,6 +1289,7 @@ async function serveSitemap(req, res) {
   const urls = [
     ['https://clashly.live/', 'daily', '1.0'],
     ['https://clashly.live/about', 'monthly', '0.8'],
+    ['https://clashly.live/this-week', 'daily', '0.9'],
   ];
   Object.keys(GUIDES).forEach((p) => urls.push(['https://clashly.live' + p, 'monthly', '0.8']));
   matches.slice(0, 60).forEach((m) => {
@@ -1144,6 +1328,7 @@ Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, 
 ## Pages
 - https://clashly.live/ (app)
 - https://clashly.live/about (what Clashly is and how it works)
+- https://clashly.live/this-week (the weekly call: one fixture, one tap, no account, public record)
 ${Object.entries(GUIDES).map(([p, g]) => `- https://clashly.live${p} (${g.h1})`).join('\n')}
 ${matches.slice(0, 20).map((m) => `- https://clashly.live/call/${fixtureSlug(m)} (${m.home} v ${m.away})`).join('\n')}
 `;
@@ -1400,6 +1585,70 @@ async function handleApi(req, res, url) {
   }
 
   // GET /api/stats — loop funnel for the activation metric (% of links that get accepted)
+  // ---- THE WEEKLY CALL --------------------------------------------------
+  // GET /api/weekly — the question, the split, your call, the board.
+  // Deliberately readable with NO auth: a cold visitor from X must be able to
+  // see and answer it before they are anybody.
+  if (req.method === 'GET' && parts[1] === 'weekly' && parts.length === 2) {
+    const wk = weekIdx(Date.now());
+    const w = await getWeekly(wk);
+    if (!w) return sendJson(res, 200, { week: wk, match: null });
+    const me = authPlayer(req);
+    const vid = me ? me.id : String(url.searchParams.get('v') || '');
+    const last = db.weekly[wk - 1] && db.weekly[wk - 1].result ? db.weekly[wk - 1] : null;
+    return sendJson(res, 200, {
+      week: wk,
+      match: { home: w.home, away: w.away, competition: w.competition, utcDate: w.utcDate },
+      tally: weeklyTally(w),
+      myCall: vid ? (w.calls[vid] || null) : null,
+      named: Boolean(vid && (w.names[vid] || (me && me.name))),
+      result: w.result || null,
+      locked: Boolean(w.utcDate && new Date(w.utcDate).getTime() < Date.now()),
+      record: vid ? weeklyRecord(vid) : null,
+      last: last ? { home: last.home, away: last.away, result: last.result,
+                     myCall: vid ? (last.calls[vid] || null) : null, tally: weeklyTally(last) } : null,
+      board: weeklyBoard(),
+    });
+  }
+
+  // POST /api/weekly/call — one tap, no account. The whole point of the feature
+  // is that this works for someone who has never heard of Clashly.
+  if (req.method === 'POST' && parts[1] === 'weekly' && parts[2] === 'call') {
+    const b = await readBody(req);
+    const wk = weekIdx(Date.now());
+    const w = await getWeekly(wk);
+    if (!w) return sendJson(res, 400, { error: 'No call this week yet' });
+    if (!WEEKLY_OUTCOMES.includes(b.outcome)) return sendJson(res, 400, { error: 'Pick one' });
+    if (w.utcDate && new Date(w.utcDate).getTime() < Date.now())
+      return sendJson(res, 409, { error: 'Kicked off — calls are closed' });
+    const me = authPlayer(req);
+    const vid = me ? me.id : String(b.v || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+    if (!vid) return sendJson(res, 400, { error: 'Missing voter' });
+    const isNew = !w.calls[vid];
+    w.calls[vid] = b.outcome;
+    if (me) w.names[vid] = me.name;
+    else if (b.name) w.names[vid] = String(b.name).slice(0, 40);
+    saveData();
+    if (isNew) logEvent('weekly_call', { week: wk, outcome: b.outcome }, false);
+    return sendJson(res, 200, { ok: true, tally: weeklyTally(w), myCall: b.outcome, record: weeklyRecord(vid) });
+  }
+
+  // POST /api/weekly/name — the upgrade prompt: an anonymous caller putting
+  // their name on the board. Asked AFTER the call, never before it.
+  if (req.method === 'POST' && parts[1] === 'weekly' && parts[2] === 'name') {
+    const b = await readBody(req);
+    const wk = weekIdx(Date.now());
+    const w = db.weekly && db.weekly[wk];
+    if (!w) return sendJson(res, 404, { error: 'No call this week' });
+    const vid = String(b.v || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+    const name = String(b.name || '').trim().slice(0, 40);
+    if (!vid || !w.calls[vid]) return sendJson(res, 400, { error: 'Call it first' });
+    if (name.length < 2) return sendJson(res, 400, { error: 'Add a name' });
+    w.names[vid] = name; saveData();
+    logEvent('weekly_named', { week: wk }, false);
+    return sendJson(res, 200, { ok: true, board: weeklyBoard() });
+  }
+
   if (req.method === 'GET' && parts[1] === 'stats') {
     const s = db.stats || {};
     const created = s.bet_created || 0, opened = s.link_opened || 0, accepted = s.bet_accepted || 0, resolved = s.bet_resolved || 0;
@@ -2071,6 +2320,8 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/sitemap.xml') return serveSitemap(req, res);
   if (/^\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(6), 'en');
   if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
+  if (url.pathname === '/this-week') return serveThisWeek(req, res);
+  if (url.pathname === '/weekcard.png' || url.pathname === '/weekcard.svg') return serveWeekCard(req, res);
   if (url.pathname.startsWith('/ltable/')) return serveLeagueTable(req, res, url);
   if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
   if (url.pathname.startsWith('/card/')) return serveCard(req, res, url);
@@ -2254,6 +2505,115 @@ async function tableSweep() {
   } catch (e) { console.warn('table sweep failed:', e.message); }
 }
 
+
+// ---------------------------------------------------------------------------
+// THE WEEKLY CALL — the public mechanic.
+//
+// A 1v1 challenge only has value against someone you know: beating a stranger
+// wins you nothing and they will never pay the forfeit. That is why the Arena
+// (open challenges to strangers) has zero real listings after two months. The
+// public version of Clashly cannot be a duel, so it is this: ONE fixture a week,
+// the same question for everyone, one tap, no account, no opponent.
+//
+// The reward is not beating a person, it is a permanent public record of what
+// you called. Wordle-shaped: same question for everyone, one answer, a result
+// that is shareable as text with no link in it.
+// ---------------------------------------------------------------------------
+const WEEKLY_OUTCOMES = ['HOME', 'DRAW', 'AWAY'];
+
+function weeklyPick(matches) {
+  // the biggest game with a kickoff still ahead — same weighting as MOTW, since
+  // "the match everyone already has an opinion about" is exactly the ask here
+  const COMP_W = [[/world cup|fifa|\bwc\b/i, 100], [/champions league/i, 80], [/europa/i, 55],
+    [/premier league/i, 50], [/la ?liga/i, 45], [/serie a/i, 42], [/bundesliga/i, 42],
+    [/eredivisie/i, 40], [/ligue 1/i, 38]];
+  const BIG = /man(chester)? (city|united)|liverpool|arsenal|chelsea|tottenham|newcastle|real madrid|barcelona|atl[\u00e9e]tico|bayern|dortmund|leverkusen|psg|paris|inter|ac milan|juventus|napoli|ajax|psv|feyenoord|benfica|porto|celtic|rangers/i;
+  const now = Date.now();
+  return (matches || [])
+    .filter((x) => x.utcDate && new Date(x.utcDate).getTime() > now + 3600000)
+    .map((x) => {
+      let sc = 0;
+      for (const [re, w] of COMP_W) if (re.test(x.competition || '')) { sc += w; break; }
+      if (BIG.test(x.home)) sc += 25;
+      if (BIG.test(x.away)) sc += 25;
+      return { x, sc };
+    })
+    .sort((a, b) => (b.sc - a.sc) || (new Date(a.x.utcDate) - new Date(b.x.utcDate)))[0]?.x || null;
+}
+
+async function getWeekly(wk) {
+  if (!db.weekly) db.weekly = {};
+  let w = db.weekly[wk];
+  // re-pick only while nobody has called it yet; once a single person has voted
+  // the question is frozen, or we would be moving the goalposts under them
+  if (!w || (!Object.keys(w.calls || {}).length && w.utcDate && new Date(w.utcDate).getTime() < Date.now())) {
+    const m = weeklyPick(await getMatches());
+    if (!m) return w || null;
+    w = { week: wk, matchId: m.id, home: m.home, away: m.away, competition: m.competition || '',
+          utcDate: m.utcDate, externalId: m.externalId || null, calls: {}, names: {}, result: null };
+    db.weekly[wk] = w; saveData();
+  }
+  return w;
+}
+
+const weeklyTally = (w) => {
+  const t = { HOME: 0, DRAW: 0, AWAY: 0, total: 0 };
+  for (const o of Object.values(w.calls || {})) if (t[o] !== undefined) { t[o]++; t.total++; }
+  return t;
+};
+
+// how many weeks running this voter has called, and how many they got right
+function weeklyRecord(voterId) {
+  let right = 0, played = 0, streak = 0;
+  const weeks = Object.keys(db.weekly || {}).map(Number).sort((a, b) => b - a);
+  for (const wk of weeks) {
+    const w = db.weekly[wk]; const call = w.calls && w.calls[voterId];
+    if (!call) { if (played) break; continue; }   // a gap ends the streak
+    played++; streak++;
+    if (w.result && w.result === call) right++;
+  }
+  return { played, right, streak };
+}
+
+function weeklyBoard(limit = 10) {
+  const agg = {};
+  for (const w of Object.values(db.weekly || {})) {
+    if (!w.result) continue;
+    for (const [vid, call] of Object.entries(w.calls || {})) {
+      const nm = (w.names && w.names[vid]) || (db.players[vid] && db.players[vid].name);
+      if (!nm) continue;                          // anonymous callers stay off the board
+      if (QA_GHOST.test(nm)) continue;
+      const a = (agg[vid] ||= { name: nm, right: 0, played: 0 });
+      a.name = nm; a.played++; if (call === w.result) a.right++;
+    }
+  }
+  return Object.values(agg)
+    .sort((x, y) => y.right - x.right || x.played - y.played || x.name.localeCompare(y.name))
+    .slice(0, limit);
+}
+
+// resolve finished weeklies from the same trusted results path the bets use
+async function weeklySweep() {
+  try {
+    if (!db.weekly) return;
+    let changed = false;
+    for (const w of Object.values(db.weekly)) {
+      if (w.result || !w.utcDate) continue;
+      if (Date.now() < new Date(w.utcDate).getTime() + FT_GRACE_MS) continue;
+      if (!FOOTBALL_TOKEN || !w.externalId) continue;
+      try {
+        const live = await fetchLiveResult(w.externalId);
+        if (live) {
+          w.result = live; w.resolvedAt = new Date().toISOString(); changed = true;
+          logEvent('weekly_resolved', { week: w.week, result: live, callers: Object.keys(w.calls || {}).length });
+          console.log('weekly resolved:', w.home, 'v', w.away, '->', live);
+        }
+      } catch (e) { console.warn('weekly resolve failed:', e.message); }
+    }
+    if (changed) saveData();
+  } catch (e) { console.warn('weekly sweep failed:', e.message); }
+}
+
 const FT_GRACE_MS = 125 * 60000;      // kickoff + ~2h05 covers ET-free league football
 async function ftSweep() {
   try {
@@ -2340,6 +2700,8 @@ initData().then(() => {
   setInterval(ftSweep, 30 * 60000);
   setTimeout(tableSweep, 60000);
   setInterval(tableSweep, 60 * 60000);
+  setTimeout(weeklySweep, 50000);
+  setInterval(weeklySweep, 20 * 60000);
   // v11 — rivalry-streak rescue: Fri/Sat, if a pair with a 2+ week streak has no
   // clash yet this week, nudge BOTH sides once. Peer pressure beats app pressure.
   const streakNudgeSweep = () => {

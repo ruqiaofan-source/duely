@@ -214,6 +214,45 @@ function tableSvg(data) {
 ${rows.map(TABLE_ROW).join('')}
 </svg>`;
 }
+
+// The weekly-call card. This is the thing that actually travels on X, so it has
+// to state the question and the split and nothing else — no CTA, no link, no
+// logo-shouting. A poll everyone can see the answer to is the hook.
+function weekCardSvg(d) {
+  const tot = Math.max(0, Number(d.TOTAL) || 0);
+  const p = (n) => (tot ? Math.round((Number(n) || 0) / tot * 100) : 0);
+  const H = p(d.H), D = p(d.D), A = p(d.A);
+  const barY = 400, barH = 44, x0 = 72, w = 1056;
+  const seg = (start, pctv, fill) => pctv <= 0 ? '' :
+    `<rect x="${x0 + Math.round(w * start / 100)}" y="${barY}" width="${Math.max(2, Math.round(w * pctv / 100))}" height="${barH}" fill="${fill}"/>`;
+  const q = `${d.HOME}  v  ${d.AWAY}`;
+  const qSize = q.length > 34 ? 54 : q.length > 26 ? 66 : 78;
+  return `<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Clashly weekly call">
+<defs>
+<style>.anton{font-family:'Anton','Oswald','Arial Narrow',Impact,sans-serif;}
+.inter{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;}</style>
+<linearGradient id="wBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0E141C"/><stop offset="1" stop-color="#0B0F14"/></linearGradient>
+<radialGradient id="wGl" cx="0.5" cy="0" r="0.9"><stop offset="0" stop-color="#14E0C8" stop-opacity="0.15"/><stop offset="1" stop-color="#14E0C8" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="630" fill="url(#wBg)"/><rect width="1200" height="630" fill="url(#wGl)"/>
+<rect x="0" y="0" width="1200" height="8" fill="#14E0C8"/>
+<g transform="translate(64,44) scale(0.44)"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></g>
+<text x="120" y="68" class="anton" font-size="31" fill="#F5F7FA" letter-spacing="1">CLASHLY</text>
+<text x="122" y="86" class="inter" font-size="11.5" font-weight="700" fill="#14E0C8" letter-spacing="2">BACK YOURSELF.</text>
+<text x="1136" y="76" text-anchor="end" class="inter" font-size="17" font-weight="800" fill="#5E6B7C" letter-spacing="3">THE WEEKLY CALL</text>
+<text x="72" y="200" class="inter" font-size="21" font-weight="900" fill="#14E0C8" letter-spacing="4">CALL IT BEFORE KICKOFF</text>
+<text x="72" y="${q.length > 26 ? 300 : 312}" class="anton" font-size="${qSize}" fill="#F5F7FA">${esc(q)}</text>
+<text x="72" y="356" class="inter" font-size="22" font-weight="700" fill="#9AA7B8">${esc(d.META || '')}</text>
+<rect x="${x0}" y="${barY}" width="${w}" height="${barH}" rx="10" fill="#161E29"/>
+<g>${seg(0, H, '#14E0C8')}${seg(H, D, '#5E6B7C')}${seg(H + D, A, '#7C3AED')}</g>
+<rect x="${x0}" y="${barY}" width="${w}" height="${barH}" rx="10" fill="none" stroke="#22303F" stroke-width="1.5"/>
+<text x="72" y="492" class="inter" font-size="23" font-weight="800" fill="#14E0C8">${H}% ${esc(d.HOME)}</text>
+<text x="600" y="492" text-anchor="middle" class="inter" font-size="23" font-weight="800" fill="#9AA7B8">${D}% draw</text>
+<text x="1128" y="492" text-anchor="end" class="inter" font-size="23" font-weight="800" fill="#A78BFA">${A}% ${esc(d.AWAY)}</text>
+<text x="72" y="560" class="inter" font-size="20" font-weight="700" fill="#5E6B7C">${tot} ${tot === 1 ? 'call' : 'calls'} so far &#183; one tap, no account</text>
+<text x="1128" y="560" text-anchor="end" class="inter" font-size="20" font-weight="800" fill="#14E0C8">clashly.live/this-week</text>
+</svg>`;
+}
 function leagueSvg(data) { return fill(LEAGUE_TPL, data); }
 function receiptSvg(data) { return fill(RECEIPT_TPL, { RESULT_LABEL: 'FULL TIME', ...withMatchup(data, 44) }); }
 function storySvg(data) { return fill(STORY_TPL, withMatchup(data, 42)); }
@@ -230,4 +269,4 @@ function renderPng(svg) {
   } catch (e) { console.warn('card png render failed:', e.message); return null; }
 }
 
-module.exports = { challengeSvg, resultSvg, leagueSvg, tableSvg, storySvg, voidSvg, receiptSvg, renderPng, hasRasterizer: Boolean(Resvg) };
+module.exports = { challengeSvg, resultSvg, leagueSvg, tableSvg, weekCardSvg, storySvg, voidSvg, receiptSvg, renderPng, hasRasterizer: Boolean(Resvg) };
