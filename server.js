@@ -1073,6 +1073,170 @@ async function serveWeekCard(req, res) {
   res.writeHead(302, { Location: '/weekcard.svg' }); res.end();
 }
 
+
+// /arcade — the skill games. Everything inline, no dependencies, mobile-first.
+async function serveArcade(req, res) {
+  const board = weeklyBoard(8);
+  const url = 'https://clashly.live/arcade';
+  const html = `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Arcade — skill games for the board | Clashly</title>
+<meta name="description" content="Football skill games, no account needed. Points go on the same public board as your match calls. Free, no money, no prizes." />
+<link rel="canonical" href="${url}" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="The Clashly Arcade" />
+<meta property="og:description" content="Penalty timing and keepy-uppy. Points go on the board. Free, no money, no prizes." />
+<meta property="og:url" content="${url}" />
+<meta property="og:image" content="https://clashly.live/og-home.png" />
+<style>${PAGE_CSS}
+.wk{max-width:540px;padding-top:34px}
+.brandrow{display:flex;align-items:center;gap:11px;margin:0 0 20px}
+.mk{width:40px;height:40px;flex:none;border-radius:11px}
+.bn{font-family:Anton,Impact,sans-serif;font-size:23px;letter-spacing:.5px;line-height:1}
+.gcard{background:#111823;border:1.5px solid #22303F;border-radius:18px;padding:16px;margin:0 0 16px}
+.gname{font-family:Anton,Impact,sans-serif;font-size:22px;margin:0 0 2px;color:#F4F7FB}
+.gsub{font-size:12.5px;color:#7C8A9C;margin:0 0 12px}
+.stat{font-size:13px;color:#9AA7B8;font-weight:700;margin:10px 0 0}
+.stat b{color:#14E0C8}
+.gbtn{display:block;width:100%;padding:14px;border-radius:14px;border:0;background:#14E0C8;color:#06231F;font:800 15px Inter,system-ui,sans-serif;cursor:pointer;margin-top:12px}
+.gbtn[disabled]{opacity:.45}
+/* penalty */
+.goal{position:relative;height:64px;border-radius:12px;background:#0B0F14;border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0}
+.zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8}
+.marker{position:absolute;top:6px;bottom:6px;width:5px;border-radius:3px;background:#FFC83D}
+.kicks{display:flex;gap:6px;margin-top:10px}
+.kick{width:26px;height:26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
+.kick.hit{border-color:#14E0C8;color:#14E0C8}
+.kick.miss{border-color:#FF5A6E;color:#FF5A6E}
+/* keepy */
+.pitch{position:relative;height:280px;border-radius:12px;background:linear-gradient(180deg,#0B0F14,#0d1a14);border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0;touch-action:manipulation}
+#ball{position:absolute;font-size:44px;line-height:1;user-select:none;cursor:pointer;left:50%;top:20px;will-change:transform}
+.brd{margin:8px 0 0;border-top:1px solid #22303F;padding-top:14px}
+.brd div{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:1px solid rgba(34,48,63,.5)}
+.note{font-size:12.5px;color:#5E6B7C}
+</style>
+</head><body><div class="wrap wk">
+  <div class="brandrow">
+    <svg class="mk" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></svg>
+    <div><div class="bn">CLASHLY</div><div class="tag" style="margin:0">THE ARCADE</div></div>
+  </div>
+  <p class="note" style="margin:0 0 16px">Skill games, no account needed. Points land on the same board as your match calls — <b id="capline" style="color:#9AA7B8">up to 30 a day</b>.</p>
+
+  <div class="gcard">
+    <h2 class="gname">Penalty Sweep ⚽</h2>
+    <p class="gsub">The marker sweeps the goal. Tap SHOOT when it's inside the zone. Five kicks, the zone shrinks.</p>
+    <div class="goal" id="goal"><div class="zone" id="zone"></div><div class="marker" id="marker"></div></div>
+    <div class="kicks" id="kicks"></div>
+    <button class="gbtn" id="shoot">SHOOT</button>
+    <div class="stat" id="pstat"></div>
+  </div>
+
+  <div class="gcard">
+    <h2 class="gname">Keepy-Uppy 🎪</h2>
+    <p class="gsub">Tap the ball to keep it up. It gets faster. One point a touch, drop it and the run's over.</p>
+    <div class="pitch" id="pitch"><div id="ball">⚽</div></div>
+    <button class="gbtn" id="kstart">START</button>
+    <div class="stat" id="kstat"></div>
+  </div>
+
+  ${board.length ? `<div class="brd"><p class="note" style="margin:0 0 8px;text-transform:uppercase;letter-spacing:2px;font-weight:800">The board</p>
+    ${board.map((b, i) => `<div><span><b style="color:#5E6B7C;font-size:12px;min-width:14px;display:inline-block">${i + 1}</b> ${esc5(b.name)}</span><span><b style="color:#14E0C8">${b.points}</b> <span style="color:#5E6B7C;font-size:12px;font-weight:600">pts</span></span></div>`).join('')}</div>` : ''}
+
+  <a class="cta" href="/this-week" style="display:block;text-align:center;margin-top:20px">📣 Call the weekend's matches →</a>
+  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
+</div>
+<script>
+(function(){
+  var KEY='clashly_voter';
+  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
+  var capline=document.getElementById('capline');
+  function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
+    capline.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
+  }).catch(function(){}); }
+  refreshCap();
+  function submit(game, score, statEl, label){
+    fetch('/api/arcade/score',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({game:game,score:score,v:v})})
+      .then(function(r){return r.json();}).then(function(d){
+        statEl.innerHTML = label+' <b>+'+d.awarded+' points</b>'+(d.awarded<score?' (daily cap)':'')+' · '+d.allTime+' all time';
+        refreshCap();
+      }).catch(function(){ statEl.textContent='Could not save that one.'; });
+  }
+
+  // ---- Penalty Sweep ----
+  var goal=document.getElementById('goal'), zone=document.getElementById('zone'), marker=document.getElementById('marker');
+  var shoot=document.getElementById('shoot'), kicksEl=document.getElementById('kicks'), pstat=document.getElementById('pstat');
+  var KICKS=5, kick=0, total=0, pos=0, dir=1, speed=2.6, playing=true, zoneW=0.30, zoneX=0.35, raf;
+  function layoutZone(){
+    zoneX = 0.08 + Math.random()*(0.84-zoneW);
+    zone.style.left=(zoneX*100)+'%'; zone.style.width=(zoneW*100)+'%';
+  }
+  function dots(){ kicksEl.innerHTML=''; for(var i=0;i<KICKS;i++){ var d=document.createElement('div'); d.className='kick'; d.textContent=i+1; kicksEl.appendChild(d);} }
+  function step(){
+    var w=goal.clientWidth-5;
+    pos+=dir*speed; if(pos<=0||pos>=w){dir*=-1; pos=Math.max(0,Math.min(w,pos));}
+    marker.style.transform='translateX('+pos+'px)';
+    raf=requestAnimationFrame(step);
+  }
+  dots(); layoutZone(); step();
+  shoot.addEventListener('click', function(){
+    if(!playing) return;
+    var w=goal.clientWidth-5, rel=pos/w;
+    var inZone = rel>=zoneX && rel<=zoneX+zoneW;
+    var centre = zoneX+zoneW/2, closeness = 1-Math.min(1, Math.abs(rel-centre)/(zoneW/2));
+    var pts = inZone ? (closeness>0.6?3:2) : 0;
+    total+=pts;
+    var d=kicksEl.children[kick]; d.className='kick '+(pts?'hit':'miss'); d.textContent=pts||'✕';
+    kick++;
+    zoneW=Math.max(0.12, zoneW-0.045); speed+=0.55; layoutZone();
+    if(kick>=KICKS){
+      playing=false; cancelAnimationFrame(raf); shoot.disabled=true; shoot.textContent='FULL TIME';
+      submit('penalty', total, pstat, 'Scored '+total+' of 15.');
+      setTimeout(function(){ kick=0; total=0; zoneW=0.30; speed=2.6; playing=true; shoot.disabled=false; shoot.textContent='SHOOT'; dots(); layoutZone(); step(); }, 2600);
+    }
+  });
+
+  // ---- Keepy-Uppy ----
+  var pitch=document.getElementById('pitch'), ball=document.getElementById('ball');
+  var kstart=document.getElementById('kstart'), kstat=document.getElementById('kstat');
+  var bx=0, by=0, vx=0, vy=0, touches=0, live=false, kraf;
+  function kstep(){
+    var W=pitch.clientWidth-44, H=pitch.clientHeight-44;
+    vy+=0.45+touches*0.012;
+    bx+=vx; by+=vy;
+    if(bx<0){bx=0;vx=Math.abs(vx);} if(bx>W){bx=W;vx=-Math.abs(vx);}
+    if(by<0){by=0;vy=Math.abs(vy)*0.6;}
+    ball.style.transform='translate('+bx+'px,'+by+'px)';
+    ball.style.left='0'; ball.style.top='0';
+    if(by>=H){ live=false; cancelAnimationFrame(kraf);
+      kstart.disabled=false; kstart.textContent='GO AGAIN';
+      submit('keepy', Math.min(15,touches), kstat, touches+' touch'+(touches===1?'':'es')+'.');
+      return; }
+    kraf=requestAnimationFrame(kstep);
+  }
+  function tapBall(e){
+    if(!live) return;
+    e.preventDefault();
+    touches++;
+    vy=-(7.5+Math.random()*2); vx=(Math.random()-0.5)*7;
+    kstat.textContent=touches+' touches';
+  }
+  ball.addEventListener('pointerdown', tapBall);
+  kstart.addEventListener('click', function(){
+    var W=pitch.clientWidth-44;
+    bx=W/2; by=10; vx=0; vy=0; touches=0; live=true;
+    kstat.textContent='0 touches'; kstart.disabled=true; kstart.textContent='LIVE';
+    cancelAnimationFrame(kraf); kraf=requestAnimationFrame(kstep);
+  });
+})();
+</script>
+</body></html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(html);
+}
+
 // /this-week — the public face of the weekly call. Server-rendered so it
 // unfurls on X and WhatsApp and can be crawled; the buttons post straight to
 // the API, so it works with no account and no app shell.
@@ -1227,7 +1391,8 @@ async function serveThisWeek(req, res) {
   ${board.length ? `<div class="brd"><p class="note" style="margin:0 0 8px">The board</p>
     ${board.map((b, i) => `<div><span><b class="rk">${i + 1}</b> ${esc5(b.name)}</span><span><b class="pts">${b.points}</b> <span class="pl">pts &middot; ${b.right}/${b.played}</span></span></div>`).join('')}</div>` : ''}
 
-  <a class="cta" href="/" style="margin-top:22px;background:#7C3AED;color:#fff">Now settle one with a mate →</a>
+  <a class="cta ghost2" href="/arcade" style="display:block;text-align:center;margin-top:14px">🕹️ The Arcade — skill games for the board →</a>
+  <a class="cta" href="/" style="margin-top:12px;background:#7C3AED;color:#fff">Now settle one with a mate →</a>
   <p class="note" style="text-align:center">Same idea, but against someone who has to look you in the eye afterwards.</p>
   <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
 </div>
@@ -1380,6 +1545,7 @@ async function serveSitemap(req, res) {
     ['https://clashly.live/', 'daily', '1.0'],
     ['https://clashly.live/about', 'monthly', '0.8'],
     ['https://clashly.live/this-week', 'daily', '0.9'],
+    ['https://clashly.live/arcade', 'weekly', '0.6'],
   ];
   Object.keys(GUIDES).forEach((p) => urls.push(['https://clashly.live' + p, 'monthly', '0.8']));
   matches.slice(0, 60).forEach((m) => {
@@ -1419,6 +1585,7 @@ Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, 
 - https://clashly.live/ (app)
 - https://clashly.live/about (what Clashly is and how it works)
 - https://clashly.live/this-week (the weekly call: one fixture, one tap, no account, public record)
+- https://clashly.live/arcade (football skill games; points join the public board; no money, no prizes)
 ${Object.entries(GUIDES).map(([p, g]) => `- https://clashly.live${p} (${g.h1})`).join('\n')}
 ${matches.slice(0, 20).map((m) => `- https://clashly.live/call/${fixtureSlug(m)} (${m.home} v ${m.away})`).join('\n')}
 `;
@@ -1675,6 +1842,26 @@ async function handleApi(req, res, url) {
   }
 
   // GET /api/stats — loop funnel for the activation metric (% of links that get accepted)
+  // GET /api/arcade — today's cap state; POST /api/arcade/score — clamped award
+  if (req.method === 'GET' && parts[1] === 'arcade' && parts.length === 2) {
+    const me = authPlayer(req);
+    const vid = me ? me.id : String(url.searchParams.get('v') || '');
+    if (!vid) return sendJson(res, 400, { error: 'Missing voter' });
+    return sendJson(res, 200, arcadeState(vid));
+  }
+  if (req.method === 'POST' && parts[1] === 'arcade' && parts[2] === 'score') {
+    const b = await readBody(req);
+    const me = authPlayer(req);
+    const vid = me ? me.id : String(b.v || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+    if (!vid) return sendJson(res, 400, { error: 'Missing voter' });
+    const out = arcadeAward(vid, String(b.game || ''), b.score);
+    if (!out) return sendJson(res, 400, { error: 'Unknown game' });
+    if (me) { if (!db.voterNames) db.voterNames = {}; db.voterNames[me.id] = me.name; }
+    saveData();
+    logEvent('arcade_score', { game: b.game, awarded: out.awarded }, false);
+    return sendJson(res, 200, out);
+  }
+
   // GET /api/slate — the rest of the weekend's big games, callable with no auth
   if (req.method === 'GET' && parts[1] === 'slate' && parts.length === 2) {
     const wk = weekIdx(Date.now());
@@ -2454,6 +2641,7 @@ const server = http.createServer(async (req, res) => {
   if (/^\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(6), 'en');
   if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
   if (url.pathname === '/this-week') return serveThisWeek(req, res);
+  if (url.pathname === '/arcade') return serveArcade(req, res);
   if (url.pathname === '/weekcard.png' || url.pathname === '/weekcard.svg') return serveWeekCard(req, res);
   if (url.pathname.startsWith('/ltable/')) return serveLeagueTable(req, res, url);
   if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
@@ -2815,6 +3003,44 @@ async function slateSweep() {
   } catch (e) { console.warn('slate sweep failed:', e.message); }
 }
 
+
+// ---------------------------------------------------------------------------
+// THE ARCADE — skill games that feed the same board. The rule that gates what
+// goes in here: chance in, points out is legal but casino-shaped and therefore
+// radioactive (platform classifiers, Poland's look-alike register); SKILL in,
+// points out is legal and clean — the shape of a Nike promo, not a slot. So:
+// timing and reflex games with a football theme, no multipliers, no ladders,
+// no wager-shaped choice anywhere.
+//
+// Points go into the prediction board (Qiao's call: the board needs filling
+// far more than it needs purity right now). The grind is blunted by a DAILY
+// CAP rather than a separate board, and the server clamps every submission —
+// the client is never trusted with more than "which game, what score".
+// ---------------------------------------------------------------------------
+const ARCADE_GAMES = { penalty: { max: 15 }, keepy: { max: 15 } };
+const ARCADE_DAILY_CAP = 30;
+const dayKey = () => new Date().toISOString().slice(0, 10);
+
+function arcadeState(vid) {
+  const a = (db.arcade && db.arcade[vid]) || { points: 0, byDay: {} };
+  return { today: a.byDay[dayKey()] || 0, cap: ARCADE_DAILY_CAP, allTime: a.points };
+}
+function arcadeAward(vid, game, rawScore) {
+  const g = ARCADE_GAMES[game];
+  if (!g) return null;
+  if (!db.arcade) db.arcade = {};
+  const a = (db.arcade[vid] ||= { points: 0, byDay: {} });
+  const today = a.byDay[dayKey()] || 0;
+  const clamped = Math.max(0, Math.min(g.max, Math.floor(Number(rawScore) || 0)));
+  const awarded = Math.max(0, Math.min(clamped, ARCADE_DAILY_CAP - today));
+  a.byDay[dayKey()] = today + awarded;
+  a.points += awarded;
+  // byDay only ever needs today for the cap — stop it growing forever
+  for (const k of Object.keys(a.byDay)) if (k !== dayKey()) delete a.byDay[k];
+  return { awarded, today: a.byDay[dayKey()], cap: ARCADE_DAILY_CAP, allTime: a.points };
+}
+const arcadePoints = (vid) => (db.arcade && db.arcade[vid] && db.arcade[vid].points) || 0;
+
 function weeklyRecord(voterId) {
   let right = 0, played = 0, streak = 0, points = 0;
   const weeks = Object.keys(db.weekly || {}).map(Number).sort((a, b) => b - a);
@@ -2826,8 +3052,8 @@ function weeklyRecord(voterId) {
     points += weeklyPointsFor(w, call);
   }
   const sp = slatePoints(voterId);
-  return { played, right, streak, points: points + sp.points,
-           slate: { right: sp.right, played: sp.played } };
+  return { played, right, streak, points: points + sp.points + arcadePoints(voterId),
+           slate: { right: sp.right, played: sp.played }, arcade: arcadePoints(voterId) };
 }
 
 function weeklyBoard(limit = 10) {
@@ -2850,6 +3076,15 @@ function weeklyBoard(limit = 10) {
       for (const [vid, call] of Object.entries(m.calls || {}))
         add(vid, nameFor(vid, null), call === m.result, weeklyPointsFor(m, call));
     }
+  }
+  // arcade points count toward the ranking but never toward right/played —
+  // a reflex game must not inflate anyone's prediction hit rate
+  for (const [vid, a] of Object.entries(db.arcade || {})) {
+    if (!a.points) continue;
+    const nm = nameFor(vid, null);
+    if (!nm || QA_GHOST.test(nm) || QA_GHOST.test(vid)) continue;
+    const row = (agg[vid] ||= { name: nm, right: 0, played: 0, points: 0 });
+    row.name = nm; row.points += a.points;
   }
   // ranked on points, not hit rate: calling the unpopular one right should beat
   // going with the crowd every week
