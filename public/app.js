@@ -645,7 +645,10 @@ async function renderHome() {
           <p class="sub" style="margin:6px 0 0;font-size:11.5px">Right calls bank points. The fewer people who agreed with you, the more it's worth. Wrong calls score nothing — there's nothing to lose.</p>
         </div>
         <button class="ghost" id="wkShare" style="margin-top:10px${wk.myCall ? '' : ';display:none'}">Copy it for the group 📋</button>
-        <a class="muted-link" href="/this-week" style="display:block;text-align:center;margin-top:8px">🗓️ Call the whole weekend →</a>
+        <div style="display:flex;gap:14px;justify-content:center;margin-top:8px">
+          <a class="muted-link" href="/this-week">🗓️ Call the weekend →</a>
+          <a class="muted-link" href="/arcade">🕹️ The Arcade →</a>
+        </div>
       </div>`;
     })() : ''}
     ${toSettle.length ? `<div class="card" style="border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.06),transparent)">
