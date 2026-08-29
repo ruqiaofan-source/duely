@@ -487,6 +487,24 @@ async function route() {
 // ---------------------------------------------------------------------------
 // Onboarding
 // ---------------------------------------------------------------------------
+// The Arcade as a proper billboard, not a tiny row — Qiao: the games need to be
+// obvious and it must say plainly that they earn points. Used on the landing
+// turnstile AND the logged-in home.
+function arcadeHero(mb) {
+  return `
+    <div class="card" data-door="arcade" role="button" tabindex="0" style="cursor:pointer;border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.08),transparent);margin-bottom:${mb || '14px'}">
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="font-size:34px">🕹️</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:Anton,sans-serif;font-size:24px;letter-spacing:.8px;color:var(--gold)">THE ARCADE</div>
+          <div class="sm" style="color:var(--muted);margin-top:2px">Penalty Sweep · Keepy-Uppy · Higher or Lower · The Daily</div>
+        </div>
+        <span style="color:var(--gold);font-size:22px">›</span>
+      </div>
+      <div style="margin-top:10px;font-weight:800;font-size:13.5px;color:var(--gold)">⚡ Play games. Earn points. Up to 30 a day on the public board.</div>
+    </div>`;
+}
+
 function renderOnboarding(next) {
   track('onboard_view');
   // v22 — the turnstile landing (design: Clashly Screens). A first-time visitor
@@ -528,7 +546,7 @@ function renderOnboarding(next) {
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
       ${door('duel', '⚔️', 'CHALLENGE A MATE', 'the record starts here', '#A78BFA', 'rgba(124,58,237,.13)', 'rgba(124,58,237,.45)')}
       ${door('week', '🗓️', 'CALL THE WEEKEND', '6 games, one board', 'var(--teal)', 'rgba(20,224,200,.09)', 'rgba(20,224,200,.35)')}
-      ${door('arcade', '🕹️', 'THE ARCADE', 'skill games, points count', 'var(--gold)', 'rgba(255,200,61,.09)', 'rgba(255,200,61,.35)')}
+      ${arcadeHero('0')}
     </div>
     ${joinCard}
     <div class="banner" style="border-style:solid;border-color:rgba(255,200,61,.35);color:var(--text)">🔰 Early days — join now and you're a <b style="color:var(--gold)">Founder</b>: your number's stamped on your profile and your perks carry over when Pro launches.</div>
@@ -682,6 +700,11 @@ async function renderHome() {
     : '';
 
   app.innerHTML = `
+    <div style="font-family:Anton,sans-serif;font-size:38px;line-height:1.04;letter-spacing:.3px;margin:4px 0 16px">
+      <div>THINK YOU</div>
+      <div>KNOW BALL?</div>
+      <div style="color:var(--teal);text-shadow:0 0 40px rgba(20,224,200,.45)">PROVE IT.</div>
+    </div>
     ${wk && wk.match ? (() => {
       const t = wk.tally || { HOME: 0, DRAW: 0, AWAY: 0, total: 0 };
       const pc = (n) => (t.total ? Math.round((n / t.total) * 100) : 0);
@@ -709,10 +732,7 @@ async function renderHome() {
           <p class="sub" style="margin:6px 0 0;font-size:11.5px">Right calls bank points. The fewer people who agreed with you, the more it's worth. Wrong calls score nothing — there's nothing to lose.</p>
         </div>
         <button class="ghost" id="wkShare" style="margin-top:10px${wk.myCall ? '' : ';display:none'}">Copy it for the group 📋</button>
-        <div style="display:flex;gap:14px;justify-content:center;margin-top:8px">
-          <a class="muted-link" href="/this-week">🗓️ Call the weekend →</a>
-          <a class="muted-link" href="/arcade">🕹️ The Arcade →</a>
-        </div>
+        <a class="muted-link" href="/this-week" style="display:block;text-align:center;margin-top:8px">🗓️ Call the whole weekend →</a>
       </div>`;
     })() : ''}
     ${toSettle.length ? `<div class="card" style="border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.06),transparent)">
@@ -725,6 +745,7 @@ async function renderHome() {
         </div>`).join('')}
       <p class="sub" style="margin:8px 0 0">Unsettled duels never reach the record. Thirty seconds, on it goes.</p>
     </div>` : ''}
+    ${arcadeHero()}
     ${!isNew && terrace.length ? (() => { const hp = terrace[0]; return `<div class="card" style="border-color:rgba(255,200,61,.5);background:linear-gradient(180deg,rgba(255,200,61,.07),transparent)">
       <div class="sm" style="color:var(--gold);font-weight:800;letter-spacing:1px;font-size:11px">📣 LATEST FROM THE TERRACE</div>
       <div style="font-family:Anton,sans-serif;font-size:24px;line-height:1.25;margin:8px 0 6px">“${esc(hp.text)}”</div>
@@ -844,6 +865,9 @@ async function renderHome() {
 
     ${isNew ? '' : `<div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`}`;
 
+  app.querySelectorAll('[data-door="arcade"]').forEach((el) => el.addEventListener('click', () => {
+    haptic(8); track('landing_door', { door: 'arcade' }); location.href = '/arcade';
+  }));
   const wkSeg = $('#wkSeg');
   if (wkSeg) wkSeg.querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
     const o = b.dataset.w; haptic(10); track('weekly_call_tap');

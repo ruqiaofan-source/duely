@@ -35,6 +35,8 @@
     'CALL THE WEEKEND': 'WYTYPUJ WEEKEND', '6 games, one board': '6 meczów, jedna tabela',
     'THE ARCADE': 'ARCADE', 'skill games, points count': 'gry na refleks, punkty się liczą',
     'No money, no prizes, just receipts. 18+': 'Bez pieniędzy, bez nagród, tylko paragony. 18+',
+    '⚡ Play games. Earn points. Up to 30 a day on the public board.': '⚡ Graj w gierki. Zbieraj punkty. Do 30 dziennie do publicznego rankingu.',
+    '🗓️ Call the whole weekend →': '🗓️ Wytypuj cały weekend →',
     // onboarding
     'Think you know ball? Prove it. ⚽': 'Znasz się na futbolu? Udowodnij to. ⚽',
     'Call the match, your mate takes the other side, and the winner goes on the record. Clashly keeps the score — the rivalry does the rest.':
