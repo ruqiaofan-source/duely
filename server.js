@@ -134,6 +134,7 @@ const CLIENT_EVENTS = new Set([
   'settle_card_tap', 'brag_copy',      // the v14/v13 loops
   'table_send',                        // the v15 group-table share
   'weekly_view', 'weekly_call_tap', 'weekly_share',  // the v17 public weekly call
+  'landing_call_tap', 'landing_door',                // the v22 turnstile landing
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1075,9 +1076,83 @@ async function serveWeekCard(req, res) {
 
 
 // /arcade — the skill games. Everything inline, no dependencies, mobile-first.
+// ---------------------------------------------------------------------------
+// The Arcade — hub + game pages (design: Clashly Screens v22)
+// Each game is its own server-rendered page: shareable URL, no app shell, no
+// account. The client only ever reports "which game, what score" — the server
+// clamps everything (see arcadeAward).
+// ---------------------------------------------------------------------------
+const ARCADE_FONTS = `<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;700;800;900&display=swap" />`;
+const ARCADE_CSS = `${PAGE_CSS}
+.wk{max-width:430px;padding-top:26px}
+.ghead{display:flex;align-items:center;margin:0 0 14px}
+.gback{width:34px;font-size:24px;color:#7C8A9C;text-decoration:none;line-height:1}
+.gtitle{flex:1;text-align:center}
+.gtitle b{display:block;font-family:Anton,Impact,sans-serif;font-weight:400;font-size:19px;letter-spacing:1px}
+.gtitle span{display:block;font:700 10px Inter,system-ui,sans-serif;letter-spacing:3px;color:#14E0C8;margin-top:2px}
+.gcard{background:linear-gradient(180deg,#141C29,#0F1520);border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:16px;margin:0 0 14px}
+.gname{font-family:Anton,Impact,sans-serif;font-weight:400;font-size:22px;margin:0 0 2px;color:#F4F7FB}
+.gsub{font-size:12.5px;color:#7C8A9C;margin:0 0 12px}
+.stat{font-size:13px;color:#9AA7B8;font-weight:700;margin:10px 0 0}
+.stat b{color:#14E0C8}
+.gbtn{display:block;width:100%;padding:14px;border-radius:12px;border:0;background:linear-gradient(180deg,#2BEAD4,#12CDB7);color:#052220;font:800 15px Inter,system-ui,sans-serif;letter-spacing:.5px;cursor:pointer;margin-top:12px;box-shadow:0 6px 18px rgba(20,224,200,.28)}
+.gbtn[disabled]{opacity:.45}
+.gbtn.vio{background:linear-gradient(180deg,#8B4DF5,#6D2FD6);color:#F2ECFF;box-shadow:0 6px 18px rgba(124,58,237,.35)}
+.pill-pts{display:inline-block;font:700 11px Inter,system-ui,sans-serif;letter-spacing:1px;color:#14E0C8;border:1px solid rgba(20,224,200,.4);border-radius:999px;padding:5px 14px}
+.note{font-size:12.5px;color:#5E6B7C}`;
+function arcadePage({ path, title, kicker, metaTitle, desc, body, script, extraCss = '' }) {
+  const url = 'https://clashly.live' + path;
+  return `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${metaTitle}</title>
+<meta name="description" content="${desc}" />
+<link rel="canonical" href="${url}" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="${metaTitle}" />
+<meta property="og:description" content="${desc}" />
+<meta property="og:url" content="${url}" />
+<meta property="og:image" content="https://clashly.live/og-home.png" />
+${ARCADE_FONTS}
+<style>${ARCADE_CSS}${extraCss}</style>
+</head><body><div class="wrap wk">
+  <div class="ghead">
+    <a class="gback" href="/arcade" aria-label="Back to the Arcade">‹</a>
+    <div class="gtitle"><b>${title}</b><span>${kicker}</span></div>
+    <div style="width:34px"></div>
+  </div>
+  ${body}
+  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
+</div>
+<script>
+(function(){
+  var KEY='clashly_voter';
+  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
+  function submit(game, score, cb){
+    fetch('/api/arcade/score',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({game:game,score:score,v:v})})
+      .then(function(r){return r.json();}).then(function(d){ if(cb) cb(d); }).catch(function(){ if(cb) cb(null); });
+  }
+${script}
+})();
+</script>
+</body></html>`;
+}
+
 async function serveArcade(req, res) {
-  const board = weeklyBoard(8);
+  const board = weeklyBoard(3);
   const url = 'https://clashly.live/arcade';
+  const rankCol = ['#A78BFA', '#14E0C8', 'rgba(233,238,243,.6)'];
+  const tile = (href, emoji, name, sub, pts, col) => `
+    <a href="${href}" style="display:flex;flex-direction:column;gap:5px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:15px;text-decoration:none;color:#E9EEF3">
+      <span style="font-size:25px">${emoji}</span>
+      <span style="font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:.6px">${name}</span>
+      <span style="font-size:12px;color:rgba(233,238,243,.55)">${sub}</span>
+      <span style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:1px;color:${col};border:1px solid ${col}66;border-radius:999px;padding:3px 9px;align-self:flex-start;margin-top:3px">UP TO +${pts} PTS</span>
+    </a>`;
   const html = `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8" />
@@ -1088,43 +1163,67 @@ async function serveArcade(req, res) {
 <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="The Clashly Arcade" />
-<meta property="og:description" content="Penalty timing and keepy-uppy. Points go on the board. Free, no money, no prizes." />
+<meta property="og:description" content="Penalty timing, keepy-uppy, transfer-fee streaks and the daily career puzzle. Points go on the board. Free, no money, no prizes." />
 <meta property="og:url" content="${url}" />
 <meta property="og:image" content="https://clashly.live/og-home.png" />
-<style>${PAGE_CSS}
-.wk{max-width:540px;padding-top:34px}
-.brandrow{display:flex;align-items:center;gap:11px;margin:0 0 20px}
-.mk{width:40px;height:40px;flex:none;border-radius:11px}
-.bn{font-family:Anton,Impact,sans-serif;font-size:23px;letter-spacing:.5px;line-height:1}
-.gcard{background:#111823;border:1.5px solid #22303F;border-radius:18px;padding:16px;margin:0 0 16px}
-.gname{font-family:Anton,Impact,sans-serif;font-size:22px;margin:0 0 2px;color:#F4F7FB}
-.gsub{font-size:12.5px;color:#7C8A9C;margin:0 0 12px}
-.stat{font-size:13px;color:#9AA7B8;font-weight:700;margin:10px 0 0}
-.stat b{color:#14E0C8}
-.gbtn{display:block;width:100%;padding:14px;border-radius:14px;border:0;background:#14E0C8;color:#06231F;font:800 15px Inter,system-ui,sans-serif;cursor:pointer;margin-top:12px}
-.gbtn[disabled]{opacity:.45}
-/* penalty */
-.goal{position:relative;height:64px;border-radius:12px;background:#0B0F14;border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0}
-.zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8}
-.marker{position:absolute;top:6px;bottom:6px;width:5px;border-radius:3px;background:#FFC83D}
-.kicks{display:flex;gap:6px;margin-top:10px}
-.kick{width:26px;height:26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
-.kick.hit{border-color:#14E0C8;color:#14E0C8}
-.kick.miss{border-color:#FF5A6E;color:#FF5A6E}
-/* keepy */
-.pitch{position:relative;height:280px;border-radius:12px;background:linear-gradient(180deg,#0B0F14,#0d1a14);border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0;touch-action:manipulation}
-#ball{position:absolute;font-size:44px;line-height:1;user-select:none;cursor:pointer;left:50%;top:20px;will-change:transform}
-.brd{margin:8px 0 0;border-top:1px solid #22303F;padding-top:14px}
-.brd div{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:1px solid rgba(34,48,63,.5)}
-.note{font-size:12.5px;color:#5E6B7C}
-</style>
+${ARCADE_FONTS}
+<style>${ARCADE_CSS}</style>
 </head><body><div class="wrap wk">
-  <div class="brandrow">
-    <svg class="mk" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></svg>
-    <div><div class="bn">CLASHLY</div><div class="tag" style="margin:0">THE ARCADE</div></div>
+  <div style="display:flex;align-items:center;gap:11px;margin:0 0 16px">
+    <svg style="width:40px;height:40px;flex:none;border-radius:11px" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></svg>
+    <div><div style="font-family:Anton,Impact,sans-serif;font-size:23px;letter-spacing:.5px;line-height:1">THE ARCADE</div><div class="tag" style="margin:2px 0 0">SKILL IN, POINTS OUT</div></div>
   </div>
-  <p class="note" style="margin:0 0 16px">Skill games, no account needed. Points land on the same board as your match calls — <b id="capline" style="color:#9AA7B8">up to 30 a day</b>.</p>
 
+  <div class="gcard">
+    <div style="display:flex;align-items:baseline;justify-content:space-between">
+      <div style="font:700 13px Inter,system-ui,sans-serif" id="capTxt">points bank today</div>
+      <div style="font-family:Anton,Impact,sans-serif;font-size:14px;color:#FFC83D" id="capPts"></div>
+    </div>
+    <div style="height:8px;border-radius:999px;background:rgba(255,255,255,.08);margin-top:10px;overflow:hidden">
+      <div id="capBar" style="width:0%;height:100%;border-radius:999px;background:linear-gradient(90deg,#D99A2B,#FFD883);transition:width .5s"></div>
+    </div>
+    ${board.length ? `<div style="display:flex;align-items:center;gap:13px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);flex-wrap:wrap">
+      <span style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:2px;color:rgba(233,238,243,.5)">BOARD</span>
+      ${board.map((b, i) => `<span style="font:600 12px Inter,system-ui,sans-serif;color:${rankCol[i]}">${i + 1} ${esc5(b.name)} ${b.points}</span>`).join('')}
+      <a href="/board" style="font:600 11px Inter,system-ui,sans-serif;color:#7C8A9C;margin-left:auto;text-decoration:none">all →</a>
+    </div>` : ''}
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    ${tile('/penalty', '⚽', 'PENALTY SWEEP', 'beat the sweep', 15, '#14E0C8')}
+    ${tile('/keepy', '🤹', 'KEEPY-UPPY', "don't let it drop", 15, '#A78BFA')}
+    ${tile('/hilo', '📈', 'HIGHER OR LOWER', 'streak the transfer fees', 12, '#FFC83D')}
+    ${tile('/daily', '🎯', 'THE DAILY', 'one career a day', 8, '#14E0C8')}
+    <div style="grid-column:1 / -1;display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px dashed rgba(167,139,250,.4);border-radius:16px;padding:15px;opacity:.75">
+      <span style="font-size:25px">⚔️</span>
+      <div><div style="font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:.6px">GRID DUEL</div>
+      <div style="font-size:12px;color:rgba(233,238,243,.55)">argue it with a mate — in the workshop</div></div>
+      <span style="margin-left:auto;font:700 10px Inter,system-ui,sans-serif;letter-spacing:1px;color:#A78BFA;border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:3px 9px">SOON</span>
+    </div>
+  </div>
+
+  <p class="note" style="margin:16px 0 0">Points land on the same board as your match calls — up to 30 a day, no account needed.</p>
+  <a class="cta" href="/this-week" style="display:block;text-align:center;margin-top:14px">📣 Call the weekend's matches →</a>
+  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
+</div>
+<script>
+(function(){
+  var KEY='clashly_voter';
+  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
+  fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
+    document.getElementById('capTxt').textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : d.today+' of '+d.cap+' banked today';
+    document.getElementById('capPts').textContent = d.allTime ? d.allTime+' PTS ALL TIME' : '';
+    document.getElementById('capBar').style.width = Math.min(100, Math.round(d.today/d.cap*100))+'%';
+  }).catch(function(){});
+})();
+</script>
+</body></html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(html);
+}
+
+async function servePenalty(req, res) {
+  const body = `
   <div class="gcard">
     <h2 class="gname">Penalty Sweep ⚽</h2>
     <p class="gsub">The marker sweeps the goal. Tap SHOOT when it's inside the zone. Five kicks, the zone shrinks.</p>
@@ -1133,39 +1232,21 @@ async function serveArcade(req, res) {
     <button class="gbtn" id="shoot">SHOOT</button>
     <div class="stat" id="pstat"></div>
   </div>
-
-  <div class="gcard">
-    <h2 class="gname">Keepy-Uppy 🎪</h2>
-    <p class="gsub">Tap the ball to keep it up. It gets faster. One point a touch, drop it and the run's over.</p>
-    <div class="pitch" id="pitch"><div id="ball">⚽</div></div>
-    <button class="gbtn" id="kstart">START</button>
-    <div class="stat" id="kstat"></div>
-  </div>
-
-  ${board.length ? `<div class="brd"><p class="note" style="margin:0 0 8px;text-transform:uppercase;letter-spacing:2px;font-weight:800">The board</p>
-    ${board.map((b, i) => `<div><span><b style="color:#5E6B7C;font-size:12px;min-width:14px;display:inline-block">${i + 1}</b> ${esc5(b.name)}</span><span><b style="color:#14E0C8">${b.points}</b> <span style="color:#5E6B7C;font-size:12px;font-weight:600">pts</span></span></div>`).join('')}</div>` : ''}
-
-  <a class="cta" href="/this-week" style="display:block;text-align:center;margin-top:20px">📣 Call the weekend's matches →</a>
-  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
-</div>
-<script>
-(function(){
-  var KEY='clashly_voter';
-  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
+  <p class="note" id="capline" style="text-align:center"></p>`;
+  const extraCss = `
+.goal{position:relative;height:64px;border-radius:12px;background:#0B0F14;border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0}
+.zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8}
+.marker{position:absolute;top:6px;bottom:6px;width:5px;border-radius:3px;background:#FFC83D}
+.kicks{display:flex;gap:6px;margin-top:10px}
+.kick{width:26px;height:26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
+.kick.hit{border-color:#14E0C8;color:#14E0C8}
+.kick.miss{border-color:#FF5A6E;color:#FF5A6E}`;
+  const script = `
   var capline=document.getElementById('capline');
   function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
     capline.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
   }).catch(function(){}); }
   refreshCap();
-  function submit(game, score, statEl, label){
-    fetch('/api/arcade/score',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({game:game,score:score,v:v})})
-      .then(function(r){return r.json();}).then(function(d){
-        statEl.innerHTML = label+' <b>+'+d.awarded+' points</b>'+(d.awarded<score?' (daily cap)':'')+' · '+d.allTime+' all time';
-        refreshCap();
-      }).catch(function(){ statEl.textContent='Could not save that one.'; });
-  }
-
-  // ---- Penalty Sweep ----
   var goal=document.getElementById('goal'), zone=document.getElementById('zone'), marker=document.getElementById('marker');
   var shoot=document.getElementById('shoot'), kicksEl=document.getElementById('kicks'), pstat=document.getElementById('pstat');
   var KICKS=5, kick=0, total=0, pos=0, dir=1, speed=2.6, playing=true, zoneW=0.30, zoneX=0.35, raf;
@@ -1193,12 +1274,36 @@ async function serveArcade(req, res) {
     zoneW=Math.max(0.12, zoneW-0.045); speed+=0.55; layoutZone();
     if(kick>=KICKS){
       playing=false; cancelAnimationFrame(raf); shoot.disabled=true; shoot.textContent='FULL TIME';
-      submit('penalty', total, pstat, 'Scored '+total+' of 15.');
+      submit('penalty', total, function(d){
+        pstat.innerHTML = d ? 'Scored '+total+' of 15. <b>+'+d.awarded+' points</b>'+(d.awarded<total?' (daily cap)':'')+' · '+d.allTime+' all time' : 'Could not save that one.';
+        refreshCap();
+      });
       setTimeout(function(){ kick=0; total=0; zoneW=0.30; speed=2.6; playing=true; shoot.disabled=false; shoot.textContent='SHOOT'; dots(); layoutZone(); step(); }, 2600);
     }
-  });
+  });`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(arcadePage({ path: '/penalty', title: 'PENALTY SWEEP', kicker: 'FIVE KICKS', metaTitle: 'Penalty Sweep — the Clashly Arcade', desc: 'Timing game: tap when the sweeping marker is in the zone. Five kicks, the zone shrinks. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+}
 
-  // ---- Keepy-Uppy ----
+async function serveKeepy(req, res) {
+  const body = `
+  <div class="gcard">
+    <h2 class="gname">Keepy-Uppy 🤹</h2>
+    <p class="gsub">Tap the ball to keep it up. It gets faster. One point a touch, drop it and the run's over.</p>
+    <div class="pitch" id="pitch"><div id="ball">⚽</div></div>
+    <button class="gbtn" id="kstart">START</button>
+    <div class="stat" id="kstat"></div>
+  </div>
+  <p class="note" id="capline" style="text-align:center"></p>`;
+  const extraCss = `
+.pitch{position:relative;height:280px;border-radius:12px;background:linear-gradient(180deg,#0B0F14,#0d1a14);border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0;touch-action:manipulation}
+#ball{position:absolute;font-size:44px;line-height:1;user-select:none;cursor:pointer;left:50%;top:20px;will-change:transform}`;
+  const script = `
+  var capline=document.getElementById('capline');
+  function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
+    capline.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
+  }).catch(function(){}); }
+  refreshCap();
   var pitch=document.getElementById('pitch'), ball=document.getElementById('ball');
   var kstart=document.getElementById('kstart'), kstat=document.getElementById('kstat');
   var bx=0, by=0, vx=0, vy=0, touches=0, live=false, kraf;
@@ -1212,7 +1317,11 @@ async function serveArcade(req, res) {
     ball.style.left='0'; ball.style.top='0';
     if(by>=H){ live=false; cancelAnimationFrame(kraf);
       kstart.disabled=false; kstart.textContent='GO AGAIN';
-      submit('keepy', Math.min(15,touches), kstat, touches+' touch'+(touches===1?'':'es')+'.');
+      var sc=Math.min(15,touches);
+      submit('keepy', sc, function(d){
+        kstat.innerHTML = d ? touches+' touch'+(touches===1?'':'es')+'. <b>+'+d.awarded+' points</b>'+(d.awarded<sc?' (daily cap)':'')+' · '+d.allTime+' all time' : 'Could not save that one.';
+        refreshCap();
+      });
       return; }
     kraf=requestAnimationFrame(kstep);
   }
@@ -1229,12 +1338,346 @@ async function serveArcade(req, res) {
     bx=W/2; by=10; vx=0; vy=0; touches=0; live=true;
     kstat.textContent='0 touches'; kstart.disabled=true; kstart.textContent='LIVE';
     cancelAnimationFrame(kraf); kraf=requestAnimationFrame(kstep);
-  });
-})();
-</script>
-</body></html>`;
+  });`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(html);
+  res.end(arcadePage({ path: '/keepy', title: 'KEEPY-UPPY', kicker: "DON'T LET IT DROP", metaTitle: 'Keepy-Uppy — the Clashly Arcade', desc: 'Reflex game: tap the ball to keep it in the air, it gets faster every touch. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+}
+
+// Widely reported headline fees, €M, rounded. Display-only trivia — no odds,
+// no wagers, the number is the quiz answer.
+const HILO_TRANSFERS = [
+  ['Neymar', 2017, 'Barcelona', 'PSG', 222],
+  ['Kylian Mbappé', 2018, 'Monaco', 'PSG', 180],
+  ['Philippe Coutinho', 2018, 'Liverpool', 'Barcelona', 135],
+  ['Ousmane Dembélé', 2017, 'Dortmund', 'Barcelona', 105],
+  ['João Félix', 2019, 'Benfica', 'Atlético Madrid', 126],
+  ['Enzo Fernández', 2023, 'Benfica', 'Chelsea', 121],
+  ['Jack Grealish', 2021, 'Aston Villa', 'Man City', 117],
+  ['Cristiano Ronaldo', 2009, 'Man Utd', 'Real Madrid', 94],
+  ['Gareth Bale', 2013, 'Tottenham', 'Real Madrid', 101],
+  ['Paul Pogba', 2016, 'Juventus', 'Man Utd', 105],
+  ['Romelu Lukaku', 2021, 'Inter', 'Chelsea', 113],
+  ['Gonzalo Higuaín', 2016, 'Napoli', 'Juventus', 90],
+  ['Eden Hazard', 2019, 'Chelsea', 'Real Madrid', 100],
+  ['Antony', 2022, 'Ajax', 'Man Utd', 95],
+  ['Harry Maguire', 2019, 'Leicester', 'Man Utd', 87],
+  ['Virgil van Dijk', 2018, 'Southampton', 'Liverpool', 84],
+  ['Kepa Arrizabalaga', 2018, 'Athletic Bilbao', 'Chelsea', 80],
+  ['Zinedine Zidane', 2001, 'Juventus', 'Real Madrid', 77],
+  ['Luís Figo', 2000, 'Barcelona', 'Real Madrid', 62],
+  ['Kaká', 2009, 'Milan', 'Real Madrid', 67],
+  ['Luis Suárez', 2014, 'Liverpool', 'Barcelona', 81],
+  ['Zlatan Ibrahimović', 2009, 'Inter', 'Barcelona', 66],
+  ['Andriy Shevchenko', 2006, 'Milan', 'Chelsea', 43],
+  ['Fernando Torres', 2011, 'Liverpool', 'Chelsea', 58],
+  ['Andy Carroll', 2011, 'Newcastle', 'Liverpool', 41],
+  ['Dennis Bergkamp', 1995, 'Inter', 'Arsenal', 10],
+  ['Thierry Henry', 1999, 'Juventus', 'Arsenal', 16],
+  ['Nicolas Anelka', 1999, 'Arsenal', 'Real Madrid', 34],
+  ['David Beckham', 2003, 'Man Utd', 'Real Madrid', 37],
+  ['Wayne Rooney', 2004, 'Everton', 'Man Utd', 33],
+  ['Rio Ferdinand', 2002, 'Leeds', 'Man Utd', 46],
+  ['Juan Sebastián Verón', 2001, 'Lazio', 'Man Utd', 42],
+  ['Hernán Crespo', 2000, 'Parma', 'Lazio', 56],
+  ['Gianluigi Buffon', 2001, 'Parma', 'Juventus', 52],
+  ['Erling Haaland', 2022, 'Dortmund', 'Man City', 60],
+  ['Jude Bellingham', 2023, 'Dortmund', 'Real Madrid', 103],
+  ['Declan Rice', 2023, 'West Ham', 'Arsenal', 116],
+  ['Moisés Caicedo', 2023, 'Brighton', 'Chelsea', 116],
+  ['Harry Kane', 2023, 'Tottenham', 'Bayern', 100],
+  ['Alexander Isak', 2022, 'Real Sociedad', 'Newcastle', 70],
+  ['Darwin Núñez', 2022, 'Benfica', 'Liverpool', 75],
+  ['Florian Wirtz', 2025, 'Leverkusen', 'Liverpool', 125],
+  ['Victor Osimhen', 2020, 'Lille', 'Napoli', 75],
+  ['Antoine Griezmann', 2019, 'Atlético Madrid', 'Barcelona', 120],
+  ['Kevin De Bruyne', 2015, 'Wolfsburg', 'Man City', 76],
+  ['Raheem Sterling', 2015, 'Liverpool', 'Man City', 63],
+  ['Ángel Di María', 2014, 'Real Madrid', 'Man Utd', 75],
+  ['James Rodríguez', 2014, 'Monaco', 'Real Madrid', 75],
+  ['Mykhailo Mudryk', 2023, 'Shakhtar', 'Chelsea', 70],
+  ['Mohamed Salah', 2017, 'Roma', 'Liverpool', 42],
+  ['Sadio Mané', 2016, 'Southampton', 'Liverpool', 41],
+  ['Roberto Firmino', 2015, 'Hoffenheim', 'Liverpool', 41],
+  ['Pierre-Emerick Aubameyang', 2018, 'Dortmund', 'Arsenal', 63],
+  ['Álvaro Morata', 2017, 'Real Madrid', 'Chelsea', 66],
+  ['Robert Lewandowski', 2022, 'Bayern', 'Barcelona', 45],
+  ['Vinícius Júnior', 2018, 'Flamengo', 'Real Madrid', 45],
+  ['Nicolas Pépé', 2019, 'Lille', 'Arsenal', 72],
+  ['Tanguy Ndombele', 2019, 'Lyon', 'Tottenham', 60],
+  ['Lucas Hernández', 2019, 'Atlético Madrid', 'Bayern', 80],
+  ['Robinho', 2008, 'Real Madrid', 'Man City', 43],
+  ['Dimitar Berbatov', 2008, 'Tottenham', 'Man Utd', 38],
+  ['Ronaldinho', 2003, 'PSG', 'Barcelona', 30],
+  ['Ronaldo', 1997, 'Barcelona', 'Inter', 28],
+  ['Diego Maradona', 1984, 'Barcelona', 'Napoli', 7],
+  ['Eric Cantona', 1992, 'Leeds', 'Man Utd', 1],
+];
+
+async function serveHilo(req, res) {
+  const body = `
+  <div class="gcard" id="cardA" style="text-align:center;padding:22px 18px">
+    <div class="sil"><div class="sc"></div><div class="ss"></div></div>
+    <div style="font-family:Anton,Impact,sans-serif;font-size:24px;letter-spacing:.5px;margin-top:8px" id="aName"></div>
+    <div style="font-size:12px;color:rgba(233,238,243,.55)" id="aMeta"></div>
+    <div style="font-family:Anton,Impact,sans-serif;font-size:42px;color:#14E0C8;margin-top:6px;text-shadow:0 0 32px rgba(20,224,200,.3)" id="aFee"></div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:10px;height:44px" id="streakRow">
+    <span style="font-size:17px" id="fire">🔥</span>
+    <span style="font-family:Anton,Impact,sans-serif;font-size:19px;letter-spacing:.5px" id="streakTxt">STREAK 0</span>
+    <span style="font:600 11px Inter,system-ui,sans-serif;color:rgba(233,238,243,.5);border:1px solid rgba(255,255,255,.15);border-radius:999px;padding:3px 10px" id="bestTxt">best 0</span>
+  </div>
+  <div class="gcard" id="cardB" style="text-align:center;padding:22px 18px">
+    <div style="font-family:Anton,Impact,sans-serif;font-size:24px;letter-spacing:.5px" id="bName"></div>
+    <div style="font-size:12px;color:rgba(233,238,243,.55)" id="bMeta"></div>
+    <div id="bMystery" style="width:58px;height:58px;border-radius:50%;border:2px dashed rgba(255,255,255,.28);display:flex;align-items:center;justify-content:center;font-family:Anton,Impact,sans-serif;font-size:26px;color:rgba(233,238,243,.6);margin:10px auto 0">?</div>
+    <div id="bReveal" style="display:none">
+      <div style="font-family:Anton,Impact,sans-serif;font-size:46px;color:#FFC83D;margin-top:4px;text-shadow:0 0 32px rgba(255,200,61,.35)" id="bFee"></div>
+      <div style="font-size:13px;font-weight:700" id="verdict"></div>
+      <div class="pill-pts" id="banked" style="margin-top:8px;display:none"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px" id="hlBtns">
+      <button class="gbtn" id="btnH" style="margin-top:0">▲ HIGHER</button>
+      <button class="gbtn vio" id="btnL" style="margin-top:0">▼ LOWER</button>
+    </div>
+    <button class="gbtn" id="again" style="display:none">GO AGAIN</button>
+  </div>
+  <p class="note" style="text-align:center">Was the fee higher or lower? One point a step, banked when the run ends — up to 12 a run, 30 a day.</p>`;
+  const extraCss = `
+.sil{display:flex;flex-direction:column;align-items:center}
+.sc{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.09)}
+.ss{width:84px;height:28px;border-radius:16px 16px 0 0;background:rgba(255,255,255,.09);margin-top:-6px}`;
+  const script = `
+  var DATA=${JSON.stringify(HILO_TRANSFERS)};
+  var deck=[], A=null, B=null, streak=0, over=false;
+  var best=0; try{ best=parseInt(localStorage.getItem('clashly_hilo_best')||'0',10)||0; }catch(e){}
+  function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+  function fee(n){ return '€'+n+'M'; }
+  function draw(){ if(!deck.length) deck=shuffle(DATA.slice());
+    var c=deck.pop();
+    if(A && c[4]===A[4]){ deck.unshift(c); c=deck.pop() || c; }
+    return c; }
+  function paint(){
+    document.getElementById('aName').textContent=A[0].toUpperCase();
+    document.getElementById('aMeta').textContent=A[1]+' · '+A[2]+' → '+A[3];
+    document.getElementById('aFee').textContent=fee(A[4]);
+    document.getElementById('bName').textContent=B[0].toUpperCase();
+    document.getElementById('bMeta').textContent=B[1]+' · '+B[2]+' → '+B[3];
+    document.getElementById('streakTxt').textContent='STREAK '+streak;
+    document.getElementById('bestTxt').textContent='best '+best;
+    document.getElementById('bMystery').style.display='';
+    document.getElementById('bReveal').style.display='none';
+    document.getElementById('hlBtns').style.display='';
+    document.getElementById('again').style.display='none';
+    document.getElementById('cardB').style.borderColor='rgba(255,255,255,.07)';
+    document.getElementById('fire').style.filter=''; document.getElementById('fire').style.opacity='';
+    document.getElementById('streakTxt').style.color='';
+  }
+  function start(){ deck=shuffle(DATA.slice()); A=deck.pop(); B=draw(); streak=0; over=false; paint(); }
+  function guess(higher){
+    if(over) return;
+    var correct = higher ? (B[4]>A[4]) : (B[4]<A[4]);
+    document.getElementById('bMystery').style.display='none';
+    document.getElementById('bReveal').style.display='';
+    document.getElementById('bFee').textContent=fee(B[4]);
+    document.getElementById('hlBtns').style.display='none';
+    if(correct){
+      streak++;
+      if(streak>best){ best=streak; try{ localStorage.setItem('clashly_hilo_best',String(best)); }catch(e){} }
+      document.getElementById('bFee').style.color='#14E0C8';
+      document.getElementById('bFee').style.textShadow='0 0 32px rgba(20,224,200,.3)';
+      document.getElementById('verdict').textContent='CALLED IT';
+      document.getElementById('verdict').style.color='#14E0C8';
+      document.getElementById('streakTxt').textContent='STREAK '+streak;
+      document.getElementById('bestTxt').textContent='best '+best;
+      setTimeout(function(){ A=B; B=draw(); paint(); }, 950);
+    } else {
+      over=true;
+      var d=Math.abs(B[4]-A[4]);
+      document.getElementById('bFee').style.color='#FFC83D';
+      document.getElementById('bFee').style.textShadow='0 0 32px rgba(255,200,61,.35)';
+      document.getElementById('cardB').style.borderColor='rgba(255,200,61,.4)';
+      document.getElementById('verdict').textContent=(d<=5?'SO CLOSE — ':'')+'it was €'+d+'M '+(B[4]>A[4]?'more':'less');
+      document.getElementById('verdict').style.color='#FFC83D';
+      document.getElementById('fire').style.filter='grayscale(1)'; document.getElementById('fire').style.opacity='.6';
+      document.getElementById('streakTxt').textContent='STREAK ENDS AT '+streak;
+      document.getElementById('streakTxt').style.color='rgba(233,238,243,.6)';
+      document.getElementById('again').style.display='';
+      if(streak>0) submit('hilo', Math.min(12,streak), function(r){
+        if(r && r.awarded){ var b=document.getElementById('banked'); b.textContent='+'+r.awarded+' PTS BANKED'; b.style.display='inline-block'; }
+      });
+    }
+  }
+  document.getElementById('btnH').addEventListener('click', function(){ guess(true); });
+  document.getElementById('btnL').addEventListener('click', function(){ guess(false); });
+  document.getElementById('again').addEventListener('click', start);
+  start();`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(arcadePage({ path: '/hilo', title: 'HIGHER OR LOWER', kicker: 'TRANSFER FEES', metaTitle: 'Higher or Lower: transfer fees — the Clashly Arcade', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+}
+
+// The Daily — one player a day, everyone gets the same one. Career steps as
+// clues, a wrong guess unlocks the next step. Points once a day, ever.
+const DAILY_PLAYERS = [
+  { n: 'Zlatan Ibrahimović', alt: ['zlatan', 'ibrahimovic', 'ibra'], c: [[1999, 'Malmö'], [2001, 'Ajax'], [2004, 'Juventus'], [2006, 'Inter'], [2009, 'Barcelona'], [2010, 'Milan']] },
+  { n: 'Cristiano Ronaldo', alt: ['ronaldo', 'cr7', 'cristiano'], c: [[2002, 'Sporting'], [2003, 'Man Utd'], [2009, 'Real Madrid'], [2018, 'Juventus'], [2021, 'Man Utd'], [2023, 'Al-Nassr']] },
+  { n: 'Didier Drogba', alt: ['drogba'], c: [[2002, 'Guingamp'], [2003, 'Marseille'], [2004, 'Chelsea'], [2012, 'Shanghai Shenhua'], [2014, 'Chelsea'], [2015, 'Montreal']] },
+  { n: 'Thierry Henry', alt: ['henry'], c: [[1994, 'Monaco'], [1999, 'Juventus'], [1999, 'Arsenal'], [2007, 'Barcelona'], [2010, 'NY Red Bulls']] },
+  { n: 'Eric Cantona', alt: ['cantona'], c: [[1983, 'Auxerre'], [1988, 'Marseille'], [1991, 'Leeds'], [1992, 'Man Utd']] },
+  { n: 'Ronaldinho', alt: ['ronaldinho'], c: [[1998, 'Grêmio'], [2001, 'PSG'], [2003, 'Barcelona'], [2008, 'Milan'], [2011, 'Flamengo']] },
+  { n: 'Ronaldo', alt: ['ronaldo', 'r9', 'ronaldo nazario'], c: [[1993, 'Cruzeiro'], [1994, 'PSV'], [1996, 'Barcelona'], [1997, 'Inter'], [2002, 'Real Madrid'], [2007, 'Milan']] },
+  { n: 'David Beckham', alt: ['beckham'], c: [[1992, 'Man Utd'], [2003, 'Real Madrid'], [2007, 'LA Galaxy'], [2013, 'PSG']] },
+  { n: 'Andrea Pirlo', alt: ['pirlo'], c: [[1995, 'Brescia'], [1998, 'Inter'], [2001, 'Milan'], [2011, 'Juventus'], [2015, 'New York City']] },
+  { n: 'Gianluigi Buffon', alt: ['buffon'], c: [[1995, 'Parma'], [2001, 'Juventus'], [2018, 'PSG'], [2019, 'Juventus'], [2021, 'Parma']] },
+  { n: 'Robert Lewandowski', alt: ['lewandowski', 'lewy'], c: [[2008, 'Lech Poznań'], [2010, 'Dortmund'], [2014, 'Bayern'], [2022, 'Barcelona']] },
+  { n: 'Wojciech Szczęsny', alt: ['szczesny'], c: [[2006, 'Arsenal'], [2015, 'Roma'], [2017, 'Juventus'], [2024, 'Barcelona']] },
+  { n: 'Kaká', alt: ['kaka'], c: [[2001, 'São Paulo'], [2003, 'Milan'], [2009, 'Real Madrid'], [2014, 'Orlando City']] },
+  { n: 'Luka Modrić', alt: ['modric'], c: [[2002, 'Dinamo Zagreb'], [2008, 'Tottenham'], [2012, 'Real Madrid']] },
+  { n: 'Mohamed Salah', alt: ['salah'], c: [[2010, 'El Mokawloon'], [2012, 'Basel'], [2014, 'Chelsea'], [2016, 'Roma'], [2017, 'Liverpool']] },
+  { n: 'Luis Suárez', alt: ['suarez'], c: [[2005, 'Nacional'], [2006, 'Groningen'], [2007, 'Ajax'], [2011, 'Liverpool'], [2014, 'Barcelona'], [2020, 'Atlético Madrid']] },
+  { n: 'Robin van Persie', alt: ['van persie', 'rvp'], c: [[2001, 'Feyenoord'], [2004, 'Arsenal'], [2012, 'Man Utd'], [2015, 'Fenerbahçe']] },
+  { n: 'Arjen Robben', alt: ['robben'], c: [[2000, 'Groningen'], [2002, 'PSV'], [2004, 'Chelsea'], [2007, 'Real Madrid'], [2009, 'Bayern']] },
+  { n: 'Samuel Eto\'o', alt: ['etoo', 'eto o', 'eto'], c: [[1997, 'Real Madrid'], [2000, 'Mallorca'], [2004, 'Barcelona'], [2009, 'Inter'], [2011, 'Anzhi'], [2013, 'Chelsea']] },
+  { n: 'Carlos Tevez', alt: ['tevez'], c: [[2001, 'Boca Juniors'], [2005, 'Corinthians'], [2006, 'West Ham'], [2007, 'Man Utd'], [2009, 'Man City'], [2013, 'Juventus']] },
+  { n: 'Ángel Di María', alt: ['di maria'], c: [[2005, 'Rosario Central'], [2007, 'Benfica'], [2010, 'Real Madrid'], [2014, 'Man Utd'], [2015, 'PSG'], [2022, 'Juventus']] },
+  { n: 'Radamel Falcao', alt: ['falcao'], c: [[2005, 'River Plate'], [2009, 'Porto'], [2011, 'Atlético Madrid'], [2013, 'Monaco']] },
+  { n: 'Eden Hazard', alt: ['hazard'], c: [[2007, 'Lille'], [2012, 'Chelsea'], [2019, 'Real Madrid']] },
+  { n: 'Antoine Griezmann', alt: ['griezmann'], c: [[2009, 'Real Sociedad'], [2014, 'Atlético Madrid'], [2019, 'Barcelona'], [2021, 'Atlético Madrid']] },
+  { n: 'Philippe Coutinho', alt: ['coutinho'], c: [[2010, 'Inter'], [2013, 'Liverpool'], [2018, 'Barcelona'], [2022, 'Aston Villa']] },
+  { n: 'Riyad Mahrez', alt: ['mahrez'], c: [[2010, 'Le Havre'], [2014, 'Leicester'], [2018, 'Man City'], [2023, 'Al-Ahli']] },
+  { n: 'Jamie Vardy', alt: ['vardy'], c: [[2007, 'Stocksbridge Park Steels'], [2010, 'Halifax'], [2011, 'Fleetwood'], [2012, 'Leicester']] },
+  { n: "N'Golo Kanté", alt: ['kante'], c: [[2012, 'Boulogne'], [2013, 'Caen'], [2015, 'Leicester'], [2016, 'Chelsea'], [2023, 'Al-Ittihad']] },
+  { n: 'Virgil van Dijk', alt: ['van dijk', 'vvd'], c: [[2010, 'Groningen'], [2013, 'Celtic'], [2015, 'Southampton'], [2018, 'Liverpool']] },
+  { n: 'Son Heung-min', alt: ['son', 'heung-min son', 'sonny'], c: [[2010, 'Hamburg'], [2013, 'Leverkusen'], [2015, 'Tottenham']] },
+  { n: 'Kevin De Bruyne', alt: ['de bruyne', 'kdb'], c: [[2008, 'Genk'], [2012, 'Chelsea'], [2014, 'Wolfsburg'], [2015, 'Man City']] },
+  { n: 'Piotr Zieliński', alt: ['zielinski'], c: [[2011, 'Udinese'], [2016, 'Napoli'], [2024, 'Inter']] },
+  { n: 'Erling Haaland', alt: ['haaland'], c: [[2017, 'Molde'], [2019, 'RB Salzburg'], [2020, 'Dortmund'], [2022, 'Man City']] },
+  { n: 'Kylian Mbappé', alt: ['mbappe'], c: [[2015, 'Monaco'], [2017, 'PSG'], [2024, 'Real Madrid']] },
+  { n: 'Karim Benzema', alt: ['benzema'], c: [[2004, 'Lyon'], [2009, 'Real Madrid'], [2023, 'Al-Ittihad']] },
+  { n: 'Alexis Sánchez', alt: ['sanchez', 'alexis'], c: [[2006, 'Udinese'], [2011, 'Barcelona'], [2014, 'Arsenal'], [2018, 'Man Utd'], [2019, 'Inter']] },
+  { n: 'Wayne Rooney', alt: ['rooney'], c: [[2002, 'Everton'], [2004, 'Man Utd'], [2017, 'Everton'], [2018, 'DC United']] },
+  { n: 'Andriy Shevchenko', alt: ['shevchenko', 'sheva'], c: [[1994, 'Dynamo Kyiv'], [1999, 'Milan'], [2006, 'Chelsea'], [2008, 'Milan'], [2009, 'Dynamo Kyiv']] },
+];
+const DAILY_EPOCH = Date.UTC(2026, 0, 1); // #1 = 1 Jan 2026
+const dailyNumber = () => Math.floor((Date.now() - DAILY_EPOCH) / 86400000) + 1;
+const dailyPick = () => DAILY_PLAYERS[(dailyNumber() * 17) % DAILY_PLAYERS.length];
+
+async function serveDaily(req, res) {
+  const N = dailyNumber();
+  const P = dailyPick();
+  const body = `
+  <div class="gcard" id="dCard">
+    <div style="display:flex;align-items:baseline;justify-content:space-between">
+      <div style="font-family:Anton,Impact,sans-serif;font-size:26px;letter-spacing:.5px">THE DAILY</div>
+      <div style="font-family:Anton,Impact,sans-serif;font-size:16px;color:rgba(233,238,243,.35)">#${N}</div>
+    </div>
+    <div style="font-size:12px;color:rgba(233,238,243,.5);margin-top:4px">one a day, everyone gets the same player</div>
+    <div style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:2.5px;color:#14E0C8;margin-top:20px">THE CAREER</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px" id="steps"></div>
+    <div id="wrongs" style="margin-top:14px"></div>
+    <div style="display:flex;gap:10px;margin-top:16px" id="guessRow">
+      <input id="gIn" placeholder="Who is it?" autocomplete="off" style="flex:1;background:linear-gradient(180deg,#141C29,#0F1520);border:1px solid rgba(255,255,255,.13);border-radius:12px;padding:14px 16px;font:600 15px Inter,system-ui,sans-serif;color:#F4F7FB;outline:none;min-width:0" />
+      <button class="gbtn" id="gGo" style="width:auto;margin-top:0;padding:14px 20px">GUESS</button>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px" id="dotsRow">
+      <div style="display:flex;gap:5px" id="dots"></div>
+      <div style="font-size:12px;color:rgba(233,238,243,.5)" id="gCount"></div>
+    </div>
+  </div>
+  <div id="doneWrap" style="display:none;text-align:center">
+    <div style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:3px;color:#14E0C8;margin-top:18px" id="doneKick"></div>
+    <div style="font-family:Anton,Impact,sans-serif;font-size:40px;line-height:1.05;margin-top:12px;text-shadow:0 0 60px rgba(20,224,200,.35)" id="doneName"></div>
+    <div style="font-size:13px;color:rgba(233,238,243,.55);margin-top:10px" id="donePath"></div>
+    <div class="gcard" style="margin-top:24px;display:flex;flex-direction:column;align-items:center;gap:12px">
+      <div style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:2.5px;color:rgba(233,238,243,.5)" id="doneRes"></div>
+      <div style="display:flex;gap:8px" id="doneSquares"></div>
+      <div class="pill-pts" id="doneBanked" style="display:none"></div>
+      <button id="copyRes" style="border:1px solid rgba(20,224,200,.5);color:#14E0C8;background:none;border-radius:12px;padding:12px 0;width:100%;font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:1px;cursor:pointer">COPY RESULT</button>
+      <div style="font-size:11px;color:rgba(233,238,243,.4)">just the squares, no link</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:22px" id="streakWrap">
+      <span style="font-size:18px">🔥</span>
+      <span style="font-family:Anton,Impact,sans-serif;font-size:20px;letter-spacing:.5px" id="dStreak"></span>
+    </div>
+    <div style="font-size:12px;color:rgba(233,238,243,.5);margin-top:18px">back tomorrow — one a day</div>
+  </div>`;
+  const script = `
+  var N=${N};
+  var ANSWER=${JSON.stringify(P.n)};
+  var ALT=${JSON.stringify(P.alt)};
+  var STEPS=${JSON.stringify(P.c)};
+  var MAXG=6, SHOW0=Math.min(2,STEPS.length);
+  var st=null; try{ st=JSON.parse(localStorage.getItem('clashly_daily')||'null'); }catch(e){}
+  if(!st || st.n!==N) st={n:N, wrongs:[], done:false, won:false};
+  function save(){ try{ localStorage.setItem('clashly_daily', JSON.stringify(st)); }catch(e){} }
+  function norm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z ]/g,' ').replace(/ +/g,' ').trim(); }
+  var GOOD=[norm(ANSWER)].concat(ALT.map(norm), [norm(ANSWER).split(' ').slice(-1)[0]]);
+  function isRight(g){ g=norm(g); return g.length>2 && GOOD.indexOf(g)>=0; }
+  function shown(){ return Math.min(STEPS.length, SHOW0 + st.wrongs.length); }
+  function paint(){
+    var el=document.getElementById('steps'); el.innerHTML='';
+    var k=shown();
+    for(var i=0;i<k;i++){
+      el.innerHTML += '<div style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.11);border-radius:12px;padding:12px 16px">'
+        + '<span style="font-family:Anton,Impact,sans-serif;font-size:14px;color:#14E0C8">'+STEPS[i][0]+'</span>'
+        + '<span style="font:600 15px Inter,system-ui,sans-serif">'+STEPS[i][1]+'</span></div>';
+    }
+    if(k<STEPS.length) el.innerHTML += '<div style="display:flex;align-items:center;gap:12px;border:2px dashed rgba(255,255,255,.18);border-radius:12px;padding:12px 16px">'
+      + '<span style="font-family:Anton,Impact,sans-serif;font-size:14px;color:rgba(233,238,243,.4)">?</span>'
+      + '<span style="font-size:12px;color:rgba(233,238,243,.4)">next step unlocks after a wrong guess</span></div>';
+    var w=document.getElementById('wrongs');
+    w.innerHTML = st.wrongs.map(function(g){ return '<div style="font-size:13px;color:rgba(233,238,243,.45);display:flex;align-items:center;gap:8px;margin-top:4px"><span style="color:#F27B6C">✗</span><span style="text-decoration:line-through">'+g.replace(/</g,'&lt;')+'</span></div>'; }).join('');
+    var dots=document.getElementById('dots'); dots.innerHTML='';
+    for(var j=0;j<MAXG;j++) dots.innerHTML += '<div style="width:8px;height:8px;border-radius:50%;background:'+(j<st.wrongs.length?'#F27B6C':(j===st.wrongs.length&&!st.done?'#14E0C8':'rgba(255,255,255,.15)'))+'"></div>';
+    document.getElementById('gCount').textContent='guess '+Math.min(MAXG,st.wrongs.length+1)+' of '+MAXG;
+  }
+  function squares(won,used){
+    var out=[]; for(var i=0;i<used-(won?1:0);i++) out.push(false); if(won) out.push(true); return out;
+  }
+  function finish(won, banked){
+    st.done=true; st.won=won; save();
+    document.getElementById('dCard').style.display='none';
+    var dw=document.getElementById('doneWrap'); dw.style.display='block';
+    document.getElementById('doneKick').textContent='THE DAILY #'+N+(won?' · GOT IT':' · NOT TODAY');
+    document.getElementById('doneName').textContent=ANSWER.toUpperCase();
+    document.getElementById('donePath').textContent=STEPS.map(function(s){return s[1];}).join(' → ');
+    var used=st.wrongs.length+(won?1:0);
+    document.getElementById('doneRes').textContent='YOUR RESULT · '+(won?used:'X')+'/'+MAXG;
+    var sq=squares(won, used||MAXG);
+    if(!won){ sq=[]; for(var i=0;i<MAXG;i++) sq.push(false); }
+    document.getElementById('doneSquares').innerHTML=sq.map(function(ok){ return '<div style="width:28px;height:28px;border-radius:7px;background:'+(ok?'#14E0C8':'rgba(255,255,255,.14)')+'"></div>'; }).join('');
+    var stk={n:0,count:0}; try{ stk=JSON.parse(localStorage.getItem('clashly_daily_streak')||'{"n":0,"count":0}'); }catch(e){}
+    if(won && !st.counted){ stk.count = (stk.n===N-1)?stk.count+1:1; stk.n=N; st.counted=true; save(); try{ localStorage.setItem('clashly_daily_streak',JSON.stringify(stk)); }catch(e){} }
+    document.getElementById('streakWrap').style.display = (won&&stk.count>0)?'':'none';
+    document.getElementById('dStreak').textContent = stk.count+(stk.count===1?' DAY':' DAYS');
+    var txt='The Daily #'+N+' — '+(won?used:'X')+'/'+MAXG+'\\n'+sq.map(function(ok){return ok?'🟩':'⬛';}).join('');
+    var cp=document.getElementById('copyRes');
+    cp.onclick=function(){
+      (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(txt):Promise.reject()).then(function(){ cp.textContent='COPIED'; setTimeout(function(){ cp.textContent='COPY RESULT'; },1600); }, function(){ prompt('Copy it:', txt); });
+    };
+  }
+  function bank(pts){ submit('daily', pts, function(r){
+    if(r && r.awarded){ var b=document.getElementById('doneBanked'); b.textContent='+'+r.awarded+' PTS BANKED'; b.style.display='inline-block'; }
+  }); }
+  function go(){
+    if(st.done) return;
+    var g=document.getElementById('gIn').value;
+    if(!norm(g)) return;
+    if(isRight(g)){
+      var used=st.wrongs.length+1;
+      var PTS=[8,6,5,4,3,2][used-1]||2;
+      finish(true, null); bank(PTS);
+    } else {
+      st.wrongs.push(g.slice(0,40)); save();
+      document.getElementById('gIn').value='';
+      if(st.wrongs.length>=MAXG){ finish(false, null); }
+      else paint();
+    }
+  }
+  document.getElementById('gGo').addEventListener('click', go);
+  document.getElementById('gIn').addEventListener('keydown', function(e){ if(e.key==='Enter') go(); });
+  if(st.done) finish(st.won, null); else paint();`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(arcadePage({ path: '/daily', title: 'THE DAILY', kicker: 'ONE CAREER A DAY', metaTitle: 'The Daily — guess the career | Clashly', desc: 'One footballer a day, career steps as clues, six guesses, everyone gets the same player. Copy your squares to the group chat. Free, no money, no prizes.', body, script }));
 }
 
 // /this-week — the public face of the weekly call. Server-rendered so it
@@ -1546,6 +1989,10 @@ async function serveSitemap(req, res) {
     ['https://clashly.live/about', 'monthly', '0.8'],
     ['https://clashly.live/this-week', 'daily', '0.9'],
     ['https://clashly.live/arcade', 'weekly', '0.6'],
+    ['https://clashly.live/daily', 'daily', '0.8'],
+    ['https://clashly.live/hilo', 'weekly', '0.6'],
+    ['https://clashly.live/penalty', 'weekly', '0.5'],
+    ['https://clashly.live/keepy', 'weekly', '0.5'],
   ];
   Object.keys(GUIDES).forEach((p) => urls.push(['https://clashly.live' + p, 'monthly', '0.8']));
   matches.slice(0, 60).forEach((m) => {
@@ -1586,6 +2033,8 @@ Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, 
 - https://clashly.live/about (what Clashly is and how it works)
 - https://clashly.live/this-week (the weekly call: one fixture, one tap, no account, public record)
 - https://clashly.live/arcade (football skill games; points join the public board; no money, no prizes)
+- https://clashly.live/daily (The Daily: guess the footballer from their career, one a day, six guesses)
+- https://clashly.live/hilo (Higher or Lower: streak the famous transfer fees)
 ${Object.entries(GUIDES).map(([p, g]) => `- https://clashly.live${p} (${g.h1})`).join('\n')}
 ${matches.slice(0, 20).map((m) => `- https://clashly.live/call/${fixtureSlug(m)} (${m.home} v ${m.away})`).join('\n')}
 `;
@@ -2642,6 +3091,10 @@ const server = http.createServer(async (req, res) => {
   if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
   if (url.pathname === '/this-week') return serveThisWeek(req, res);
   if (url.pathname === '/arcade') return serveArcade(req, res);
+  if (url.pathname === '/penalty') return servePenalty(req, res);
+  if (url.pathname === '/keepy') return serveKeepy(req, res);
+  if (url.pathname === '/hilo') return serveHilo(req, res);
+  if (url.pathname === '/daily') return serveDaily(req, res);
   if (url.pathname === '/weekcard.png' || url.pathname === '/weekcard.svg') return serveWeekCard(req, res);
   if (url.pathname.startsWith('/ltable/')) return serveLeagueTable(req, res, url);
   if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
@@ -3017,7 +3470,10 @@ async function slateSweep() {
 // CAP rather than a separate board, and the server clamps every submission —
 // the client is never trusted with more than "which game, what score".
 // ---------------------------------------------------------------------------
-const ARCADE_GAMES = { penalty: { max: 15 }, keepy: { max: 15 } };
+// hilo — streak game, one point a step, capped so a god-run can't drown the
+// board. daily — Wordle-shaped, once:true means the server refuses a second
+// award the same day however many times the client asks.
+const ARCADE_GAMES = { penalty: { max: 15 }, keepy: { max: 15 }, hilo: { max: 12 }, daily: { max: 8, once: true } };
 const ARCADE_DAILY_CAP = 30;
 const dayKey = () => new Date().toISOString().slice(0, 10);
 
@@ -3031,10 +3487,13 @@ function arcadeAward(vid, game, rawScore) {
   if (!db.arcade) db.arcade = {};
   const a = (db.arcade[vid] ||= { points: 0, byDay: {} });
   const today = a.byDay[dayKey()] || 0;
+  if (g.once && a.once && a.once[game] === dayKey())
+    return { awarded: 0, today, cap: ARCADE_DAILY_CAP, allTime: a.points, repeat: true };
   const clamped = Math.max(0, Math.min(g.max, Math.floor(Number(rawScore) || 0)));
   const awarded = Math.max(0, Math.min(clamped, ARCADE_DAILY_CAP - today));
   a.byDay[dayKey()] = today + awarded;
   a.points += awarded;
+  if (g.once) (a.once ||= {})[game] = dayKey();
   // byDay only ever needs today for the cap — stop it growing forever
   for (const k of Object.keys(a.byDay)) if (k !== dayKey()) delete a.byDay[k];
   return { awarded, today: a.byDay[dayKey()], cap: ARCADE_DAILY_CAP, allTime: a.points };
