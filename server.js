@@ -1077,10 +1077,11 @@ async function serveWeekCard(req, res) {
 
 // /arcade — the skill games. Everything inline, no dependencies, mobile-first.
 // ---------------------------------------------------------------------------
-// The Arcade — hub + game pages (design: Clashly Screens v22)
-// Each game is its own server-rendered page: shareable URL, no app shell, no
-// account. The client only ever reports "which game, what score" — the server
-// clamps everything (see arcadeAward).
+// The Arcade — hub + game pages (design: Clashly Screens v22; v22.1 desktop
+// expansion). Each game is a shared {css, card, js} snippet: standalone pages
+// mount one, and on wide screens /arcade mounts all four inline so a laptop
+// never has to click through tiles. The client only ever reports "which game,
+// what score" — the server clamps everything (see arcadeAward).
 // ---------------------------------------------------------------------------
 const ARCADE_FONTS = `<link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1102,6 +1103,25 @@ const ARCADE_CSS = `${PAGE_CSS}
 .gbtn.vio{background:linear-gradient(180deg,#8B4DF5,#6D2FD6);color:#F2ECFF;box-shadow:0 6px 18px rgba(124,58,237,.35)}
 .pill-pts{display:inline-block;font:700 11px Inter,system-ui,sans-serif;letter-spacing:1px;color:#14E0C8;border:1px solid rgba(20,224,200,.4);border-radius:999px;padding:5px 14px}
 .note{font-size:12.5px;color:#5E6B7C}`;
+
+// Shared client bootstrap: anonymous voter id, clamped score submit, and a
+// cap refresher that updates whichever cap elements the mounting page has
+// (#capline on game pages; #capTxt/#capPts/#capBar on the hub).
+const ARCADE_BOOT_JS = `
+  var KEY='clashly_voter';
+  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
+  function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
+    var el=document.getElementById('capline'); if(el) el.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
+    var t=document.getElementById('capTxt'); if(t) t.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : d.today+' of '+d.cap+' banked today';
+    var p=document.getElementById('capPts'); if(p) p.textContent = d.allTime ? d.allTime+' PTS ALL TIME' : '';
+    var b=document.getElementById('capBar'); if(b) b.style.width = Math.min(100, Math.round(d.today/d.cap*100))+'%';
+  }).catch(function(){}); }
+  function submit(game, score, cb){
+    fetch('/api/arcade/score',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({game:game,score:score,v:v})})
+      .then(function(r){return r.json();}).then(function(d){ if(cb) cb(d); refreshCap(); }).catch(function(){ if(cb) cb(null); });
+  }
+  refreshCap();`;
+
 function arcadePage({ path, title, kicker, metaTitle, desc, body, script, extraCss = '' }) {
   const url = 'https://clashly.live' + path;
   return `<!DOCTYPE html>
@@ -1130,110 +1150,15 @@ ${ARCADE_FONTS}
 </div>
 <script>
 (function(){
-  var KEY='clashly_voter';
-  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
-  function submit(game, score, cb){
-    fetch('/api/arcade/score',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({game:game,score:score,v:v})})
-      .then(function(r){return r.json();}).then(function(d){ if(cb) cb(d); }).catch(function(){ if(cb) cb(null); });
-  }
+${ARCADE_BOOT_JS}
 ${script}
 })();
 </script>
 </body></html>`;
 }
 
-async function serveArcade(req, res) {
-  const board = weeklyBoard(3);
-  const url = 'https://clashly.live/arcade';
-  const rankCol = ['#A78BFA', '#14E0C8', 'rgba(233,238,243,.6)'];
-  const tile = (href, emoji, name, sub, pts, col) => `
-    <a href="${href}" style="display:flex;flex-direction:column;gap:5px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:15px;text-decoration:none;color:#E9EEF3">
-      <span style="font-size:25px">${emoji}</span>
-      <span style="font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:.6px">${name}</span>
-      <span style="font-size:12px;color:rgba(233,238,243,.55)">${sub}</span>
-      <span style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:1px;color:${col};border:1px solid ${col}66;border-radius:999px;padding:3px 9px;align-self:flex-start;margin-top:3px">UP TO +${pts} PTS</span>
-    </a>`;
-  const html = `<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>The Arcade — skill games for the board | Clashly</title>
-<meta name="description" content="Football skill games, no account needed. Points go on the same public board as your match calls. Free, no money, no prizes." />
-<link rel="canonical" href="${url}" />
-<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
-<meta property="og:type" content="website" />
-<meta property="og:title" content="The Clashly Arcade" />
-<meta property="og:description" content="Penalty timing, keepy-uppy, transfer-fee streaks and the daily career puzzle. Points go on the board. Free, no money, no prizes." />
-<meta property="og:url" content="${url}" />
-<meta property="og:image" content="https://clashly.live/og-home.png" />
-${ARCADE_FONTS}
-<style>${ARCADE_CSS}</style>
-</head><body><div class="wrap wk">
-  <div style="display:flex;align-items:center;gap:11px;margin:0 0 16px">
-    <svg style="width:40px;height:40px;flex:none;border-radius:11px" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></svg>
-    <div><div style="font-family:Anton,Impact,sans-serif;font-size:23px;letter-spacing:.5px;line-height:1">THE ARCADE</div><div class="tag" style="margin:2px 0 0">SKILL IN, POINTS OUT</div></div>
-  </div>
-
-  <div class="gcard">
-    <div style="display:flex;align-items:baseline;justify-content:space-between">
-      <div style="font:700 13px Inter,system-ui,sans-serif" id="capTxt">points bank today</div>
-      <div style="font-family:Anton,Impact,sans-serif;font-size:14px;color:#FFC83D" id="capPts"></div>
-    </div>
-    <div style="height:8px;border-radius:999px;background:rgba(255,255,255,.08);margin-top:10px;overflow:hidden">
-      <div id="capBar" style="width:0%;height:100%;border-radius:999px;background:linear-gradient(90deg,#D99A2B,#FFD883);transition:width .5s"></div>
-    </div>
-    ${board.length ? `<div style="display:flex;align-items:center;gap:13px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);flex-wrap:wrap">
-      <span style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:2px;color:rgba(233,238,243,.5)">BOARD</span>
-      ${board.map((b, i) => `<span style="font:600 12px Inter,system-ui,sans-serif;color:${rankCol[i]}">${i + 1} ${esc5(b.name)} ${b.points}</span>`).join('')}
-      <a href="/board" style="font:600 11px Inter,system-ui,sans-serif;color:#7C8A9C;margin-left:auto;text-decoration:none">all →</a>
-    </div>` : ''}
-  </div>
-
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-    ${tile('/penalty', '⚽', 'PENALTY SWEEP', 'beat the sweep', 15, '#14E0C8')}
-    ${tile('/keepy', '🤹', 'KEEPY-UPPY', "don't let it drop", 15, '#A78BFA')}
-    ${tile('/hilo', '📈', 'HIGHER OR LOWER', 'streak the transfer fees', 12, '#FFC83D')}
-    ${tile('/daily', '🎯', 'THE DAILY', 'one career a day', 8, '#14E0C8')}
-    <div style="grid-column:1 / -1;display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px dashed rgba(167,139,250,.4);border-radius:16px;padding:15px;opacity:.75">
-      <span style="font-size:25px">⚔️</span>
-      <div><div style="font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:.6px">GRID DUEL</div>
-      <div style="font-size:12px;color:rgba(233,238,243,.55)">argue it with a mate — in the workshop</div></div>
-      <span style="margin-left:auto;font:700 10px Inter,system-ui,sans-serif;letter-spacing:1px;color:#A78BFA;border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:3px 9px">SOON</span>
-    </div>
-  </div>
-
-  <p class="note" style="margin:16px 0 0">Points land on the same board as your match calls — up to 30 a day, no account needed.</p>
-  <a class="cta" href="/this-week" style="display:block;text-align:center;margin-top:14px">📣 Call the weekend's matches →</a>
-  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
-</div>
-<script>
-(function(){
-  var KEY='clashly_voter';
-  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
-  fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
-    document.getElementById('capTxt').textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : d.today+' of '+d.cap+' banked today';
-    document.getElementById('capPts').textContent = d.allTime ? d.allTime+' PTS ALL TIME' : '';
-    document.getElementById('capBar').style.width = Math.min(100, Math.round(d.today/d.cap*100))+'%';
-  }).catch(function(){});
-})();
-</script>
-</body></html>`;
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(html);
-}
-
-async function servePenalty(req, res) {
-  const body = `
-  <div class="gcard">
-    <h2 class="gname">Penalty Sweep ⚽</h2>
-    <p class="gsub">The marker sweeps the goal. Tap SHOOT when it's inside the zone. Five kicks, the zone shrinks.</p>
-    <div class="goal" id="goal"><div class="zone" id="zone"></div><div class="marker" id="marker"></div></div>
-    <div class="kicks" id="kicks"></div>
-    <button class="gbtn" id="shoot">SHOOT</button>
-    <div class="stat" id="pstat"></div>
-  </div>
-  <p class="note" id="capline" style="text-align:center"></p>`;
-  const extraCss = `
+// ---- Penalty Sweep -------------------------------------------------------
+const PENALTY_CSS = `
 .goal{position:relative;height:64px;border-radius:12px;background:#0B0F14;border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0}
 .zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8}
 .marker{position:absolute;top:6px;bottom:6px;width:5px;border-radius:3px;background:#FFC83D}
@@ -1241,12 +1166,16 @@ async function servePenalty(req, res) {
 .kick{width:26px;height:26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
 .kick.hit{border-color:#14E0C8;color:#14E0C8}
 .kick.miss{border-color:#FF5A6E;color:#FF5A6E}`;
-  const script = `
-  var capline=document.getElementById('capline');
-  function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
-    capline.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
-  }).catch(function(){}); }
-  refreshCap();
+const PENALTY_CARD = `
+  <div class="gcard">
+    <h2 class="gname">Penalty Sweep ⚽</h2>
+    <p class="gsub">The marker sweeps the goal. Tap SHOOT when it's inside the zone. Five kicks, the zone shrinks.</p>
+    <div class="goal" id="goal"><div class="zone" id="zone"></div><div class="marker" id="marker"></div></div>
+    <div class="kicks" id="kicks"></div>
+    <button class="gbtn" id="shoot">SHOOT</button>
+    <div class="stat" id="pstat"></div>
+  </div>`;
+const PENALTY_JS = `
   var goal=document.getElementById('goal'), zone=document.getElementById('zone'), marker=document.getElementById('marker');
   var shoot=document.getElementById('shoot'), kicksEl=document.getElementById('kicks'), pstat=document.getElementById('pstat');
   var KICKS=5, kick=0, total=0, pos=0, dir=1, speed=2.6, playing=true, zoneW=0.30, zoneX=0.35, raf;
@@ -1276,34 +1205,30 @@ async function servePenalty(req, res) {
       playing=false; cancelAnimationFrame(raf); shoot.disabled=true; shoot.textContent='FULL TIME';
       submit('penalty', total, function(d){
         pstat.innerHTML = d ? 'Scored '+total+' of 15. <b>+'+d.awarded+' points</b>'+(d.awarded<total?' (daily cap)':'')+' · '+d.allTime+' all time' : 'Could not save that one.';
-        refreshCap();
       });
       setTimeout(function(){ kick=0; total=0; zoneW=0.30; speed=2.6; playing=true; shoot.disabled=false; shoot.textContent='SHOOT'; dots(); layoutZone(); step(); }, 2600);
     }
   });`;
+
+async function servePenalty(req, res) {
+  const body = PENALTY_CARD + `\n  <p class="note" id="capline" style="text-align:center"></p>`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/penalty', title: 'PENALTY SWEEP', kicker: 'FIVE KICKS', metaTitle: 'Penalty Sweep — the Clashly Arcade', desc: 'Timing game: tap when the sweeping marker is in the zone. Five kicks, the zone shrinks. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: '/penalty', title: 'PENALTY SWEEP', kicker: 'FIVE KICKS', metaTitle: 'Penalty Sweep — the Clashly Arcade', desc: 'Timing game: tap when the sweeping marker is in the zone. Five kicks, the zone shrinks. Points go on the public board. Free, no money, no prizes.', body, script: PENALTY_JS, extraCss: PENALTY_CSS }));
 }
 
-async function serveKeepy(req, res) {
-  const body = `
+// ---- Keepy-Uppy ----------------------------------------------------------
+const KEEPY_CSS = `
+.pitch{position:relative;height:280px;border-radius:12px;background:linear-gradient(180deg,#0B0F14,#0d1a14);border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0;touch-action:manipulation}
+.kball{position:absolute;font-size:44px;line-height:1;user-select:none;cursor:pointer;left:50%;top:20px;will-change:transform}`;
+const KEEPY_CARD = `
   <div class="gcard">
     <h2 class="gname">Keepy-Uppy 🤹</h2>
     <p class="gsub">Tap the ball to keep it up. It gets faster. One point a touch, drop it and the run's over.</p>
-    <div class="pitch" id="pitch"><div id="ball">⚽</div></div>
+    <div class="pitch" id="pitch"><div class="kball" id="ball">⚽</div></div>
     <button class="gbtn" id="kstart">START</button>
     <div class="stat" id="kstat"></div>
-  </div>
-  <p class="note" id="capline" style="text-align:center"></p>`;
-  const extraCss = `
-.pitch{position:relative;height:280px;border-radius:12px;background:linear-gradient(180deg,#0B0F14,#0d1a14);border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0;touch-action:manipulation}
-#ball{position:absolute;font-size:44px;line-height:1;user-select:none;cursor:pointer;left:50%;top:20px;will-change:transform}`;
-  const script = `
-  var capline=document.getElementById('capline');
-  function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
-    capline.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
-  }).catch(function(){}); }
-  refreshCap();
+  </div>`;
+const KEEPY_JS = `
   var pitch=document.getElementById('pitch'), ball=document.getElementById('ball');
   var kstart=document.getElementById('kstart'), kstat=document.getElementById('kstat');
   var bx=0, by=0, vx=0, vy=0, touches=0, live=false, kraf;
@@ -1320,7 +1245,6 @@ async function serveKeepy(req, res) {
       var sc=Math.min(15,touches);
       submit('keepy', sc, function(d){
         kstat.innerHTML = d ? touches+' touch'+(touches===1?'':'es')+'. <b>+'+d.awarded+' points</b>'+(d.awarded<sc?' (daily cap)':'')+' · '+d.allTime+' all time' : 'Could not save that one.';
-        refreshCap();
       });
       return; }
     kraf=requestAnimationFrame(kstep);
@@ -1339,10 +1263,14 @@ async function serveKeepy(req, res) {
     kstat.textContent='0 touches'; kstart.disabled=true; kstart.textContent='LIVE';
     cancelAnimationFrame(kraf); kraf=requestAnimationFrame(kstep);
   });`;
+
+async function serveKeepy(req, res) {
+  const body = KEEPY_CARD + `\n  <p class="note" id="capline" style="text-align:center"></p>`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/keepy', title: 'KEEPY-UPPY', kicker: "DON'T LET IT DROP", metaTitle: 'Keepy-Uppy — the Clashly Arcade', desc: 'Reflex game: tap the ball to keep it in the air, it gets faster every touch. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: '/keepy', title: 'KEEPY-UPPY', kicker: "DON'T LET IT DROP", metaTitle: 'Keepy-Uppy — the Clashly Arcade', desc: 'Reflex game: tap the ball to keep it in the air, it gets faster every touch. Points go on the public board. Free, no money, no prizes.', body, script: KEEPY_JS, extraCss: KEEPY_CSS }));
 }
 
+// ---- Higher or Lower -----------------------------------------------------
 // Widely reported headline fees, €M, rounded. Display-only trivia — no odds,
 // no wagers, the number is the quiz answer.
 const HILO_TRANSFERS = [
@@ -1412,9 +1340,11 @@ const HILO_TRANSFERS = [
   ['Diego Maradona', 1984, 'Barcelona', 'Napoli', 7],
   ['Eric Cantona', 1992, 'Leeds', 'Man Utd', 1],
 ];
-
-async function serveHilo(req, res) {
-  const body = `
+const HILO_CSS = `
+.sil{display:flex;flex-direction:column;align-items:center}
+.sc{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.09)}
+.ss{width:84px;height:28px;border-radius:16px 16px 0 0;background:rgba(255,255,255,.09);margin-top:-6px}`;
+const HILO_CARD = `
   <div class="gcard" id="cardA" style="text-align:center;padding:22px 18px">
     <div class="sil"><div class="sc"></div><div class="ss"></div></div>
     <div style="font-family:Anton,Impact,sans-serif;font-size:24px;letter-spacing:.5px;margin-top:8px" id="aName"></div>
@@ -1440,13 +1370,8 @@ async function serveHilo(req, res) {
       <button class="gbtn vio" id="btnL" style="margin-top:0">▼ LOWER</button>
     </div>
     <button class="gbtn" id="again" style="display:none">GO AGAIN</button>
-  </div>
-  <p class="note" style="text-align:center">Was the fee higher or lower? One point a step, banked when the run ends — up to 12 a run, 30 a day.</p>`;
-  const extraCss = `
-.sil{display:flex;flex-direction:column;align-items:center}
-.sc{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.09)}
-.ss{width:84px;height:28px;border-radius:16px 16px 0 0;background:rgba(255,255,255,.09);margin-top:-6px}`;
-  const script = `
+  </div>`;
+const HILO_JS = `
   var DATA=${JSON.stringify(HILO_TRANSFERS)};
   var deck=[], A=null, B=null, streak=0, over=false;
   var best=0; try{ best=parseInt(localStorage.getItem('clashly_hilo_best')||'0',10)||0; }catch(e){}
@@ -1511,12 +1436,16 @@ async function serveHilo(req, res) {
   document.getElementById('btnL').addEventListener('click', function(){ guess(false); });
   document.getElementById('again').addEventListener('click', start);
   start();`;
+
+async function serveHilo(req, res) {
+  const body = HILO_CARD + `\n  <p class="note" style="text-align:center">Was the fee higher or lower? One point a step, banked when the run ends — up to 12 a run, 30 a day.</p>\n  <p class="note" id="capline" style="text-align:center"></p>`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/hilo', title: 'HIGHER OR LOWER', kicker: 'TRANSFER FEES', metaTitle: 'Higher or Lower: transfer fees — the Clashly Arcade', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: '/hilo', title: 'HIGHER OR LOWER', kicker: 'TRANSFER FEES', metaTitle: 'Higher or Lower: transfer fees — the Clashly Arcade', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script: HILO_JS, extraCss: HILO_CSS }));
 }
 
-// The Daily — one player a day, everyone gets the same one. Career steps as
-// clues, a wrong guess unlocks the next step. Points once a day, ever.
+// ---- The Daily -----------------------------------------------------------
+// One player a day, everyone gets the same one. Career steps as clues, a
+// wrong guess unlocks the next step. Points once a day, ever.
 const DAILY_PLAYERS = [
   { n: 'Zlatan Ibrahimović', alt: ['zlatan', 'ibrahimovic', 'ibra'], c: [[1999, 'Malmö'], [2001, 'Ajax'], [2004, 'Juventus'], [2006, 'Inter'], [2009, 'Barcelona'], [2010, 'Milan']] },
   { n: 'Cristiano Ronaldo', alt: ['ronaldo', 'cr7', 'cristiano'], c: [[2002, 'Sporting'], [2003, 'Man Utd'], [2009, 'Real Madrid'], [2018, 'Juventus'], [2021, 'Man Utd'], [2023, 'Al-Nassr']] },
@@ -1561,10 +1490,7 @@ const DAILY_EPOCH = Date.UTC(2026, 0, 1); // #1 = 1 Jan 2026
 const dailyNumber = () => Math.floor((Date.now() - DAILY_EPOCH) / 86400000) + 1;
 const dailyPick = () => DAILY_PLAYERS[(dailyNumber() * 17) % DAILY_PLAYERS.length];
 
-async function serveDaily(req, res) {
-  const N = dailyNumber();
-  const P = dailyPick();
-  const body = `
+const dailyCard = (N) => `
   <div class="gcard" id="dCard">
     <div style="display:flex;align-items:baseline;justify-content:space-between">
       <div style="font-family:Anton,Impact,sans-serif;font-size:26px;letter-spacing:.5px">THE DAILY</div>
@@ -1600,7 +1526,7 @@ async function serveDaily(req, res) {
     </div>
     <div style="font-size:12px;color:rgba(233,238,243,.5);margin-top:18px">back tomorrow — one a day</div>
   </div>`;
-  const script = `
+const dailyJs = (N, P) => `
   var N=${N};
   var ANSWER=${JSON.stringify(P.n)};
   var ALT=${JSON.stringify(P.alt)};
@@ -1633,7 +1559,7 @@ async function serveDaily(req, res) {
   function squares(won,used){
     var out=[]; for(var i=0;i<used-(won?1:0);i++) out.push(false); if(won) out.push(true); return out;
   }
-  function finish(won, banked){
+  function finish(won){
     st.done=true; st.won=won; save();
     document.getElementById('dCard').style.display='none';
     var dw=document.getElementById('doneWrap'); dw.style.display='block';
@@ -1665,19 +1591,132 @@ async function serveDaily(req, res) {
     if(isRight(g)){
       var used=st.wrongs.length+1;
       var PTS=[8,6,5,4,3,2][used-1]||2;
-      finish(true, null); bank(PTS);
+      finish(true); bank(PTS);
     } else {
       st.wrongs.push(g.slice(0,40)); save();
       document.getElementById('gIn').value='';
-      if(st.wrongs.length>=MAXG){ finish(false, null); }
+      if(st.wrongs.length>=MAXG){ finish(false); }
       else paint();
     }
   }
   document.getElementById('gGo').addEventListener('click', go);
   document.getElementById('gIn').addEventListener('keydown', function(e){ if(e.key==='Enter') go(); });
-  if(st.done) finish(st.won, null); else paint();`;
+  if(st.done) finish(st.won); else paint();`;
+
+async function serveDaily(req, res) {
+  const N = dailyNumber();
+  const P = dailyPick();
+  const body = dailyCard(N);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/daily', title: 'THE DAILY', kicker: 'ONE CAREER A DAY', metaTitle: 'The Daily — guess the career | Clashly', desc: 'One footballer a day, career steps as clues, six guesses, everyone gets the same player. Copy your squares to the group chat. Free, no money, no prizes.', body, script }));
+  res.end(arcadePage({ path: '/daily', title: 'THE DAILY', kicker: 'ONE CAREER A DAY', metaTitle: 'The Daily — guess the career | Clashly', desc: 'One footballer a day, career steps as clues, six guesses, everyone gets the same player. Copy your squares to the group chat. Free, no money, no prizes.', body, script: dailyJs(N, P) }));
+}
+
+// ---- The hub -------------------------------------------------------------
+// Phones get the tile grid (design screen 5); wide screens (~laptop) get the
+// four games mounted inline so nobody has to click through — Qiao's ask.
+async function serveArcade(req, res) {
+  const board = weeklyBoard(3);
+  const url = 'https://clashly.live/arcade';
+  const rankCol = ['#A78BFA', '#14E0C8', 'rgba(233,238,243,.6)'];
+  const N = dailyNumber();
+  const P = dailyPick();
+  const tile = (href, emoji, name, sub, pts, col) => `
+    <a href="${href}" style="display:flex;flex-direction:column;gap:5px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:15px;text-decoration:none;color:#E9EEF3">
+      <span style="font-size:25px">${emoji}</span>
+      <span style="font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:.6px">${name}</span>
+      <span style="font-size:12px;color:rgba(233,238,243,.55)">${sub}</span>
+      <span style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:1px;color:${col};border:1px solid ${col}66;border-radius:999px;padding:3px 9px;align-self:flex-start;margin-top:3px">UP TO +${pts} PTS</span>
+    </a>`;
+  const deskGame = (title, kicker, inner) => `
+    <div style="min-width:0">
+      <div style="text-align:center;margin:0 0 10px"><b style="font-family:Anton,Impact,sans-serif;font-weight:400;font-size:19px;letter-spacing:1px">${title}</b><span style="display:block;font:700 10px Inter,system-ui,sans-serif;letter-spacing:3px;color:#14E0C8;margin-top:2px">${kicker}</span></div>
+      ${inner}
+    </div>`;
+  const html = `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Arcade — skill games for the board | Clashly</title>
+<meta name="description" content="Football skill games, no account needed. Points go on the same public board as your match calls. Free, no money, no prizes." />
+<link rel="canonical" href="${url}" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="The Clashly Arcade" />
+<meta property="og:description" content="Penalty timing, keepy-uppy, transfer-fee streaks and the daily career puzzle. Points go on the board. Free, no money, no prizes." />
+<meta property="og:url" content="${url}" />
+<meta property="og:image" content="https://clashly.live/og-home.png" />
+${ARCADE_FONTS}
+<style>${ARCADE_CSS}${PENALTY_CSS}${KEEPY_CSS}${HILO_CSS}
+#deskGames{display:none}
+@media(min-width:900px){
+  .wk{max-width:980px}
+  #tileGrid{display:none!important}
+  #deskGames{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:start;margin-top:6px}
+}</style>
+</head><body><div class="wrap wk">
+  <div style="display:flex;align-items:center;gap:11px;margin:0 0 16px">
+    <svg style="width:40px;height:40px;flex:none;border-radius:11px" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></svg>
+    <div><div style="font-family:Anton,Impact,sans-serif;font-size:23px;letter-spacing:.5px;line-height:1">THE ARCADE</div><div class="tag" style="margin:2px 0 0">SKILL IN, POINTS OUT</div></div>
+  </div>
+
+  <div class="gcard">
+    <div style="display:flex;align-items:baseline;justify-content:space-between">
+      <div style="font:700 13px Inter,system-ui,sans-serif" id="capTxt">points bank today</div>
+      <div style="font-family:Anton,Impact,sans-serif;font-size:14px;color:#FFC83D" id="capPts"></div>
+    </div>
+    <div style="height:8px;border-radius:999px;background:rgba(255,255,255,.08);margin-top:10px;overflow:hidden">
+      <div id="capBar" style="width:0%;height:100%;border-radius:999px;background:linear-gradient(90deg,#D99A2B,#FFD883);transition:width .5s"></div>
+    </div>
+    ${board.length ? `<div style="display:flex;align-items:center;gap:13px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);flex-wrap:wrap">
+      <span style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:2px;color:rgba(233,238,243,.5)">BOARD</span>
+      ${board.map((b, i) => `<span style="font:600 12px Inter,system-ui,sans-serif;color:${rankCol[i]}">${i + 1} ${esc5(b.name)} ${b.points}</span>`).join('')}
+      <a href="/board" style="font:600 11px Inter,system-ui,sans-serif;color:#7C8A9C;margin-left:auto;text-decoration:none">all →</a>
+    </div>` : ''}
+  </div>
+
+  <div id="tileGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    ${tile('/penalty', '⚽', 'PENALTY SWEEP', 'beat the sweep', 15, '#14E0C8')}
+    ${tile('/keepy', '🤹', 'KEEPY-UPPY', "don't let it drop", 15, '#A78BFA')}
+    ${tile('/hilo', '📈', 'HIGHER OR LOWER', 'streak the transfer fees', 12, '#FFC83D')}
+    ${tile('/daily', '🎯', 'THE DAILY', 'one career a day', 8, '#14E0C8')}
+  </div>
+
+  <div id="deskGames">
+    ${deskGame('PENALTY SWEEP', 'FIVE KICKS', PENALTY_CARD)}
+    ${deskGame('KEEPY-UPPY', "DON'T LET IT DROP", KEEPY_CARD)}
+    ${deskGame('HIGHER OR LOWER', 'TRANSFER FEES', HILO_CARD)}
+    ${deskGame('THE DAILY', 'ONE CAREER A DAY', dailyCard(N))}
+  </div>
+
+  <div style="display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px dashed rgba(167,139,250,.4);border-radius:16px;padding:15px;opacity:.75;margin-top:14px">
+    <span style="font-size:25px">⚔️</span>
+    <div><div style="font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:.6px">GRID DUEL</div>
+    <div style="font-size:12px;color:rgba(233,238,243,.55)">argue it with a mate — in the workshop</div></div>
+    <span style="margin-left:auto;font:700 10px Inter,system-ui,sans-serif;letter-spacing:1px;color:#A78BFA;border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:3px 9px">SOON</span>
+  </div>
+
+  <p class="note" style="margin:16px 0 0">Points land on the same board as your match calls — up to 30 a day, no account needed.</p>
+  <a class="cta" href="/this-week" style="display:block;text-align:center;margin-top:14px">📣 Call the weekend's matches →</a>
+  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
+</div>
+<script>
+(function(){
+${ARCADE_BOOT_JS}
+  if (window.matchMedia && matchMedia('(min-width:900px)').matches) {
+    (function(){ ${PENALTY_JS}
+    })();
+    (function(){ ${KEEPY_JS}
+    })();
+    (function(){ ${HILO_JS}
+    })();
+    (function(){ ${dailyJs(N, P)}
+    })();
+  }
+})();
+</script>
+</body></html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(html);
 }
 
 // /this-week — the public face of the weekly call. Server-rendered so it
