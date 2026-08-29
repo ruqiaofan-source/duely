@@ -26,6 +26,15 @@
     'Every card is a live bet waiting for an opponent. Take one, win it, bank': 'Każda karta to zakład czekający na przeciwnika. Weź go, wygraj i zgarnij',
     '📌 Yours, live in the Arena:': '📌 Twoje, wystawione na Arenie:',
     "🗣️ That's nonsense →": '🗣️ Bzdura →', '⚔️ Make them back it': '⚔️ Niech to udowodni',
+    // v22 turnstile landing
+    'THINK YOU': 'MYŚLISZ, ŻE', 'KNOW BALL?': 'ZNASZ FUTBOL?', 'PROVE IT.': 'UDOWODNIJ TO.',
+    "TONIGHT'S CALL": 'DZISIEJSZY TYP',
+    'one tap, no account, on the record': 'jedno tapnięcie, bez konta, na rekordzie',
+    "You're on the record — see how it lands at full time.": 'Jesteś na rekordzie — zobacz, jak to wyjdzie po meczu.',
+    'CHALLENGE A MATE': 'WYZWIJ ZIOMKA', 'the record starts here': 'tu zaczyna się rekord',
+    'CALL THE WEEKEND': 'WYTYPUJ WEEKEND', '6 games, one board': '6 meczów, jedna tabela',
+    'THE ARCADE': 'ARCADE', 'skill games, points count': 'gry na refleks, punkty się liczą',
+    'No money, no prizes, just receipts. 18+': 'Bez pieniędzy, bez nagród, tylko paragony. 18+',
     // onboarding
     'Think you know ball? Prove it. ⚽': 'Znasz się na futbolu? Udowodnij to. ⚽',
     'Call the match, your mate takes the other side, and the winner goes on the record. Clashly keeps the score — the rivalry does the rest.':

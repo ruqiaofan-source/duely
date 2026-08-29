@@ -489,8 +489,13 @@ async function route() {
 // ---------------------------------------------------------------------------
 function renderOnboarding(next) {
   track('onboard_view');
-  app.innerHTML = `
-    <div class="card">
+  // v22 — the turnstile landing (design: Clashly Screens). A first-time visitor
+  // gets a question they can answer in one tap before anyone asks their name,
+  // then three doors. The join form stays below, revealed by the purple door.
+  // Arrivals with a destination (league invite) skip straight to the form.
+  const turnstile = !next;
+  const joinCard = `
+    <div class="card" id="joinCard" ${turnstile ? 'style="display:none"' : ''}>
       <h2>Think you know ball? Prove it. ⚽</h2>
       <p class="sub">Call the match, your mate takes the other side, and the winner goes on the record. Clashly keeps the score — the rivalry does the rest.</p>
       <label for="name">What should mates call you?</label>
@@ -501,9 +506,68 @@ function renderOnboarding(next) {
       </div>
       <button class="cta" id="go">Let's go →</button>
       <button class="muted-link" id="signin">I already have an account → sign in</button>
+    </div>`;
+  const door = (id, emoji, title, sub, col, colBg, colBorder) => `
+    <div class="riv-row" data-door="${id}" role="button" tabindex="0" style="cursor:pointer;border:1px solid ${colBorder};background:${colBg};border-radius:14px;padding:14px 16px;margin:0">
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="font-size:21px">${emoji}</span>
+        <div>
+          <div style="font-family:Anton,sans-serif;font-size:16px;letter-spacing:.8px;color:${col}">${title}</div>
+          <div class="sm" style="color:var(--muted);margin-top:2px">${sub}</div>
+        </div>
+      </div>
+      <span style="color:${col};font-size:20px">›</span>
+    </div>`;
+  app.innerHTML = turnstile ? `
+    <div style="font-family:Anton,sans-serif;font-size:44px;line-height:1.04;letter-spacing:.3px;margin:8px 0 0">
+      <div>THINK YOU</div>
+      <div>KNOW BALL?</div>
+      <div style="color:var(--teal);text-shadow:0 0 40px rgba(20,224,200,.45)">PROVE IT.</div>
     </div>
+    <div class="card" id="tonight" style="display:none;margin-top:20px"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+      ${door('duel', '⚔️', 'CHALLENGE A MATE', 'the record starts here', '#A78BFA', 'rgba(124,58,237,.13)', 'rgba(124,58,237,.45)')}
+      ${door('week', '🗓️', 'CALL THE WEEKEND', '6 games, one board', 'var(--teal)', 'rgba(20,224,200,.09)', 'rgba(20,224,200,.35)')}
+      ${door('arcade', '🕹️', 'THE ARCADE', 'skill games, points count', 'var(--gold)', 'rgba(255,200,61,.09)', 'rgba(255,200,61,.35)')}
+    </div>
+    ${joinCard}
+    <div class="banner" style="border-style:solid;border-color:rgba(255,200,61,.35);color:var(--text)">🔰 Early days — join now and you're a <b style="color:var(--gold)">Founder</b>: your number's stamped on your profile and your perks carry over when Pro launches.</div>
+    <p class="sub" style="text-align:center;margin:14px 0 0;color:var(--muted)">No money, no prizes, just receipts. 18+</p>` : `
+    ${joinCard}
     <div class="banner" style="border-style:solid;border-color:rgba(255,200,61,.35);color:var(--text)">🔰 Early days — join now and you're a <b style="color:var(--gold)">Founder</b>: your number's stamped on your profile and your perks carry over when Pro launches.</div>
     <div class="banner">Quick start needs just a name. Sign in (Google or email) to save your record across devices.</div>`;
+  if (turnstile) {
+    app.querySelectorAll('[data-door]').forEach((d) => d.addEventListener('click', () => {
+      const which = d.dataset.door; haptic(8); track('landing_door', { door: which });
+      if (which === 'week') { location.href = '/this-week'; return; }
+      if (which === 'arcade') { location.href = '/arcade'; return; }
+      const jc = $('#joinCard'); jc.style.display = ''; jc.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); $('#name').focus();
+    }));
+    // Tonight's call — the weekly question, answerable before any name ask
+    api('/weekly?v=' + encodeURIComponent(voterId())).then((wk) => {
+      if (!wk || !wk.match || wk.result || wk.locked) return;
+      const el = $('#tonight'); if (!el) return;
+      const opts = [['HOME', wk.match.home + ' win'], ['DRAW', 'Draw'], ['AWAY', wk.match.away + ' win']];
+      const t0 = wk.tally || { total: 0 };
+      el.style.display = '';
+      el.innerHTML = `
+        <div class="sm" style="color:var(--teal);font-weight:800;letter-spacing:2px;font-size:10.5px">TONIGHT'S CALL</div>
+        <div style="font-size:18px;font-weight:700;margin:6px 0 10px">Will ${esc(wk.match.home)} beat ${esc(wk.match.away)}?</div>
+        <div style="display:flex;flex-direction:column;gap:9px" id="tnOpts">
+          ${opts.map(([c, l]) => `<button data-tn="${c}" class="${wk.myCall === c ? 'active' : ''}" style="background:rgba(255,255,255,.05);border:1px solid ${wk.myCall === c ? 'var(--teal)' : 'rgba(255,255,255,.13)'};border-radius:12px;padding:13px 16px;font:600 15px Inter,system-ui,sans-serif;color:var(--text);text-align:left;cursor:pointer">${esc(l)}</button>`).join('')}
+        </div>
+        <p class="sub" id="tnNote" style="text-align:center;margin:8px 0 0">${wk.myCall ? "You're on the record — see how it lands at full time." : 'one tap, no account, on the record'}${t0.total ? ` · ${t0.total} called it` : ''}</p>`;
+      el.querySelectorAll('[data-tn]').forEach((b) => b.addEventListener('click', async () => {
+        haptic(10); track('landing_call_tap'); track('weekly_call_tap');
+        el.querySelectorAll('[data-tn]').forEach((x) => { x.style.borderColor = x === b ? 'var(--teal)' : 'rgba(255,255,255,.13)'; x.style.background = x === b ? 'rgba(20,224,200,.08)' : 'rgba(255,255,255,.05)'; });
+        try {
+          const r = await api('/weekly/call', { method: 'POST', body: JSON.stringify({ outcome: b.dataset.tn, v: voterId() }) });
+          const tt = (r && r.tally) || {}; const tot = tt.total || 0;
+          $('#tnNote').innerHTML = `✅ On the record.${tot ? ` <b>${Math.round(((tt[b.dataset.tn] || 0) / tot) * 100)}%</b> agree with you.` : ''} <a class="muted-link" href="/this-week" style="display:inline;margin:0">See the board →</a>`;
+        } catch (e) { toast(e.message || 'Try again'); }
+      }));
+    }).catch(() => {});
+  }
   $('#go').addEventListener('click', async () => {
     const name = $('#name').value.trim();
     if (!name) return toast('Pick a name');
