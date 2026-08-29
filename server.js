@@ -1076,9 +1076,15 @@ async function serveWeekCard(req, res) {
 // /this-week — the public face of the weekly call. Server-rendered so it
 // unfurls on X and WhatsApp and can be crawled; the buttons post straight to
 // the API, so it works with no account and no app shell.
+const shortTeam = (n) => {
+  const w = String(n || '').split(' ');
+  if (w.length > 1 && /^(Man|Manchester|Real|AC|AS|FC|RB|1\.|SC)$/i.test(w[0])) return w[1];
+  return w[0];
+};
 async function serveThisWeek(req, res) {
   const wk = weekIdx(Date.now());
   const w = await getWeekly(wk);
+  const sl = await getSlate(wk).catch(() => null);
   const url = 'https://clashly.live/this-week';
   if (!w) { res.writeHead(302, { Location: '/' }); return res.end(); }
   const t = weeklyTally(w);
@@ -1138,6 +1144,14 @@ async function serveThisWeek(req, res) {
 .rule b{color:#C7D0DB}
 #you{margin-top:14px;padding:13px 15px;border-radius:16px;background:rgba(20,224,200,.08);border:1.5px solid rgba(20,224,200,.45);font-size:14.5px;color:#F4F7FB}
 #you .big{font-family:Anton,Impact,sans-serif;font-size:27px;color:#14E0C8;display:block;line-height:1.1}
+.slate .sm-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid rgba(34,48,63,.55)}
+.sm-fix{font-size:14px;color:#C7D0DB;min-width:0}
+.sm-fix b{color:#F4F7FB}
+.sm-meta{display:block;font-size:11px;color:#5E6B7C;margin-top:1px}
+.sm-opts{display:flex;gap:6px;flex:none}
+.sm-opt{padding:8px 9px;border-radius:11px;border:1.5px solid #22303F;background:#111823;color:#C7D0DB;font:700 11.5px Inter,system-ui,sans-serif;cursor:pointer;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sm-opt.on{border-color:#14E0C8;color:#14E0C8;background:rgba(20,224,200,.10)}
+.sm-lock{font-size:11.5px;color:#5E6B7C;font-weight:700;flex:none}
 .brd div span:first-child{display:flex;gap:9px;align-items:baseline}
 .rk{color:#5E6B7C;font-size:12px;min-width:14px;display:inline-block}
 .pts{color:#14E0C8}
@@ -1179,6 +1193,23 @@ async function serveThisWeek(req, res) {
     ${bar(w.away, t.AWAY, '#7C3AED')}
     <p class="note" id="cnt">${t.total} ${t.total === 1 ? 'call' : 'calls'} so far</p>
   </div>
+
+  ${sl && sl.matches.length ? `<div class="slate">
+    <p class="note" style="margin:22px 0 8px;text-transform:uppercase;letter-spacing:2px;font-weight:800">The rest of the weekend</p>
+    ${sl.matches.map((m) => {
+      const locked = m.result || (m.utcDate && new Date(m.utcDate).getTime() < Date.now());
+      return `<div class="sm-row" data-mid="${esc5(m.id)}">
+      <div class="sm-fix"><b>${esc5(m.home)}</b> v <b>${esc5(m.away)}</b>
+        <span class="sm-meta">${esc5(m.competition || '')}${m.result ? ' &middot; FT: ' + esc5(m.result === 'HOME' ? m.home : m.result === 'AWAY' ? m.away : 'draw') : ''}</span></div>
+      ${locked ? `<div class="sm-lock">${m.result ? 'settled' : 'kicked off'}</div>`
+        : `<div class="sm-opts">
+        <button class="sm-opt" data-mid="${esc5(m.id)}" data-o="HOME">${esc5(shortTeam(m.home))}</button>
+        <button class="sm-opt" data-mid="${esc5(m.id)}" data-o="DRAW">draw</button>
+        <button class="sm-opt" data-mid="${esc5(m.id)}" data-o="AWAY">${esc5(shortTeam(m.away))}</button>
+      </div>`}
+    </div>`; }).join('')}
+    <p class="note" style="margin-top:6px">One tap each. Every right call banks points on the same board.</p>
+  </div>` : ''}
 
   <div class="rule">
     <b>How it scores.</b> Get it right and you bank points. The fewer people who agreed
@@ -1244,6 +1275,31 @@ async function serveThisWeek(req, res) {
     if(d.myCall) mark(d.myCall);
     you(d);
   }).catch(function(){});
+  function markSlate(mid,o,crowd){
+    var row=document.querySelector('.sm-row[data-mid="'+mid+'"]'); if(!row) return;
+    var bs=row.querySelectorAll('.sm-opt');
+    for(var i=0;i<bs.length;i++){
+      var on = bs[i].getAttribute('data-o')===o;
+      bs[i].classList.toggle('on', on);
+      if(on && crowd && crowd.total){
+        var pc=Math.round((crowd[o]||0)/crowd.total*100);
+        bs[i].textContent = bs[i].textContent.replace(/ \d+%$/,'') + ' ' + pc + '%';
+      }
+    }
+    var sh=document.getElementById('share'); if(sh) sh.hidden=false;
+    try{ if(!localStorage.getItem('clashly_named')) document.getElementById('nameWrap').hidden=false; }catch(e){}
+  }
+  fetch('/api/slate?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
+    (d.matches||[]).forEach(function(m){ if(m.myCall) markSlate(m.id, m.myCall, m.tally); });
+  }).catch(function(){});
+  document.querySelectorAll('.sm-opt').forEach(function(b){
+    b.addEventListener('click', function(){
+      var mid=b.getAttribute('data-mid'), o=b.getAttribute('data-o');
+      fetch('/api/slate/call',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({matchId:mid,outcome:o,v:v})})
+        .then(function(r){return r.json();}).then(function(d){ if(d.match) markSlate(mid,o,d.match.tally); })
+        .catch(function(){});
+    });
+  });
   document.getElementById('opts') && document.getElementById('opts').addEventListener('click', function(e){
     var b=e.target.closest('.opt'); if(!b) return;
     var o=b.getAttribute('data-o');
@@ -1619,6 +1675,40 @@ async function handleApi(req, res, url) {
   }
 
   // GET /api/stats — loop funnel for the activation metric (% of links that get accepted)
+  // GET /api/slate — the rest of the weekend's big games, callable with no auth
+  if (req.method === 'GET' && parts[1] === 'slate' && parts.length === 2) {
+    const wk = weekIdx(Date.now());
+    const sl = await getSlate(wk);
+    const me = authPlayer(req);
+    const vid = me ? me.id : String(url.searchParams.get('v') || '');
+    return sendJson(res, 200, {
+      week: wk,
+      matches: sl ? sl.matches.map((m) => slateMatchView(m, vid)) : [],
+    });
+  }
+
+  // POST /api/slate/call — one tap on one fixture. Same contract as the weekly.
+  if (req.method === 'POST' && parts[1] === 'slate' && parts[2] === 'call') {
+    const b = await readBody(req);
+    const wk = weekIdx(Date.now());
+    const sl = await getSlate(wk);
+    if (!sl) return sendJson(res, 400, { error: 'No slate this week yet' });
+    const m = (sl.matches || []).find((x) => x.id === String(b.matchId || ''));
+    if (!m) return sendJson(res, 404, { error: 'Not on this week\'s slate' });
+    if (!WEEKLY_OUTCOMES.includes(b.outcome)) return sendJson(res, 400, { error: 'Pick one' });
+    if (m.utcDate && new Date(m.utcDate).getTime() < Date.now())
+      return sendJson(res, 409, { error: 'Kicked off — calls are closed' });
+    const me = authPlayer(req);
+    const vid = me ? me.id : String(b.v || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+    if (!vid) return sendJson(res, 400, { error: 'Missing voter' });
+    const isNew = !m.calls[vid];
+    m.calls[vid] = b.outcome;
+    if (me) { if (!db.voterNames) db.voterNames = {}; db.voterNames[me.id] = me.name; }
+    saveData();
+    if (isNew) logEvent('slate_call', { week: wk, match: m.id, outcome: b.outcome }, false);
+    return sendJson(res, 200, { ok: true, match: slateMatchView(m, vid) });
+  }
+
   // ---- THE WEEKLY CALL --------------------------------------------------
   // GET /api/weekly — the question, the split, your call, the board.
   // Deliberately readable with NO auth: a cold visitor from X must be able to
@@ -1680,9 +1770,14 @@ async function handleApi(req, res, url) {
     if (!w) return sendJson(res, 404, { error: 'No call this week' });
     const vid = String(b.v || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
     const name = String(b.name || '').trim().slice(0, 40);
-    if (!vid || !w.calls[vid]) return sendJson(res, 400, { error: 'Call it first' });
+    const sl = db.slate && db.slate[wk];
+    const calledSlate = sl && (sl.matches || []).some((m) => m.calls && m.calls[vid]);
+    if (!vid || (!w.calls[vid] && !calledSlate)) return sendJson(res, 400, { error: 'Call it first' });
     if (name.length < 2) return sendJson(res, 400, { error: 'Add a name' });
-    w.names[vid] = name; saveData();
+    w.names[vid] = name;
+    if (!db.voterNames) db.voterNames = {};
+    db.voterNames[vid] = name;              // the slate has no per-week names map
+    saveData();
     logEvent('weekly_named', { week: wk }, false);
     return sendJson(res, 200, { ok: true, board: weeklyBoard() });
   }
@@ -2634,6 +2729,92 @@ const weeklyCrowdPct = (w) => {
   return t.total ? Math.round(((t[w.result] || 0) / t.total) * 100) : null;
 };
 
+
+// ---------------------------------------------------------------------------
+// THE SLATE — the "more games" ask, implemented as football knowledge instead
+// of chance. Filip wanted casino-style mini-games (Plinko, multiplier lanes) to
+// keep people on the site; those are social-casino shapes that TikTok
+// suppresses, app stores rate 18+, and Poland's art. 29 register can block on
+// sight. The rule of thumb: if a game still works with dice instead of
+// football, we do not build it. So the extra playtime comes from MORE CALLS:
+// the weekly's marquee fixture plus the rest of the weekend's big games, one
+// tap each, same crowd-weighted scoring, one board. Sky Super 6's shape.
+// ---------------------------------------------------------------------------
+const SLATE_SIZE = 6;
+
+async function getSlate(wk) {
+  if (!db.slate) db.slate = {};
+  let sl = db.slate[wk];
+  if (!sl) {
+    const weekly = await getWeekly(wk);
+    const now = Date.now();
+    const COMP_W = [[/world cup|fifa|\bwc\b/i, 100], [/champions league/i, 80], [/europa/i, 55],
+      [/premier league/i, 50], [/la ?liga/i, 45], [/serie a/i, 42], [/bundesliga/i, 42],
+      [/eredivisie/i, 40], [/ligue 1/i, 38]];
+    const BIG = /man(chester)? (city|united)|liverpool|arsenal|chelsea|tottenham|newcastle|real madrid|barcelona|atl[\u00e9e]tico|bayern|dortmund|leverkusen|psg|paris|inter|ac milan|juventus|napoli|ajax|psv|feyenoord|benfica|porto|celtic|rangers/i;
+    const picks = ((await getMatches()) || [])
+      .filter((x) => x.utcDate && new Date(x.utcDate).getTime() > now + 3600000)
+      .filter((x) => !weekly || x.id !== weekly.matchId)      // the marquee stays the marquee
+      .map((x) => {
+        let sc = 0;
+        for (const [re, w] of COMP_W) if (re.test(x.competition || '')) { sc += w; break; }
+        if (BIG.test(x.home)) sc += 25;
+        if (BIG.test(x.away)) sc += 25;
+        return { x, sc };
+      })
+      .sort((a, b) => (b.sc - a.sc) || (new Date(a.x.utcDate) - new Date(b.x.utcDate)))
+      .slice(0, SLATE_SIZE)
+      .map(({ x }) => ({ id: x.id, home: x.home, away: x.away, competition: x.competition || '',
+        utcDate: x.utcDate, externalId: x.externalId || null, calls: {}, result: null }));
+    if (!picks.length) return null;
+    sl = { week: wk, matches: picks };
+    db.slate[wk] = sl; saveData();
+  }
+  return sl;
+}
+
+const slateMatchView = (m, vid) => {
+  const t = weeklyTally(m);   // same shape: calls map keyed by voter id
+  return { id: m.id, home: m.home, away: m.away, competition: m.competition, utcDate: m.utcDate,
+    tally: t, result: m.result || null, crowd: weeklyCrowdPct(m),
+    myCall: vid ? (m.calls[vid] || null) : null,
+    points: vid ? weeklyPointsFor(m, m.calls[vid]) : 0,
+    locked: Boolean(m.utcDate && new Date(m.utcDate).getTime() < Date.now()) };
+};
+
+function slatePoints(voterId) {
+  let points = 0, right = 0, played = 0;
+  for (const sl of Object.values(db.slate || {}))
+    for (const m of sl.matches || []) {
+      const call = m.calls && m.calls[voterId];
+      if (!call) continue;
+      played++;
+      if (m.result && m.result === call) right++;
+      points += weeklyPointsFor(m, call);
+    }
+  return { points, right, played };
+}
+
+async function slateSweep() {
+  try {
+    if (!db.slate || !FOOTBALL_TOKEN) return;
+    let changed = false, fetches = 0;
+    for (const sl of Object.values(db.slate)) {
+      for (const m of sl.matches || []) {
+        if (m.result || !m.utcDate || !m.externalId || fetches >= 4) continue;
+        if (Date.now() < new Date(m.utcDate).getTime() + FT_GRACE_MS) continue;
+        fetches++;
+        try {
+          const live = await fetchLiveResult(m.externalId);
+          if (live) { m.result = live; m.resolvedAt = new Date().toISOString(); changed = true;
+            logEvent('slate_resolved', { week: sl.week, match: m.id, result: live }); }
+        } catch (e) { console.warn('slate resolve failed:', e.message); }
+      }
+    }
+    if (changed) saveData();
+  } catch (e) { console.warn('slate sweep failed:', e.message); }
+}
+
 function weeklyRecord(voterId) {
   let right = 0, played = 0, streak = 0, points = 0;
   const weeks = Object.keys(db.weekly || {}).map(Number).sort((a, b) => b - a);
@@ -2644,20 +2825,30 @@ function weeklyRecord(voterId) {
     if (w.result && w.result === call) right++;
     points += weeklyPointsFor(w, call);
   }
-  return { played, right, streak, points };
+  const sp = slatePoints(voterId);
+  return { played, right, streak, points: points + sp.points,
+           slate: { right: sp.right, played: sp.played } };
 }
 
 function weeklyBoard(limit = 10) {
   const agg = {};
+  const nameFor = (vid, local) => local || (db.voterNames && db.voterNames[vid])
+    || (db.players[vid] && db.players[vid].name) || null;
+  const add = (vid, nm, won, pts) => {
+    if (!nm || QA_GHOST.test(nm) || QA_GHOST.test(vid)) return;
+    const a = (agg[vid] ||= { name: nm, right: 0, played: 0, points: 0 });
+    a.name = nm; a.played++; if (won) a.right++; a.points += pts;
+  };
   for (const w of Object.values(db.weekly || {})) {
     if (!w.result) continue;
-    for (const [vid, call] of Object.entries(w.calls || {})) {
-      const nm = (w.names && w.names[vid]) || (db.players[vid] && db.players[vid].name);
-      if (!nm) continue;                          // anonymous callers stay off the board
-      if (QA_GHOST.test(nm)) continue;
-      const a = (agg[vid] ||= { name: nm, right: 0, played: 0, points: 0 });
-      a.name = nm; a.played++; if (call === w.result) a.right++;
-      a.points += weeklyPointsFor(w, call);
+    for (const [vid, call] of Object.entries(w.calls || {}))
+      add(vid, nameFor(vid, w.names && w.names[vid]), call === w.result, weeklyPointsFor(w, call));
+  }
+  for (const sl of Object.values(db.slate || {})) {
+    for (const m of sl.matches || []) {
+      if (!m.result) continue;
+      for (const [vid, call] of Object.entries(m.calls || {}))
+        add(vid, nameFor(vid, null), call === m.result, weeklyPointsFor(m, call));
     }
   }
   // ranked on points, not hit rate: calling the unpopular one right should beat
@@ -2777,6 +2968,8 @@ initData().then(() => {
   setInterval(tableSweep, 60 * 60000);
   setTimeout(weeklySweep, 50000);
   setInterval(weeklySweep, 20 * 60000);
+  setTimeout(slateSweep, 70000);
+  setInterval(slateSweep, 20 * 60000);
   // v11 — rivalry-streak rescue: Fri/Sat, if a pair with a 2+ week streak has no
   // clash yet this week, nudge BOTH sides once. Peer pressure beats app pressure.
   const streakNudgeSweep = () => {
