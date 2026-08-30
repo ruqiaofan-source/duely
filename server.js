@@ -1126,7 +1126,7 @@ ${ARCADE_FONTS}
     <div style="width:34px"></div>
   </div>
   ${body}
-  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
+  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a> &middot; <a href="/credits.html">photo credits</a></div>
 </div>
 <script>
 (function(){
@@ -1204,7 +1204,7 @@ ${ARCADE_FONTS}
 
   <p class="note" style="margin:16px 0 0">Points land on the same board as your match calls — up to 30 a day, no account needed.</p>
   <a class="cta" href="/this-week" style="display:block;text-align:center;margin-top:14px">📣 Call the weekend's matches →</a>
-  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
+  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a> &middot; <a href="/credits.html">photo credits</a></div>
 </div>
 <script>
 (function(){
@@ -1416,7 +1416,8 @@ const HILO_TRANSFERS = [
 async function serveHilo(req, res) {
   const body = `
   <div class="gcard" id="cardA" style="text-align:center;padding:22px 18px">
-    <div class="sil"><div class="sc"></div><div class="ss"></div></div>
+    <img class="pimg" id="aImg" alt="" />
+    <div class="sil" id="aSil" style="display:none"><div class="sc"></div><div class="ss"></div></div>
     <div style="font-family:Anton,Impact,sans-serif;font-size:24px;letter-spacing:.5px;margin-top:8px" id="aName"></div>
     <div style="font-size:12px;color:rgba(233,238,243,.55)" id="aMeta"></div>
     <div style="font-family:Anton,Impact,sans-serif;font-size:42px;color:#14E0C8;margin-top:6px;text-shadow:0 0 32px rgba(20,224,200,.3)" id="aFee"></div>
@@ -1427,6 +1428,7 @@ async function serveHilo(req, res) {
     <span style="font:600 11px Inter,system-ui,sans-serif;color:rgba(233,238,243,.5);border:1px solid rgba(255,255,255,.15);border-radius:999px;padding:3px 10px" id="bestTxt">best 0</span>
   </div>
   <div class="gcard" id="cardB" style="text-align:center;padding:22px 18px">
+    <img class="pimg" id="bImg" style="width:64px;height:64px;margin-bottom:6px" alt="" />
     <div style="font-family:Anton,Impact,sans-serif;font-size:24px;letter-spacing:.5px" id="bName"></div>
     <div style="font-size:12px;color:rgba(233,238,243,.55)" id="bMeta"></div>
     <div id="bMystery" style="width:58px;height:58px;border-radius:50%;border:2px dashed rgba(255,255,255,.28);display:flex;align-items:center;justify-content:center;font-family:Anton,Impact,sans-serif;font-size:26px;color:rgba(233,238,243,.6);margin:10px auto 0">?</div>
@@ -1445,18 +1447,28 @@ async function serveHilo(req, res) {
   const extraCss = `
 .sil{display:flex;flex-direction:column;align-items:center}
 .sc{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.09)}
-.ss{width:84px;height:28px;border-radius:16px 16px 0 0;background:rgba(255,255,255,.09);margin-top:-6px}`;
+.ss{width:84px;height:28px;border-radius:16px 16px 0 0;background:rgba(255,255,255,.09);margin-top:-6px}
+.pimg{width:84px;height:84px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.16);display:block;margin:0 auto;background:rgba(255,255,255,.06)}`;
   const script = `
   var DATA=${JSON.stringify(HILO_TRANSFERS)};
   var deck=[], A=null, B=null, streak=0, over=false;
   var best=0; try{ best=parseInt(localStorage.getItem('clashly_hilo_best')||'0',10)||0; }catch(e){}
   function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
   function fee(n){ return '€'+n+'M'; }
+  function pslug(n){ return n.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-\$/g,''); }
+  function setImg(id, silId, name){
+    var im=document.getElementById(id); if(!im) return;
+    im.style.display='';
+    im.onerror=function(){ im.style.display='none'; if(silId){ var s=document.getElementById(silId); if(s) s.style.display=''; } };
+    if(silId){ var s0=document.getElementById(silId); if(s0) s0.style.display='none'; }
+    im.src='/players/'+pslug(name)+'.jpg';
+  }
   function draw(){ if(!deck.length) deck=shuffle(DATA.slice());
     var c=deck.pop();
     if(A && c[4]===A[4]){ deck.unshift(c); c=deck.pop() || c; }
     return c; }
   function paint(){
+    setImg('aImg','aSil',A[0]); setImg('bImg',null,B[0]);
     document.getElementById('aName').textContent=A[0].toUpperCase();
     document.getElementById('aMeta').textContent=A[1]+' · '+A[2]+' → '+A[3];
     document.getElementById('aFee').textContent=fee(A[4]);
@@ -1585,6 +1597,7 @@ async function serveDaily(req, res) {
   </div>
   <div id="doneWrap" style="display:none;text-align:center">
     <div style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:3px;color:#14E0C8;margin-top:18px" id="doneKick"></div>
+    <img id="doneImg" style="display:none;width:96px;height:96px;border-radius:50%;object-fit:cover;border:2px solid rgba(20,224,200,.5);margin:14px auto 0;box-shadow:0 0 40px rgba(20,224,200,.25)" alt="" />
     <div style="font-family:Anton,Impact,sans-serif;font-size:40px;line-height:1.05;margin-top:12px;text-shadow:0 0 60px rgba(20,224,200,.35)" id="doneName"></div>
     <div style="font-size:13px;color:rgba(233,238,243,.55);margin-top:10px" id="donePath"></div>
     <div class="gcard" style="margin-top:24px;display:flex;flex-direction:column;align-items:center;gap:12px">
@@ -1638,6 +1651,10 @@ async function serveDaily(req, res) {
     document.getElementById('dCard').style.display='none';
     var dw=document.getElementById('doneWrap'); dw.style.display='block';
     document.getElementById('doneKick').textContent='THE DAILY #'+N+(won?' · GOT IT':' · NOT TODAY');
+    // the photo only ever appears AFTER the round is over — during play it is the answer
+    var di=document.getElementById('doneImg');
+    di.onload=function(){ di.style.display='block'; };
+    di.src='/players/'+ANSWER.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-\$/g,'')+'.jpg';
     document.getElementById('doneName').textContent=ANSWER.toUpperCase();
     document.getElementById('donePath').textContent=STEPS.map(function(s){return s[1];}).join(' → ');
     var used=st.wrongs.length+(won?1:0);
@@ -1837,7 +1854,7 @@ async function serveThisWeek(req, res) {
   <a class="cta ghost2" href="/arcade" style="display:block;text-align:center;margin-top:14px">🕹️ The Arcade — skill games for the board →</a>
   <a class="cta" href="/" style="margin-top:12px;background:#7C3AED;color:#fff">Now settle one with a mate →</a>
   <p class="note" style="text-align:center">Same idea, but against someone who has to look you in the eye afterwards.</p>
-  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a></div>
+  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a> &middot; <a href="/credits.html">photo credits</a></div>
 </div>
 <script>
 (function(){
@@ -2249,10 +2266,10 @@ function readBody(req) {
     req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch { resolve({}); } });
   });
 }
-const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.webmanifest': 'application/manifest+json' };
 // cache policy: the HTML shell must stay fresh (it's re-served with OG meta on share
 // routes), but app.js/styles.css can be briefly cached and the favicon for a day.
-const STATIC_CACHE = { '.css': 'public, max-age=300', '.js': 'public, max-age=300', '.svg': 'public, max-age=86400', '.ico': 'public, max-age=86400', '.html': 'no-cache' };
+const STATIC_CACHE = { '.css': 'public, max-age=300', '.js': 'public, max-age=300', '.svg': 'public, max-age=86400', '.ico': 'public, max-age=86400', '.jpg': 'public, max-age=604800', '.html': 'no-cache' };
 function serveStatic(req, res) {
   let urlPath = req.url.split('?')[0];
   if (urlPath === '/') urlPath = '/index.html';
