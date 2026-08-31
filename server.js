@@ -2440,8 +2440,20 @@ async function handleApi(req, res, url) {
     const created = s.bet_created || 0, opened = s.link_opened || 0, accepted = s.bet_accepted || 0, resolved = s.bet_resolved || 0;
     const rematch = (db.events || []).filter((e) => e.type === 'bet_created' && e.rematch).length;
     const verified = Object.values(db.players).filter((p) => p.emailVerified || p.email).length;
+    // Honest bet provenance: who actually created each bet in the store.
+    // bot = house-bot Arena seeds (__v_* voices / player.bot); ghost = QA
+    // accounts by the QA_GHOST stems (id or name); real = actual humans.
+    const betsBy = { real: 0, bot: 0, ghost: 0 };
+    for (const b of Object.values(db.bets)) {
+      const pid = b.proposerId || '';
+      const p = db.players[pid];
+      const nm = (p && p.name) || b.proposerName || '';
+      if (String(pid).startsWith('__v_') || (p && p.bot)) betsBy.bot++;
+      else if (QA_GHOST.test(String(pid)) || QA_GHOST.test(String(nm))) betsBy.ghost++;
+      else betsBy.real++;
+    }
     return sendJson(res, 200, {
-      totals: { players: Object.keys(db.players).length, verified, bets: Object.keys(db.bets).length, leagues: Object.keys(db.leagues).length },
+      totals: { players: Object.keys(db.players).length, verified, bets: Object.keys(db.bets).length, betsBy, leagues: Object.keys(db.leagues).length },
       funnel: {
         created, opened, accepted, resolved, rematch,
         acceptRate: created ? +(accepted / created).toFixed(2) : 0,
