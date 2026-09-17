@@ -1190,9 +1190,10 @@ ${ARCADE_FONTS}
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-    ${tile('/penalty', '⚽', 'PENALTY SWEEP', 'beat the sweep', 15, '#14E0C8')}
+    ${tile('/score', '🥅', 'SCORE', 'beat the keeper', 15, '#14E0C8')}
     ${tile('/keepy', '🤹', 'KEEPY-UPPY', "don't let it drop", 15, '#A78BFA')}
     ${tile('/hilo', '📈', 'HIGHER OR LOWER', 'streak the transfer fees', 12, '#FFC83D')}
+    ${tile('/connect', '🟢', 'CONNECT', 'merge the balls', 15, '#A78BFA')}
     ${tile('/daily', '🎯', 'THE DAILY', 'one career a day', 8, '#14E0C8')}
     <div style="grid-column:1 / -1;display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px dashed rgba(167,139,250,.4);border-radius:16px;padding:15px;opacity:.75">
       <span style="font-size:25px">⚔️</span>
@@ -1225,9 +1226,9 @@ ${ARCADE_FONTS}
 async function servePenalty(req, res) {
   const body = `
   <div class="gcard">
-    <h2 class="gname">Penalty Sweep ⚽</h2>
-    <p class="gsub">The marker sweeps the goal. Tap SHOOT when it's inside the zone. Five kicks, the zone shrinks.</p>
-    <div class="goal" id="goal"><div class="zone" id="zone"></div><div class="marker" id="marker"></div></div>
+    <h2 class="gname">Score 🥅</h2>
+    <p class="gsub">Pick your moment and beat the keeper. Every goal makes the next save harder.</p>
+    <div class="goal" id="goal"><div class="zone" id="zone"><span class="keeper" aria-hidden="true">🧤</span></div><div class="marker" id="marker"></div></div>
     <div class="kicks" id="kicks"></div>
     <button class="gbtn" id="shoot">SHOOT</button>
     <div class="stat" id="pstat"></div>
@@ -1237,6 +1238,7 @@ async function servePenalty(req, res) {
 .goal{position:relative;height:64px;border-radius:12px;background:#0B0F14;border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0}
 .zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8}
 .marker{position:absolute;top:6px;bottom:6px;width:5px;border-radius:3px;background:#FFC83D}
+.keeper{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:24px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}
 .kicks{display:flex;gap:6px;margin-top:10px}
 .kick{width:26px;height:26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
 .kick.hit{border-color:#14E0C8;color:#14E0C8}
@@ -1282,7 +1284,7 @@ async function servePenalty(req, res) {
     }
   });`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/penalty', title: 'PENALTY SWEEP', kicker: 'FIVE KICKS', metaTitle: 'Penalty Sweep — the Clashly Arcade', desc: 'Timing game: tap when the sweeping marker is in the zone. Five kicks, the zone shrinks. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: '/score', title: 'SCORE', kicker: 'BEAT THE KEEPER', metaTitle: 'Score — the Clashly Arcade', desc: 'Timing game: beat an improving keeper and keep your score alive. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
 }
 
 async function serveKeepy(req, res) {
@@ -1525,6 +1527,26 @@ async function serveHilo(req, res) {
   start();`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
   res.end(arcadePage({ path: '/hilo', title: 'HIGHER OR LOWER', kicker: 'TRANSFER FEES', metaTitle: 'Higher or Lower: transfer fees — the Clashly Arcade', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+}
+
+// Connect — a small, dependency-free physics toy. Balls have velocity, collision
+// separation and a little squash; matching balls merge into the next level.
+async function serveConnect(req, res) {
+  const body = `<div class="gcard"><h2 class="gname">Connect 🟢</h2><p class="gsub">Drop balls into the basket. Two of a kind merge; let one escape and it is over.</p><div id="cGame" style="position:relative;height:430px;overflow:hidden;border:2px solid #22303F;border-radius:14px;background:radial-gradient(circle at 50% 10%,#1c3041,#080c12)"></div><div class="stat" id="cStat">best ball: ping pong · score 0</div><button class="gbtn" id="cDrop">DROP BALL</button><button class="gbtn vio" id="cAgain" style="display:none">PLAY AGAIN</button></div><p class="note" style="text-align:center">Ping pong → tennis → baseball → volleyball → then fresh colours forever.</p>`;
+  const extraCss = `.ball{position:absolute;border-radius:50%;display:grid;place-items:center;font-size:18px;font-weight:900;box-shadow:inset -5px -6px 10px rgba(0,0,0,.2),0 3px 8px rgba(0,0,0,.3);user-select:none}`;
+  const script = `
+var box=document.getElementById('cGame'), drop=document.getElementById('cDrop'), again=document.getElementById('cAgain'), stat=document.getElementById('cStat');
+var names=['ping pong','tennis','baseball','volleyball'], icons=['🏓','🎾','⚾','🏐'], colours=['#f6f6f3','#c7ed4b','#fff','#f2d8a6','#ca9cff','#56d9f0','#ff8499'];
+var balls=[], score=0, dead=false, next=0, best=+localStorage.getItem('clashly_connect_best')||0, last=performance.now();
+function save(){ if(next>best){best=next;localStorage.setItem('clashly_connect_best',best);} }
+function label(n){return names[n]||'colour '+(n-3)}
+function add(){if(dead)return; var level=Math.floor(Math.random()*Math.min(3,Math.max(1,next+1))), r=13+level*4, b={x:box.clientWidth/2-r+(Math.random()-.5)*80,y:2,r:r,vx:(Math.random()-.5)*1.2,vy:0,l:level,el:document.createElement('div')};b.el.className='ball';b.el.style.width=b.el.style.height=(r*2)+'px';b.el.style.background=colours[level%colours.length];b.el.textContent=icons[level]||'●';box.appendChild(b.el);balls.push(b)}
+function draw(b){b.el.style.transform='translate('+b.x+'px,'+b.y+'px) scale('+(1+Math.min(.08,Math.abs(b.vy)*.006))+')'}
+function merge(a,b){var level=a.l+1, r=13+level*4, n={x:(a.x+b.x)/2,y:(a.y+b.y)/2,r:r,vx:0,vy:-1,l:level,el:document.createElement('div')};a.el.remove();b.el.remove();balls=balls.filter(function(x){return x!==a&&x!==b});n.el.className='ball';n.el.style.width=n.el.style.height=(r*2)+'px';n.el.style.background=colours[level%colours.length];n.el.textContent=icons[level]||'●';box.appendChild(n.el);balls.push(n);next=Math.max(next,level);save();score+=Math.pow(2,level);}
+function frame(t){var dt=Math.min(2,(t-last)/16);last=t;var w=box.clientWidth,h=box.clientHeight;for(var i=0;i<balls.length;i++){var b=balls[i];b.vy+=.18*dt;b.x+=b.vx*dt;b.y+=b.vy*dt;if(b.x<0||b.x+b.r*2>w){b.x=Math.max(0,Math.min(w-b.r*2,b.x));b.vx*=-.65}if(b.y+b.r*2>h){b.y=h-b.r*2;b.vy*=-.36;b.vx*=.94}if(b.y<-18){dead=true}draw(b)}for(var i=0;i<balls.length;i++)for(var j=i+1;j<balls.length;j++){var a=balls[i],b=balls[j],dx=(b.x+b.r)-(a.x+a.r),dy=(b.y+b.r)-(a.y+a.r),d=Math.hypot(dx,dy)||1,min=a.r+b.r;if(d<min){if(a.l===b.l){merge(a,b);break}var push=(min-d)/2,ux=dx/d,uy=dy/d;a.x-=ux*push;a.y-=uy*push;b.x+=ux*push;b.y+=uy*push;a.vx-=ux*.12;a.vy-=uy*.12;b.vx+=ux*.12;b.vy+=uy*.12}}stat.textContent='best ball: '+label(best)+' · score '+score;if(dead){drop.style.display='none';again.style.display='block';stat.textContent='Basket overflowed — score '+score+' · best ball: '+label(best);if(score)submit('connect',Math.min(15,Math.floor(score/4)));}else requestAnimationFrame(frame)}
+function start(){balls.forEach(function(b){b.el.remove()});balls=[];score=0;next=0;dead=false;drop.style.display='block';again.style.display='none';add();last=performance.now();requestAnimationFrame(frame)}drop.addEventListener('click',add);again.addEventListener('click',start);start();`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(arcadePage({ path: '/connect', title: 'CONNECT', kicker: 'MERGE THE BALLS', metaTitle: 'Connect — the Clashly Arcade', desc: 'A physics ball-merging game with endless levels. Free, no money, no prizes.', body, script, extraCss }));
 }
 
 // The Daily — one player a day, everyone gets the same one. Career steps as
@@ -2009,6 +2031,8 @@ async function serveSitemap(req, res) {
     ['https://clashly.live/daily', 'daily', '0.8'],
     ['https://clashly.live/hilo', 'weekly', '0.6'],
     ['https://clashly.live/penalty', 'weekly', '0.5'],
+    ['https://clashly.live/score', 'weekly', '0.5'],
+    ['https://clashly.live/connect', 'weekly', '0.5'],
     ['https://clashly.live/keepy', 'weekly', '0.5'],
   ];
   Object.keys(GUIDES).forEach((p) => urls.push(['https://clashly.live' + p, 'monthly', '0.8']));
@@ -3120,7 +3144,8 @@ const server = http.createServer(async (req, res) => {
   if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
   if (url.pathname === '/this-week') return serveThisWeek(req, res);
   if (url.pathname === '/arcade') return serveArcade(req, res);
-  if (url.pathname === '/penalty') return servePenalty(req, res);
+  if (url.pathname === '/penalty' || url.pathname === '/score') return servePenalty(req, res);
+  if (url.pathname === '/connect') return serveConnect(req, res);
   if (url.pathname === '/keepy') return serveKeepy(req, res);
   if (url.pathname === '/hilo') return serveHilo(req, res);
   if (url.pathname === '/daily') return serveDaily(req, res);
@@ -3502,7 +3527,7 @@ async function slateSweep() {
 // hilo — streak game, one point a step, capped so a god-run can't drown the
 // board. daily — Wordle-shaped, once:true means the server refuses a second
 // award the same day however many times the client asks.
-const ARCADE_GAMES = { penalty: { max: 15 }, keepy: { max: 15 }, hilo: { max: 12 }, daily: { max: 8, once: true } };
+const ARCADE_GAMES = { penalty: { max: 15 }, score: { max: 15 }, connect: { max: 15 }, keepy: { max: 15 }, hilo: { max: 12 }, daily: { max: 8, once: true } };
 const ARCADE_DAILY_CAP = 30;
 const dayKey = () => new Date().toISOString().slice(0, 10);
 

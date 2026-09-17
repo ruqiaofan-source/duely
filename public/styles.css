@@ -549,3 +549,13 @@ button.cta:hover { filter: brightness(1.06); }
   color: var(--amber); background: rgba(255,140,66,.14); border: 1px solid rgba(255,140,66,.35);
   border-radius: 999px; padding: 1px 7px; vertical-align: 1px;
 }
+
+/* Games launchpad — generous tap targets for the five-item mobile bar. */
+.game-launch { display:flex; align-items:center; gap:12px; padding:13px 2px; color:var(--text); text-decoration:none; border-top:1px solid var(--line); }
+.game-launch > span { width:40px; height:40px; display:grid; place-items:center; border-radius:12px; background:var(--surface-3); font-size:21px; }
+.game-launch div { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.game-launch b { font-family:Anton,sans-serif; font-size:18px; font-weight:400; letter-spacing:.5px; }
+.game-launch small { color:var(--muted); font-size:12px; font-weight:700; }
+.game-launch i { color:var(--gold); font-size:24px; font-style:normal; }
+.tabbar { grid-template-columns:repeat(5, minmax(0, 1fr)); }
+.tab { font-size:9px; }
