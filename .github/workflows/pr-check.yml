@@ -50,19 +50,55 @@ jobs:
             echo "No cached front-end assets changed — nothing to bump."
           fi
 
+      - name: Protected identifiers must survive
+        run: |
+          fail=0
+          check() {
+            if grep -q "$2" "$1"; then
+              echo "  OK    $2 still in $1"
+            else
+              echo "::error::$2 has gone from $1. Renaming it logs EVERY existing user out permanently, with no way back. See AGENTS.md section 1."
+              fail=1
+            fi
+          }
+          check public/app.js settle_me
+          check public/app.js x-duely-secret
+          check server.js    x-duely-secret
+          [ "$fail" = 0 ] || exit 1
+
+      - name: No banned words in added lines
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then echo "Not a pull request, nothing to diff."; exit 0; fi
+          ADDED=$(git diff "$BASE"...HEAD -- . ':(exclude)AGENTS.md' ':(exclude).github/workflows' \
+                  | grep '^+' | grep -v '^+++' || true)
+          # Only words with ZERO legitimate use anywhere in this repo, so this can
+          # never fail on pre-existing copy. The ambiguous ones (odds, stake,
+          # betting, zaklad, bukmacher) already appear on purpose in the legal
+          # explainer pages and the Polish UI, so they are not gated here.
+          PAT='acca|accumulator|tipster|winnings|cash out|jackpot|kursy'
+          HITS=$(echo "$ADDED" | grep -Ein "$PAT" || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::A banned word appears in the lines this PR adds. These are what gambling classifiers key on, and Poland can block a domain in 48h before an appeal is read. See AGENTS.md section 2."
+            echo "$HITS"
+            exit 1
+          fi
+          echo "No banned words in added lines."
+
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
       - name: Run the test suite
         run: npm test
 
-      - name: Reminder for the reviewer
+      - name: What these checks still cannot see
         if: always()
         run: |
-          echo "Automated checks cannot see these — check them by eye before merging:"
-          echo "  1. No banned words in anything a user sees (bet, odds, stake, tips,"
-          echo "     winnings, acca, cash out / PL: zaklady, kursy, bukmacher)."
-          echo "  2. No fee, no prize for winning, no bookmaker link."
-          echo "  3. settle_me and x-duely-secret untouched."
-          echo "  4. New user-facing English also added to public/i18n.js in Polish."
-          echo "  See AGENTS.md for the full list."
+          echo "Filip's PRs auto-merge when this goes green. Nothing human reads them."
+          echo "Still NOT covered by any automated check:"
+          echo "  1. Whether the copy is good, or in the right tone."
+          echo "  2. Whether the layout survives at 390px wide."
+          echo "  3. Whether new English text got a Polish line in public/i18n.js."
+          echo "  4. Ambiguous legal words (odds, stake, betting) used in NEW user-facing copy."
+          echo "     Those exist deliberately in the legal explainer pages, so they are not gated."
+          echo "  See AGENTS.md. Spot-check merged PRs now and then."

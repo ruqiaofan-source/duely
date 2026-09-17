@@ -1,0 +1,77 @@
+name: Auto-merge
+
+# Filip ships from an iPad and there is no human approval step any more, so this
+# merges his pull requests as soon as "PR checks" goes green.
+#
+# Three hard conditions. Any one of them failing stops the merge and leaves the
+# PR sitting there for Qiao to look at by hand:
+#
+#   1. The author must be on ALLOWED below. This repo is PUBLIC, so without an
+#      allowlist any stranger could open a PR and have it merged to production.
+#   2. The branch must live in this repo, not a fork. Same reason.
+#   3. The PR must not touch .github/workflows. Codex holds write access to
+#      workflows, so without this a change could weaken its own gate and then
+#      merge that weakening itself.
+#
+# Note this runs from the copy of the file on main, never the copy in the PR,
+# so a PR cannot rewrite these rules in its own favour.
+
+on:
+  workflow_run:
+    workflows: ["PR checks"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the gate, then merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          ALLOWED="Clashly2026 ruqiaofan-source"
+
+          NUM=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+                  -H "Accept: application/vnd.github+json" \
+                  --jq '[.[] | select(.state=="open")] | .[0].number // empty')
+          if [ -z "$NUM" ]; then
+            echo "No open PR for $HEAD_SHA. Nothing to do."
+            exit 0
+          fi
+
+          DATA=$(gh api "repos/$REPO/pulls/$NUM" --jq \
+            '{author: .user.login, headRepo: .head.repo.full_name, base: .base.ref, draft: .draft}')
+          AUTHOR=$(echo "$DATA"   | jq -r .author)
+          HEADREPO=$(echo "$DATA" | jq -r .headRepo)
+          BASE=$(echo "$DATA"     | jq -r .base)
+          DRAFT=$(echo "$DATA"    | jq -r .draft)
+
+          echo "PR #$NUM by $AUTHOR from $HEADREPO into $BASE (draft=$DRAFT)"
+
+          stop() { echo "::notice::Not auto-merging PR #$NUM: $1. Left for manual review."; exit 0; }
+
+          echo "$ALLOWED" | tr ' ' '\n' | grep -qx "$AUTHOR" \
+            || stop "author '$AUTHOR' is not on the allowlist"
+          [ "$HEADREPO" = "$REPO" ] || stop "branch comes from a fork ($HEADREPO)"
+          [ "$BASE" = "main" ]      || stop "base branch is '$BASE', not main"
+          [ "$DRAFT" = "false" ]    || stop "it is still a draft"
+
+          FILES=$(gh api --paginate "repos/$REPO/pulls/$NUM/files" --jq '.[].filename')
+          echo "Files changed:"; echo "$FILES" | sed 's/^/  /'
+          if echo "$FILES" | grep -q '^\.github/workflows/'; then
+            stop "it changes .github/workflows, which must be reviewed by a human"
+          fi
+
+          echo "All conditions met. Merging."
+          gh pr merge "$NUM" --repo "$REPO" --squash --delete-branch
+          echo "::notice::Auto-merged PR #$NUM by $AUTHOR. Render will deploy in about three minutes."
