@@ -40,7 +40,7 @@ for (let i = 0; i < 80; i++) {
 // --- checks -----------------------------------------------------------------
 try {
   let r = await j('/api/config');
-  ok(r.status === 200 && r.data.brand === 'Duely' && r.data.googleClientId === null, 'config: brand + googleClientId=null without env');
+  ok(r.status === 200 && r.data.brand === 'Clashly' && r.data.googleClientId === null, 'config: brand + googleClientId=null without env');
 
   const A = await mk('Ana'), Bp = await mk('Ben');
   ok(A.id && A.secret && Bp.id !== A.id, 'register mints distinct id+secret');
@@ -170,14 +170,14 @@ try {
   let sres = await fetch(B + '/robots.txt'); let stxt = await sres.text();
   ok(sres.ok && /Sitemap:/i.test(stxt) && /GPTBot|ClaudeBot|PerplexityBot/.test(stxt), 'robots.txt: sitemap + AI crawlers allowed');
   sres = await fetch(B + '/sitemap.xml'); stxt = await sres.text();
-  ok(sres.ok && (sres.headers.get('content-type') || '').includes('xml') && /duely\.live\/about/.test(stxt), 'sitemap.xml lists /about');
+  ok(sres.ok && (sres.headers.get('content-type') || '').includes('xml') && /clashly\.live\/about/.test(stxt), 'sitemap.xml lists /about');
   sres = await fetch(B + '/about'); stxt = await sres.text();
   ok(sres.ok && /settle a bet with a friend|Settle football bets|Duely is a/i.test(stxt) && /no money/i.test(stxt), 'about page: crawlable prose + no-money framing');
-  ok(/rel="canonical" href="https:\/\/duely\.live\/about"/.test(stxt), 'about page has canonical');
+  ok(/rel="canonical" href="https:\/\/clashly\.live\/about"/.test(stxt), 'about page has canonical');
   const home = await (await fetch(B + '/')).text();
   ok(/application\/ld\+json/.test(home) && /FAQPage/.test(home) && /WebApplication/.test(home), 'homepage has JSON-LD (WebApplication + FAQPage) for GEO');
   ok(/<section class="seo-hero">/.test(home) && /How it works/.test(home), 'homepage serves crawlable hero content (not just Loading…)');
-  ok(/rel="canonical" href="https:\/\/duely\.live\/"/.test(home), 'homepage has canonical');
+  ok(/rel="canonical" href="https:\/\/clashly\.live\/"/.test(home), 'homepage has canonical');
   const ogh = await fetch(B + '/og-home.png'); const oghBuf = await ogh.arrayBuffer();
   ok(ogh.ok && (ogh.headers.get('content-type') || '').includes('png') && oghBuf.byteLength > 3000, 'home OG card renders to PNG');
 
