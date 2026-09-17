@@ -19,6 +19,12 @@ with no way back:
 card, page title or email may show "duely" or "Settle". Internal names stay; visible
 text is Clashly.
 
+**Never change anything under `.github/workflows/`.** Those files ARE the safety net.
+Pull requests here merge themselves once the checks pass, with nobody reading them, so a
+change that weakens a check could merge itself. A PR that touches that directory is
+refused by the auto-merge gate and waits for the repo owner. If you think a workflow is
+wrong, say so in the PR description and change nothing else.
+
 **Never touch the QA ghost filter** (`QA_GHOST` in server.js). It hides test accounts
 from the public leaderboard. Removing it puts fake records in front of real users.
 
@@ -122,8 +128,15 @@ Data lives in a JSON file locally (`data.json`), Postgres in production when
 **Never commit to `main`.** `main` auto-deploys to production on Render in about
 three minutes, straight to real users.
 
-Work on a branch and open a pull request. The repo owner reviews and merges. In the
-PR description, say in plain English what changed and what you checked.
+Work on a branch and open a pull request. **Your PR merges itself as soon as the checks
+pass, and no human reads it first.** So the checks are the only thing between you and
+real users: run `node --check` and `npm test` yourself before opening it, and re-read
+your own diff as if you were the reviewer, because you are.
+
+A PR is left for the repo owner instead of auto-merging if it comes from a fork, is
+still a draft, or touches `.github/workflows/`.
+
+In the PR description, say in plain English what changed and what you checked.
 
 If a request would break any rule in sections 1 or 2, do not do it. Say which rule
 and offer a version that does not break it.
