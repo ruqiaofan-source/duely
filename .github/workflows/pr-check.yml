@@ -1,0 +1,68 @@
+name: PR checks
+
+# Runs on every pull request into main. This is the safety net between an AI
+# agent's change and real users: it catches the two mistakes that actually take
+# the site down or break people's sessions.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax check every JS file
+        run: |
+          set -e
+          for f in server.js cards.js public/app.js public/i18n.js public/sounds.js; do
+            printf '  %-22s' "$f"
+            node --check "$f"
+            echo 'OK'
+          done
+          echo "Syntax OK — the site will at least boot."
+
+      - name: Cache-bust reminder
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          CHANGED=$(git diff --name-only "$BASE"...HEAD || true)
+          NEEDS_BUST=$(echo "$CHANGED" | grep -E '^public/(app|i18n|sounds)\.js$|^public/styles\.css$' || true)
+          if [ -n "$NEEDS_BUST" ]; then
+            if echo "$CHANGED" | grep -q '^public/index\.html$'; then
+              echo "Cache-bust: index.html was updated alongside the asset change. Good."
+            else
+              echo "::error::You changed $(echo $NEEDS_BUST | tr '\n' ' ')but not public/index.html."
+              echo "Browsers cache those files, so users would keep running the OLD version."
+              echo "Fix: open public/index.html, find the line for that file near the bottom"
+              echo "(it looks like  <script src=\"/app.js?v=23\"></script>  ) and add 1 to the number."
+              exit 1
+            fi
+          else
+            echo "No cached front-end assets changed — nothing to bump."
+          fi
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run the test suite
+        run: npm test
+
+      - name: Reminder for the reviewer
+        if: always()
+        run: |
+          echo "Automated checks cannot see these — check them by eye before merging:"
+          echo "  1. No banned words in anything a user sees (bet, odds, stake, tips,"
+          echo "     winnings, acca, cash out / PL: zaklady, kursy, bukmacher)."
+          echo "  2. No fee, no prize for winning, no bookmaker link."
+          echo "  3. settle_me and x-duely-secret untouched."
+          echo "  4. New user-facing English also added to public/i18n.js in Polish."
+          echo "  See AGENTS.md for the full list."
