@@ -102,3 +102,5 @@ jobs:
           echo "  4. Ambiguous legal words (odds, stake, betting) used in NEW user-facing copy."
           echo "     Those exist deliberately in the legal explainer pages, so they are not gated."
           echo "  See AGENTS.md. Spot-check merged PRs now and then."
+
+# (harmless line added to test that the auto-merge gate refuses workflow changes)
