@@ -140,3 +140,6 @@ In the PR description, say in plain English what changed and what you checked.
 
 If a request would break any rule in sections 1 or 2, do not do it. Say which rule
 and offer a version that does not break it.
+
+If a check fails, open the Actions tab on your pull request and read the red
+step. It names the rule you broke and what to do about it.
