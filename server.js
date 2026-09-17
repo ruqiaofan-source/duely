@@ -1121,7 +1121,7 @@ ${ARCADE_FONTS}
 <style>${ARCADE_CSS}${extraCss}</style>
 </head><body><div class="wrap wk">
   <div class="ghead">
-    <a class="gback" href="/arcade" aria-label="Back to the Arcade">‹</a>
+    <a class="gback" href="/games" aria-label="Back to games">‹</a>
     <div class="gtitle"><b>${title}</b><span>${kicker}</span></div>
     <div style="width:34px"></div>
   </div>
@@ -1190,9 +1190,10 @@ ${ARCADE_FONTS}
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-    ${tile('/penalty', '⚽', 'PENALTY SWEEP', 'beat the sweep', 15, '#14E0C8')}
+    ${tile('/score', '🥅', 'SCORE', 'beat the keeper', 15, '#14E0C8')}
     ${tile('/keepy', '🤹', 'KEEPY-UPPY', "don't let it drop", 15, '#A78BFA')}
     ${tile('/hilo', '📈', 'HIGHER OR LOWER', 'streak the transfer fees', 12, '#FFC83D')}
+    ${tile('/connect', '🟢', 'CONNECT', 'merge the balls', 15, '#A78BFA')}
     ${tile('/daily', '🎯', 'THE DAILY', 'one career a day', 8, '#14E0C8')}
     <div style="grid-column:1 / -1;display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px dashed rgba(167,139,250,.4);border-radius:16px;padding:15px;opacity:.75">
       <span style="font-size:25px">⚔️</span>
@@ -1223,68 +1224,18 @@ ${ARCADE_FONTS}
 }
 
 async function servePenalty(req, res) {
-  const body = `
-  <div class="gcard">
-    <h2 class="gname">Penalty Sweep ⚽</h2>
-    <p class="gsub">The marker sweeps the goal. Tap SHOOT when it's inside the zone. Five kicks, the zone shrinks.</p>
-    <div class="goal" id="goal"><div class="zone" id="zone"></div><div class="marker" id="marker"></div></div>
-    <div class="kicks" id="kicks"></div>
-    <button class="gbtn" id="shoot">SHOOT</button>
-    <div class="stat" id="pstat"></div>
-  </div>
-  <p class="note" id="capline" style="text-align:center"></p>`;
-  const extraCss = `
-.goal{position:relative;height:64px;border-radius:12px;background:#0B0F14;border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0}
-.zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8}
-.marker{position:absolute;top:6px;bottom:6px;width:5px;border-radius:3px;background:#FFC83D}
-.kicks{display:flex;gap:6px;margin-top:10px}
-.kick{width:26px;height:26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
-.kick.hit{border-color:#14E0C8;color:#14E0C8}
-.kick.miss{border-color:#FF5A6E;color:#FF5A6E}`;
+  const body = `<div class="gcard"><h2 class="gname">Score 🥅</h2><p class="gsub">Tap the pitch when the moving arrow points where you want the shot. Miss the goal or find the keeper and the run ends.</p><div class="score-pitch" id="pitch"><div class="score-goal"><div class="net"></div><span class="score-keeper" id="keeper">🧤</span></div><span class="aim" id="aim">▼</span><span class="shot-ball" id="shotBall">⚽</span><div class="tap-note">TAP TO SHOOT</div></div><div class="stat" id="scoreStat"></div></div>`;
+  const extraCss = `.score-pitch{height:390px;position:relative;overflow:hidden;border-radius:14px;background:linear-gradient(#15293a 0 40%,#23734d 40%);border:1px solid #31566a;touch-action:manipulation}.score-goal{position:absolute;top:28px;left:12%;width:76%;height:145px;border:5px solid #f0f5f6;border-bottom:0}.net{position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 19px,rgba(255,255,255,.2) 20px),repeating-linear-gradient(0deg,transparent 0 19px,rgba(255,255,255,.2) 20px)}.score-keeper{position:absolute;z-index:2;bottom:4px;font-size:45px;transform:translateX(-50%);filter:drop-shadow(0 3px 2px #000)}.aim{position:absolute;bottom:67px;left:50%;font-size:30px;color:#FFC83D;text-shadow:0 2px 5px #000;transform:translateX(-50%)}.shot-ball{position:absolute;bottom:22px;left:50%;font-size:30px;transform:translateX(-50%)}.tap-note{position:absolute;bottom:9px;width:100%;text-align:center;font:800 11px Inter;color:rgba(255,255,255,.65);letter-spacing:1.5px}`;
   const script = `
-  var capline=document.getElementById('capline');
-  function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
-    capline.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
-  }).catch(function(){}); }
-  refreshCap();
-  var goal=document.getElementById('goal'), zone=document.getElementById('zone'), marker=document.getElementById('marker');
-  var shoot=document.getElementById('shoot'), kicksEl=document.getElementById('kicks'), pstat=document.getElementById('pstat');
-  var KICKS=5, kick=0, total=0, pos=0, dir=1, speed=2.6, playing=true, zoneW=0.30, zoneX=0.35, raf;
-  function layoutZone(){
-    zoneX = 0.08 + Math.random()*(0.84-zoneW);
-    zone.style.left=(zoneX*100)+'%'; zone.style.width=(zoneW*100)+'%';
-  }
-  function dots(){ kicksEl.innerHTML=''; for(var i=0;i<KICKS;i++){ var d=document.createElement('div'); d.className='kick'; d.textContent=i+1; kicksEl.appendChild(d);} }
-  function step(){
-    var w=goal.clientWidth-5;
-    pos+=dir*speed; if(pos<=0||pos>=w){dir*=-1; pos=Math.max(0,Math.min(w,pos));}
-    marker.style.transform='translateX('+pos+'px)';
-    raf=requestAnimationFrame(step);
-  }
-  dots(); layoutZone(); step();
-  shoot.addEventListener('click', function(){
-    if(!playing) return;
-    var w=goal.clientWidth-5, rel=pos/w;
-    var inZone = rel>=zoneX && rel<=zoneX+zoneW;
-    var centre = zoneX+zoneW/2, closeness = 1-Math.min(1, Math.abs(rel-centre)/(zoneW/2));
-    var pts = inZone ? (closeness>0.6?3:2) : 0;
-    total+=pts;
-    var d=kicksEl.children[kick]; d.className='kick '+(pts?'hit':'miss'); d.textContent=pts||'✕';
-    kick++;
-    zoneW=Math.max(0.12, zoneW-0.045); speed+=0.55; layoutZone();
-    if(kick>=KICKS){
-      playing=false; cancelAnimationFrame(raf); shoot.disabled=true; shoot.textContent='FULL TIME';
-      submit('penalty', total, function(d){
-        pstat.innerHTML = d ? 'Scored '+total+' of 15. <b>+'+d.awarded+' points</b>'+(d.awarded<total?' (daily cap)':'')+' · '+d.allTime+' all time' : 'Could not save that one.';
-        refreshCap();
-      });
-      setTimeout(function(){ kick=0; total=0; zoneW=0.30; speed=2.6; playing=true; shoot.disabled=false; shoot.textContent='SHOOT'; dots(); layoutZone(); step(); }, 2600);
-    }
-  });`;
+var pitch=document.getElementById('pitch'), keeper=document.getElementById('keeper'), aim=document.getElementById('aim'), ball=document.getElementById('shotBall'), stat=document.getElementById('scoreStat');
+var score=0, live=true, phase=0, best=+localStorage.getItem('clashly_score_best')||0, last=performance.now();
+function tick(now){if(!live)return; phase+=(now-last)/1000*(1.7+score*.11);last=now;var x=(Math.sin(phase)+1)/2; aim.style.left=(12+x*76)+'%'; keeper.style.left=(20+(Math.sin(phase*.74+1)+1)/2*60)+'%'; requestAnimationFrame(tick)}
+function finish(reason){live=false;if(score>best){best=score;localStorage.setItem('clashly_score_best',best)}stat.innerHTML=reason+' <b>'+score+'</b> goals · best '+best+'. Back to games…';if(score)submit('score',Math.min(15,score));setTimeout(function(){location.href='/games'},1700)}
+function shoot(){if(!live)return;var x=parseFloat(aim.style.left), k=parseFloat(keeper.style.left);ball.style.left=x+'%';ball.style.transition='bottom .42s ease-out,left .42s ease-out';ball.style.bottom='245px';if(x<13||x>87)return setTimeout(function(){finish('Wide of the posts —')},430);if(Math.abs(x-k)<(13-Math.min(7,score*.3)))return setTimeout(function(){finish('Saved by the keeper —')},430);score++;stat.textContent='Goals: '+score+' · best '+Math.max(best,score);setTimeout(function(){ball.style.transition='none';ball.style.bottom='22px';ball.style.left='50%'},520)}
+pitch.addEventListener('pointerdown',shoot);stat.textContent='Goals: 0 · best '+best;requestAnimationFrame(tick);`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/penalty', title: 'PENALTY SWEEP', kicker: 'FIVE KICKS', metaTitle: 'Penalty Sweep — the Clashly Arcade', desc: 'Timing game: tap when the sweeping marker is in the zone. Five kicks, the zone shrinks. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: '/score', title: 'SCORE', kicker: 'BEAT THE KEEPER', metaTitle: 'Score — Clashly Games', desc: 'Aim shots past the keeper and build an endless score. Free, no money, no prizes.', body, script, extraCss }));
 }
-
 async function serveKeepy(req, res) {
   const body = `
   <div class="gcard">
@@ -1340,7 +1291,7 @@ async function serveKeepy(req, res) {
     cancelAnimationFrame(kraf); kraf=requestAnimationFrame(kstep);
   });`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/keepy', title: 'KEEPY-UPPY', kicker: "DON'T LET IT DROP", metaTitle: 'Keepy-Uppy — the Clashly Arcade', desc: 'Reflex game: tap the ball to keep it in the air, it gets faster every touch. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: '/keepy', title: 'KEEPY-UPPY', kicker: "DON'T LET IT DROP", metaTitle: 'Keepy-Uppy — Clashly Games', desc: 'Reflex game: tap the ball to keep it in the air, it gets faster every touch. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
 }
 
 // Widely reported headline fees, €M, rounded. Display-only trivia — no odds,
@@ -1513,10 +1464,10 @@ async function serveHilo(req, res) {
       document.getElementById('fire').style.filter='grayscale(1)'; document.getElementById('fire').style.opacity='.6';
       document.getElementById('streakTxt').textContent='STREAK ENDS AT '+streak;
       document.getElementById('streakTxt').style.color='rgba(233,238,243,.6)';
-      document.getElementById('again').style.display='';
       if(streak>0) submit('hilo', Math.min(12,streak), function(r){
         if(r && r.awarded){ var b=document.getElementById('banked'); b.textContent='+'+r.awarded+' PTS BANKED'; b.style.display='inline-block'; }
       });
+      setTimeout(function(){ location.href='/games'; }, 1400);
     }
   }
   document.getElementById('btnH').addEventListener('click', function(){ guess(true); });
@@ -1524,9 +1475,28 @@ async function serveHilo(req, res) {
   document.getElementById('again').addEventListener('click', start);
   start();`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/hilo', title: 'HIGHER OR LOWER', kicker: 'TRANSFER FEES', metaTitle: 'Higher or Lower: transfer fees — the Clashly Arcade', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: '/hilo', title: 'HIGHER OR LOWER', kicker: 'TRANSFER FEES', metaTitle: 'Higher or Lower: transfer fees — Clashly Games', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
 }
 
+// Connect — a small, dependency-free physics toy. Balls have velocity, collision
+// separation and a little squash; matching balls merge into the next level.
+async function serveConnect(req, res) {
+  const body = `<div class="gcard"><h2 class="gname">Connect 🟢</h2><p class="gsub">Move the guide, then tap to drop. Match two balls in the basket. If the pile reaches the top, game over.</p><div id="cGame" class="connect-game"><div class="basket">BASKET</div><div class="drop-guide" id="guide"></div></div><div class="stat" id="cStat"></div></div>`;
+  const extraCss = `.connect-game{position:relative;height:470px;overflow:hidden;border-radius:14px;background:linear-gradient(#101c28,#172b37);border:2px solid #2b4556;touch-action:none}.basket{position:absolute;z-index:1;left:7%;right:7%;top:78px;bottom:0;border:4px solid #b6cad4;border-top:0;border-radius:0 0 18px 18px;color:rgba(255,255,255,.24);font:800 10px Inter;letter-spacing:2px;text-align:center;padding-top:10px}.drop-guide{position:absolute;z-index:3;top:7px;height:62px;width:2px;background:#FFC83D;box-shadow:0 0 10px #FFC83D}.ball{position:absolute;z-index:2;border-radius:50%;display:grid;place-items:center;font-size:18px;box-shadow:inset -5px -6px 10px rgba(0,0,0,.2),0 3px 8px rgba(0,0,0,.35);user-select:none}`;
+  const script = `
+var box=document.getElementById('cGame'),guide=document.getElementById('guide'),stat=document.getElementById('cStat'),names=['ping pong','tennis','baseball','volleyball'],icons=['🏓','🎾','⚾','🏐'],colours=['#f6f6f3','#c7ed4b','#fff','#f2d8a6','#ca9cff','#56d9f0','#ff8499'];
+var balls=[],score=0,best=+localStorage.getItem('clashly_connect_best')||0,dead=false,aim=.5,last=performance.now();
+function label(n){return names[n]||'colour '+(n-3)} function update(){stat.textContent='score '+score+' · best ball: '+label(best)}
+function setAim(e){var r=box.getBoundingClientRect();aim=Math.max(.1,Math.min(.9,(e.clientX-r.left)/r.width));guide.style.left=(aim*100)+'%'}
+function add(){if(dead)return;var l=Math.floor(Math.random()*3),r=13+l*4,b={x:box.clientWidth*aim-r,y:5,r:r,vx:(Math.random()-.5)*.7,vy:0,l:l,el:document.createElement('div')};b.el.className='ball';b.el.style.width=b.el.style.height=r*2+'px';b.el.style.background=colours[l];b.el.textContent=icons[l];box.appendChild(b.el);balls.push(b)}
+function draw(b){b.el.style.transform='translate('+b.x+'px,'+b.y+'px) scale('+(1+Math.min(.06,Math.abs(b.vy)*.006))+')'}
+function combine(a,b){var l=a.l+1,r=13+l*4,n={x:(a.x+b.x)/2,y:(a.y+b.y)/2,r:r,vx:0,vy:-1,l:l,el:document.createElement('div')};a.el.remove();b.el.remove();balls=balls.filter(function(q){return q!==a&&q!==b});n.el.className='ball';n.el.style.width=n.el.style.height=r*2+'px';n.el.style.background=colours[l%colours.length];n.el.textContent=icons[l]||'●';box.appendChild(n.el);balls.push(n);score+=Math.pow(2,l);if(l>best){best=l;localStorage.setItem('clashly_connect_best',best)}update()}
+function end(){dead=true;update();stat.textContent+=' · basket overflowed — back to games…';if(score)submit('connect',Math.min(15,Math.floor(score/4)));setTimeout(function(){location.href='/games'},1700)}
+function frame(t){if(dead)return;var dt=Math.min(2,(t-last)/16);last=t,w=box.clientWidth,h=box.clientHeight;for(var i=0;i<balls.length;i++){var q=balls[i];q.vy+=.17*dt;q.x+=q.vx*dt;q.y+=q.vy*dt;if(q.x<7||q.x+q.r*2>w-7){q.x=Math.max(7,Math.min(w-7-q.r*2,q.x));q.vx*=-.6}if(q.y+q.r*2>h){q.y=h-q.r*2;q.vy*=-.32;q.vx*=.95}draw(q)}for(var i=0;i<balls.length;i++)for(var j=i+1;j<balls.length;j++){var a=balls[i],b=balls[j],dx=(b.x+b.r)-(a.x+a.r),dy=(b.y+b.r)-(a.y+a.r),d=Math.hypot(dx,dy)||1,m=a.r+b.r;if(d<m){if(a.l===b.l){combine(a,b);break}var push=(m-d)/2,ux=dx/d,uy=dy/d;a.x-=ux*push;a.y-=uy*push;b.x+=ux*push;b.y+=uy*push;a.vx-=ux*.1;b.vx+=ux*.1}}if(balls.length>7&&balls.some(function(q){return q.y<55}))return end();requestAnimationFrame(frame)}
+box.addEventListener('pointermove',setAim);box.addEventListener('pointerdown',function(e){setAim(e);add()});setAim({clientX:box.getBoundingClientRect().left+box.clientWidth/2});update();requestAnimationFrame(frame);`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(arcadePage({ path: '/connect', title: 'CONNECT', kicker: 'DROP AND MERGE', metaTitle: 'Connect — Clashly Games', desc: 'Choose where sports balls fall, merge matches and keep the basket clear. Free, no money, no prizes.', body, script, extraCss }));
+}
 // The Daily — one player a day, everyone gets the same one. Career steps as
 // clues, a wrong guess unlocks the next step. Points once a day, ever.
 const DAILY_PLAYERS = [
@@ -2009,6 +1979,8 @@ async function serveSitemap(req, res) {
     ['https://clashly.live/daily', 'daily', '0.8'],
     ['https://clashly.live/hilo', 'weekly', '0.6'],
     ['https://clashly.live/penalty', 'weekly', '0.5'],
+    ['https://clashly.live/score', 'weekly', '0.5'],
+    ['https://clashly.live/connect', 'weekly', '0.5'],
     ['https://clashly.live/keepy', 'weekly', '0.5'],
   ];
   Object.keys(GUIDES).forEach((p) => urls.push(['https://clashly.live' + p, 'monthly', '0.8']));
@@ -3119,11 +3091,11 @@ const server = http.createServer(async (req, res) => {
   if (/^\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(6), 'en');
   if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
   if (url.pathname === '/this-week') return serveThisWeek(req, res);
-  if (url.pathname === '/arcade') return serveArcade(req, res);
-  if (url.pathname === '/penalty') return servePenalty(req, res);
-  if (url.pathname === '/keepy') return serveKeepy(req, res);
+  if (url.pathname === '/arcade') { res.writeHead(302, { Location: '/games' }); return res.end(); }
+  if (url.pathname === '/penalty' || url.pathname === '/score') return servePenalty(req, res);
+  if (url.pathname === '/connect') return serveConnect(req, res);
+  if (url.pathname === '/keepy' || url.pathname === '/daily') { res.writeHead(302, { Location: '/games' }); return res.end(); }
   if (url.pathname === '/hilo') return serveHilo(req, res);
-  if (url.pathname === '/daily') return serveDaily(req, res);
   if (url.pathname === '/weekcard.png' || url.pathname === '/weekcard.svg') return serveWeekCard(req, res);
   if (url.pathname.startsWith('/ltable/')) return serveLeagueTable(req, res, url);
   if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
@@ -3502,7 +3474,7 @@ async function slateSweep() {
 // hilo — streak game, one point a step, capped so a god-run can't drown the
 // board. daily — Wordle-shaped, once:true means the server refuses a second
 // award the same day however many times the client asks.
-const ARCADE_GAMES = { penalty: { max: 15 }, keepy: { max: 15 }, hilo: { max: 12 }, daily: { max: 8, once: true } };
+const ARCADE_GAMES = { penalty: { max: 15 }, score: { max: 15 }, connect: { max: 15 }, keepy: { max: 15 }, hilo: { max: 12 }, daily: { max: 8, once: true } };
 const ARCADE_DAILY_CAP = 30;
 const dayKey = () => new Date().toISOString().slice(0, 10);
 

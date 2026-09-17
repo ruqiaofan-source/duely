@@ -476,7 +476,9 @@ async function route() {
     return renderCreate();
   }
   const path = location.pathname;
-  if (path.startsWith('/arena')) { setTab('home'); return renderArena(); }
+  if (path.startsWith('/challenge')) { setTab('challenge'); return renderChallengeHub(); }
+  if (path.startsWith('/arena') || path.startsWith('/answer')) { setTab('answer'); return renderArena(); }
+  if (path.startsWith('/games')) { setTab('games'); return renderGames(); }
   if (path.startsWith('/board')) { setTab('board'); return renderBoard(); }
   if (path.startsWith('/duels')) { setTab('duels'); return renderDuels(); }
   if (path.startsWith('/leagues')) { setTab('league'); return renderLeagueHub(); }
@@ -487,17 +489,15 @@ async function route() {
 // ---------------------------------------------------------------------------
 // Onboarding
 // ---------------------------------------------------------------------------
-// The Arcade as a proper billboard, not a tiny row — Qiao: the games need to be
-// obvious and it must say plainly that they earn points. Used on the landing
-// turnstile AND the logged-in home.
-function arcadeHero(mb) {
+// Games billboard used on the landing turnstile and logged-in home.
+function gamesHero(mb) {
   return `
-    <div class="card" data-door="arcade" role="button" tabindex="0" style="cursor:pointer;border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.08),transparent);margin-bottom:${mb || '14px'}">
+    <div class="card" data-door="games" role="button" tabindex="0" style="cursor:pointer;border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.08),transparent);margin-bottom:${mb || '14px'}">
       <div style="display:flex;align-items:center;gap:14px">
         <span style="font-size:34px">🕹️</span>
         <div style="flex:1;min-width:0">
-          <div style="font-family:Anton,sans-serif;font-size:24px;letter-spacing:.8px;color:var(--gold)">THE ARCADE</div>
-          <div class="sm" style="color:var(--muted);margin-top:2px">Penalty Sweep · Keepy-Uppy · Higher or Lower · The Daily</div>
+          <div style="font-family:Anton,sans-serif;font-size:24px;letter-spacing:.8px;color:var(--gold)">GAMES</div>
+          <div class="sm" style="color:var(--muted);margin-top:2px">Score · Higher or Lower · Connect</div>
         </div>
         <span style="color:var(--gold);font-size:22px">›</span>
       </div>
@@ -546,7 +546,7 @@ function renderOnboarding(next) {
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
       ${door('duel', '⚔️', 'CHALLENGE A MATE', 'the record starts here', '#A78BFA', 'rgba(124,58,237,.13)', 'rgba(124,58,237,.45)')}
       ${door('week', '🗓️', 'CALL THE WEEKEND', '6 games, one board', 'var(--teal)', 'rgba(20,224,200,.09)', 'rgba(20,224,200,.35)')}
-      ${arcadeHero('0')}
+      ${gamesHero('0')}
     </div>
     ${joinCard}
     <div class="banner" style="border-style:solid;border-color:rgba(255,200,61,.35);color:var(--text)">🔰 Early days — join now and you're a <b style="color:var(--gold)">Founder</b>: your number's stamped on your profile and your perks carry over when Pro launches.</div>
@@ -558,7 +558,7 @@ function renderOnboarding(next) {
     app.querySelectorAll('[data-door]').forEach((d) => d.addEventListener('click', () => {
       const which = d.dataset.door; haptic(8); track('landing_door', { door: which });
       if (which === 'week') { location.href = '/this-week'; return; }
-      if (which === 'arcade') { location.href = '/arcade'; return; }
+      if (which === 'games') { history.pushState({}, '', '/games'); return renderGames(); }
       const jc = $('#joinCard'); jc.style.display = ''; jc.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); $('#name').focus();
     }));
     // Tonight's call — the weekly question, answerable before any name ask
@@ -745,7 +745,7 @@ async function renderHome() {
         </div>`).join('')}
       <p class="sub" style="margin:8px 0 0">Unsettled duels never reach the record. Thirty seconds, on it goes.</p>
     </div>` : ''}
-    ${arcadeHero()}
+    ${gamesHero()}
     ${!isNew && terrace.length ? (() => { const hp = terrace[0]; return `<div class="card" style="border-color:rgba(255,200,61,.5);background:linear-gradient(180deg,rgba(255,200,61,.07),transparent)">
       <div class="sm" style="color:var(--gold);font-weight:800;letter-spacing:1px;font-size:11px">📣 LATEST FROM THE TERRACE</div>
       <div style="font-family:Anton,sans-serif;font-size:24px;line-height:1.25;margin:8px 0 6px">“${esc(hp.text)}”</div>
@@ -837,12 +837,12 @@ async function renderHome() {
 
 
     <div class="card" style="border-color:rgba(124,58,237,.45)">
-      <div class="cardhead"><h2>The Arena ⚡</h2><button class="linkbtn" id="arenaAll">See all →</button></div>
+      <div class="cardhead"><h2>Answer public challenges 📬</h2><button class="linkbtn" id="arenaAll">See all →</button></div>
       <p class="sub" style="margin:2px 0 0">Open bets from all of Clashly, listed like a marketplace. Take one, win it, bank <b style="color:var(--gold)">+3 points</b>.${s.arenaPts ? ` You have <b style=\"color:var(--gold)\">\u26a1 ${s.arenaPts}</b>.` : ''}</p>
       ${(() => { const open = arena.filter((c) => !m || c.proposerId !== m.id); const mine = arena.length - open.length;
-        return (open.length ? `<div class="market">${open.slice(0, isNew ? 2 : 4).map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:8px 0 0">No open challenges right now — throw the first glove. 🥊</p>')
+        return (open.length ? `<div class="market">${open.slice(0, isNew ? 2 : 4).map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:8px 0 0">No public challenges right now — post the first one. 🥊</p>')
           + (mine > 0 ? `<p class="sub" style="margin:8px 0 0">Your open challenge is live in the Arena — waiting for a taker. 👀</p>` : ''); })()}
-      ${isNew ? '' : `<button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post an open challenge</button>`}
+      ${isNew ? '' : `<button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post a public challenge</button>`}
     </div>
 
     ${isNew ? '' : `<div class="card">
@@ -865,8 +865,8 @@ async function renderHome() {
 
     ${isNew ? '' : `<div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`}`;
 
-  app.querySelectorAll('[data-door="arcade"]').forEach((el) => el.addEventListener('click', () => {
-    haptic(8); track('landing_door', { door: 'arcade' }); location.href = '/arcade';
+  app.querySelectorAll('[data-door="games"]').forEach((el) => el.addEventListener('click', () => {
+    haptic(8); track('landing_door', { door: 'games' }); history.pushState({}, '', '/games'); renderGames();
   }));
   const wkSeg = $('#wkSeg');
   if (wkSeg) wkSeg.querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
@@ -970,12 +970,12 @@ async function renderArena() {
   const mine = list.filter((c) => m && c.proposerId === m.id);
   app.innerHTML = `
     <div class="card" style="border-color:rgba(124,58,237,.45)">
-      <div class="cardhead"><h2>The Arena ⚡</h2>${s.arenaPts ? `<span class="flame on">⚡ ${s.arenaPts} pts</span>` : ''}</div>
-      <p class="sub" style="margin:2px 0 0">Every card is a live bet waiting for an opponent. Take one, win it, bank <b style="color:var(--gold)">+3 Arena points</b> and climb the Ranking. 👑</p>
-      ${open.length ? `<div class="market">${open.map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:10px 0 0">No open challenges right now — throw the first glove. 🥊</p>'}
+      <div class="cardhead"><h2>Answer public challenges 📬</h2>${s.arenaPts ? `<span class="flame on">⚡ ${s.arenaPts} pts</span>` : ''}</div>
+      <p class="sub" style="margin:2px 0 0">These are public challenges from other players. Pick one, take the other side and put your call on the record. 👑</p>
+      ${open.length ? `<div class="market">${open.map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:10px 0 0">No public challenges right now — post the first one. 🥊</p>'}
       ${mine.length ? `<p class="sub" style="margin:10px 0 0">📌 Yours, live in the Arena:</p><div class="market">${mine.map(arenaItemCard).join('')}</div>` : ''}
-      <button class="cta commit" id="arenaPost" style="margin-top:14px">🌍 Post an open challenge</button>
-      <button class="muted-link" id="homeLink">← Back to home</button>
+      <button class="cta commit" id="arenaPost" style="margin-top:14px">🌍 Post a public challenge</button>
+      <button class="muted-link" id="homeLink">← Back to challenges</button>
     </div>
     ${recent.length ? `<div class="card"><div class="cardhead"><h2>Latest results 🏁</h2></div>${recent.map((r) => `
       <div class="recent"><span><b style="color:var(--text)">${esc(r.winner)}</b> beat ${esc(r.loser)}${r.arena ? ' ⚡' : ''} · <span style="color:var(--muted)">${esc(matchLabel(r))}</span></span><span class="res" style="color:var(--muted)">${esc(r.stakeLbl)}</span></div>`).join('')}</div>` : ''}`;
@@ -987,6 +987,20 @@ async function renderArena() {
     renderCreate();
   });
   const hl = $('#homeLink'); if (hl) hl.addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
+}
+
+// ---------------------------------------------------------------------------
+// Games — an in-app launchpad keeps the new bottom-bar destination obvious.
+// ---------------------------------------------------------------------------
+function renderGames() {
+  app.innerHTML = `
+    <div class="card" style="border-color:rgba(255,200,61,.45)">
+      <div class="cardhead"><h2>Games 🕹️</h2><span class="tag-rival">BESTS SAVED</span></div>
+      <p class="sub" style="margin:2px 0 14px">Three quick tests of nerve. No ceiling — only your best run.</p>
+      <a class="game-launch" href="/score"><span>🥅</span><div><b>Score</b><small>Beat the keeper. Each save makes them sharper.</small></div><i>›</i></a>
+      <a class="game-launch" href="/hilo"><span>📈</span><div><b>Higher / Lower</b><small>Put famous football transfer fees in order.</small></div><i>›</i></a>
+      <a class="game-launch" href="/connect"><span>🟢</span><div><b>Connect</b><small>Drop, nudge and merge balls before the basket overflows.</small></div><i>›</i></a>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1085,6 +1099,9 @@ async function renderProfile() {
         <div class="stat"><div class="n ${netClass}">${netTxt(s.net, s.currency)}</div><div class="k">Net</div></div>
         <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
       </div>
+    </div>
+    <div class="card"><div class="cardhead"><h2>Friends</h2></div>
+      ${(s.rivalries || []).length ? s.rivalries.slice(0, 8).map((r) => `<div class="recent"><span><b style="color:var(--text)">${esc(r.opponent)}</b></span><span class="res">${r.games} challenge${r.games === 1 ? '' : 's'}</span></div>`).join('') : '<p class="sub" style="margin:8px 0 0">Friends appear here after they open a challenge link and take you on.</p>'}
     </div>
     ${acct}
     <div class="card"><div class="cardhead"><h2>Settle up 💸</h2><button class="linkbtn" id="allDuels">⚔️ All my duels →</button></div>
@@ -1246,6 +1263,18 @@ async function renderLeague(code, full) {
 // ---------------------------------------------------------------------------
 // Create a bet
 // ---------------------------------------------------------------------------
+function renderChallengeHub() {
+  app.innerHTML = `<div class="card" style="border-color:rgba(124,58,237,.45)">
+    <div class="cardhead"><h2>Challenge ⚔️</h2></div>
+    <p class="sub">Pick an event, make your call, then choose who gets to answer it.</p>
+    <button class="cta commit" id="friendChallenge">Challenge a friend →</button>
+    <button class="cta ghost2" id="publicChallenge" style="margin-top:10px">Post a public challenge →</button>
+    <p class="sub" style="margin:14px 0 0">Friend challenges create a shareable link. Public challenges appear in Answer for anyone to accept.</p>
+  </div>`;
+  $('#friendChallenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
+  $('#publicChallenge').addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
+}
+
 async function renderCreate() {
   track('sheet_open');
   const m = me.get();
@@ -2055,8 +2084,9 @@ document.getElementById('tabbar')?.addEventListener('click', (e) => {
   const t = e.target.closest('.tab'); if (!t) return;
   haptic(8);
   const tab = t.dataset.tab;
-  if (tab === 'challenge') { PREFILL = null; renderCreate(); return; }
-  const target = tab === 'home' ? '/' : tab === 'league' ? '/leagues' : '/' + tab;
+  if (tab === 'challenge') { history.pushState({}, '', '/challenge'); renderChallengeHub(); setTab('challenge'); return; }
+  if (tab === 'games') { history.pushState({}, '', '/games'); renderGames(); setTab('games'); return; }
+  const target = tab === 'answer' ? '/answer' : tab === 'league' ? '/leagues' : '/' + tab;
   if (location.pathname !== target) history.pushState({}, '', target);
   route();
 });
