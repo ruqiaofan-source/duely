@@ -9,6 +9,10 @@
     // tabs + chrome
     'Home': 'Start', 'Duels': 'Pojedynki', 'League': 'Liga', 'You': 'Ty',
     'Challenge': 'Wyzwij', 'Profile': 'Profil',
+    'Answer': 'Odpowiedz', 'Games': 'Gry', 'Ranking': 'Ranking',
+    'Friends': 'Znajomi', 'Games 🕹️': 'Gry 🕹️', 'Challenge ⚔️': 'Wyzwanie ⚔️',
+    'Challenge a friend →': 'Wyzwij znajomego →', 'Post a public challenge →': 'Opublikuj wyzwanie →',
+    'Answer public challenges 📬': 'Odpowiedz na publiczne wyzwania 📬',
     'Player rankings 🏆': 'Ranking graczy 🏆', 'Weekly crowns': 'Korony tygodnia', 'My leagues': 'Moje ligi',
     'Settle up 💸': 'Rozliczenia 💸', '⚔️ All my duels →': '⚔️ Wszystkie pojedynki →',
     'All square — nobody owes anything. 🤝': 'Wszystko wyrównane — nikt nikomu nie wisi. 🤝',
