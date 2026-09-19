@@ -1426,7 +1426,18 @@ async function renderCreate() {
     if (!document.getElementById('matchSel')) return; // sheet closed meanwhile
     if (r) { matches = r.matches; live = r.live; }
     const keep = (sel.value === 'custom' || sel.value === 'season') ? sel.value : null;
-    sel.innerHTML = matches.map((mm) => `<option value="${mm.id}">${esc(mm.home)} vs ${esc(mm.away)}${mm.competition ? ' · ' + esc(mm.competition) : ''}</option>`).join('') + CUSTOM_OPT;
+    // Filip: 80+ fixtures in one flat list was unusable. Group by competition,
+    // biggest leagues first, internationals near the top in the weeks they happen.
+    const RANK = ['Premier League', 'UEFA Champions League', 'Champions League', 'Primera Division', 'Serie A', 'Bundesliga', 'Ligue 1',
+      'World Cup', 'WC Qualifier', 'European Championship', 'UEFA Nations League', 'Friendly',
+      'Championship', 'Eredivisie', 'Primeira Liga', 'Campeonato Brasileiro Série A'];
+    const NICE = { 'Primera Division': 'La Liga', 'Campeonato Brasileiro Série A': 'Brasileirão', 'UEFA Champions League': 'Champions League' };
+    const groups = new Map();
+    for (const mm of matches) { const k = mm.competition || 'Other'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(mm); }
+    const rankOf = (k) => { const i = RANK.findIndex((r) => k === r || k.startsWith(r)); return i === -1 ? RANK.length : i; };
+    const ordered = [...groups.keys()].sort((a, b) => rankOf(a) - rankOf(b) || a.localeCompare(b));
+    sel.innerHTML = ordered.map((k) => `<optgroup label="${esc(NICE[k] || k)}">` +
+      groups.get(k).map((mm) => `<option value="${mm.id}">${esc(mm.home)} vs ${esc(mm.away)}</option>`).join('') + '</optgroup>').join('') + CUSTOM_OPT;
     if (keep) sel.value = keep;
     else if (PREFILL?.matchId && matches.some((x) => x.id === PREFILL.matchId)) sel.value = PREFILL.matchId;
     const src = $('#fixSrc'); if (src) src.textContent = live ? '🟢 Live fixtures' : '🟡 Demo fixtures';
