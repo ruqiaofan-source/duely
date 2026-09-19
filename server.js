@@ -1656,10 +1656,10 @@ function wallHit(b, w, n){
 }
 var GRAV=0.46, REST=0.42, WALLREST=0.40, AIRDRAG=0.999, SPINDRAG=0.94;
 // jelly: wobble is a damped spring (sq, sqv); stick is a small pull between touching balls
-var WOBBLE_K=0.32, WOBBLE_D=0.84, STICK_RANGE=12, STICK_PULL=0.35;
+var WOBBLE_K=0.32, WOBBLE_D=0.84, STICK_RANGE=8, STICK_PULL=0.14;
 // jelly heap: settled balls act heavy, balls on the floor grip it, contacts have friction, the ball on top takes the shove.
 // Result: a ball dropped between two touching balls lands ON them instead of wedging them apart (Filip, 19 Sep).
-var FLOORGRIP=0.72, PAIRGRIP=0.85, SETTLE_MASS=12, UPBIAS=2.5, SOFT=0.10, SQUASH_K=0.9, SQUASH_MAX=0.30, SLEEP_V=0.45;
+var FLOORGRIP=0.72, PAIRGRIP=0.85, SETTLE_MASS=12, UPBIAS=2.5, SOFT=0.10, SQUASH_K=0.9, SQUASH_MAX=0.30, SLEEP_V=0.32;
 function mass(b){ var sp=Math.sqrt(b.vx*b.vx+b.vy*b.vy); return b.r*b.r*(1+SETTLE_MASS*Math.max(0,1-sp/1.6)); }
 var balls=[], parts=[], floats=[];
 var score=0, shown=0, dead=false, aimX=W/2, nextT=0, holdOver=0, dropLock=0, raf=null, last=0;
@@ -1747,7 +1747,7 @@ function physics(dt){
     var pvy=a.vy;
     a.cx=0; a.cy=0; a.onF=false;
     // a slow ball with something under it sleeps: no gravity creep, so it stays put on the heap (sticky jelly)
-    if(a.sup && a.vx*a.vx+a.vy*a.vy<SLEEP_V*SLEEP_V){ a.vx=0; a.vy=0; } else { a.vy+=GRAV*dt; }
+    if(a.sup && a.y>RIM && a.vx*a.vx+a.vy*a.vy<SLEEP_V*SLEEP_V){ a.vx=0; a.vy=0; } else { a.vy+=GRAV*dt; }
     a.sup=false;
     a.vx*=AIRDRAG; a.x+=a.vx*dt; a.y+=a.vy*dt;
     wallHit(a, WALL_L, NL); wallHit(a, WALL_R, NR);
@@ -1763,7 +1763,7 @@ function physics(dt){
       for(j=i+1;j<balls.length;j++){
         a=balls[i]; b=balls[j];
         var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), min=a.r+b.r;
-        if(pass===0 && d>=min && d<min+STICK_RANGE){
+        if(pass===0 && d>=min && d<min+STICK_RANGE && a.y>RIM && b.y>RIM){
           // sticky: nearly-touching balls creep together (positional, so sleeping balls feel it too; same tier then merges)
           var pull=STICK_PULL*(1-(d-min)/STICK_RANGE)*dt, ux=dx/d, uy=dy/d;
           var ma0=mass(a), mb0=mass(b), t0=ma0+mb0;
@@ -1775,7 +1775,7 @@ function physics(dt){
           var nxn=dx/d, nyn=dy/d, overlap=(min-d);
           var soft=SOFT*Math.min(a.r,b.r);                       // jelly: they may sink into each other this much
           if(pass===0){ a.cx+=nxn*overlap; a.cy+=nyn*overlap; b.cx-=nxn*overlap; b.cy-=nyn*overlap;
-            if(nyn>0.3) a.sup=true; else if(nyn<-0.3) b.sup=true; }        // whoever is underneath supports the other
+            if(nyn>0.55) a.sup=true; else if(nyn<-0.55) b.sup=true; }      // support only when fairly underneath: a ball on a steep shoulder rolls off
           var ma=mass(a), mb=mass(b);
           var wa=mb*(a.y<b.y?1+UPBIAS:1), wb=ma*(b.y<a.y?1+UPBIAS:1), tot=wa+wb;   // the upper ball takes the shove
           var fix=Math.max(0, overlap-soft)+overlap*0.25;
@@ -1808,7 +1808,6 @@ function overCheck(dt){
   for(var i=0;i<balls.length;i++){ var b=balls[i];
     if(now-b.born<700) continue;                        // the one you just dropped is still on its way in
     if(b.y+b.r<RIM){ escaped=b; end(); return; }        // clear of the rim: it is out of the basket
-    if(b.y<RIM && Math.abs(b.vy)<0.9 && Math.abs(b.vx)<0.9){ escaped=null; end(); return; }   // resting with its centre above the rim: overflow
     if(b.y-b.r<RIM+6) warn=true;                        // poking above the rim: warn
   }
   holdOver = warn ? Math.min(75,holdOver+dt) : Math.max(0,holdOver-dt*2);
@@ -1915,7 +1914,7 @@ function end(){
   dead=true; sOver(); buzz([30,60,30]); shake=8;
   if(score>best){ best=score; try{localStorage.setItem('clashly_connect_best',best);}catch(e){} }
   bestEl.textContent=best; scoreEl.textContent=score;
-  overTitle.textContent = escaped ? TIERS[escaped.t].n+' left the basket' : 'Basket overflowed';
+  overTitle.textContent = escaped ? TIERS[escaped.t].n+' left the basket' : 'Out of the basket';
   overEl.style.display='block';
   var sc=Math.min(15, Math.floor(score/30));
   var secs=Math.round((performance.now()-t0)/1000);
