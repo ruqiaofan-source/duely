@@ -1652,11 +1652,15 @@ function wallHit(b, w, n){
   if(b.y+b.r < w.y1) return;                       // above the rim: no wall
   var d=(b.x-w.x1)*n.x+(b.y-w.y1)*n.y;            // signed distance to the wall line
   if(d < b.r){ var push=b.r-d; b.x+=n.x*push; b.y+=n.y*push;
-    var vn=b.vx*n.x+b.vy*n.y; if(vn<0){ b.vx-=(1+WALLREST)*vn*n.x; b.vy-=(1+WALLREST)*vn*n.y; b.vx*=0.96; } }
+    var vn=b.vx*n.x+b.vy*n.y; if(vn<0){ b.vx-=(1+WALLREST)*vn*n.x; b.vy-=(1+WALLREST)*vn*n.y; b.vx*=0.96; } b.cx-=n.x*b.r*0.14; b.cy-=n.y*b.r*0.14; }
 }
 var GRAV=0.46, REST=0.42, WALLREST=0.40, AIRDRAG=0.999, SPINDRAG=0.94;
 // jelly: wobble is a damped spring (sq, sqv); stick is a small pull between touching balls
-var WOBBLE_K=0.32, WOBBLE_D=0.84, STICK_RANGE=9, STICK_PULL=0.05;
+var WOBBLE_K=0.32, WOBBLE_D=0.84, STICK_RANGE=12, STICK_PULL=0.35;
+// jelly heap: settled balls act heavy, balls on the floor grip it, contacts have friction, the ball on top takes the shove.
+// Result: a ball dropped between two touching balls lands ON them instead of wedging them apart (Filip, 19 Sep).
+var FLOORGRIP=0.72, PAIRGRIP=0.85, SETTLE_MASS=12, UPBIAS=2.5, SOFT=0.10, SQUASH_K=0.9, SQUASH_MAX=0.30, SLEEP_V=0.45;
+function mass(b){ var sp=Math.sqrt(b.vx*b.vx+b.vy*b.vy); return b.r*b.r*(1+SETTLE_MASS*Math.max(0,1-sp/1.6)); }
 var balls=[], parts=[], floats=[];
 var score=0, shown=0, dead=false, aimX=W/2, nextT=0, holdOver=0, dropLock=0, raf=null, last=0;
 var best=+(localStorage.getItem('clashly_connect_best')||0);
@@ -1693,7 +1697,7 @@ function fit(){
   nextCv.width=38*nd; nextCv.height=38*nd; nctx.setTransform(nd,0,0,nd,0,0);
 }
 
-function add(t,x,y,vx){ balls.push({t:t, r:TIERS[t].r, x:x, y:y, vx:vx||0, vy:0, pop:0, sq:0, sqv:0, born:performance.now()}); }
+function add(t,x,y,vx){ balls.push({t:t, r:TIERS[t].r, x:x, y:y, vx:vx||0, vy:0, pop:0, sq:0, sqv:0, dfx:0, dfy:0, cx:0, cy:0, onF:false, sup:false, born:performance.now()}); }
 
 function drop(){
   if(dead||dropLock>0) return;
@@ -1741,11 +1745,16 @@ function physics(dt){
   for(i=0;i<balls.length;i++){
     a=balls[i];
     var pvy=a.vy;
-    a.vy+=GRAV*dt; a.vx*=AIRDRAG; a.x+=a.vx*dt; a.y+=a.vy*dt;
+    a.cx=0; a.cy=0; a.onF=false;
+    // a slow ball with something under it sleeps: no gravity creep, so it stays put on the heap (sticky jelly)
+    if(a.sup && a.vx*a.vx+a.vy*a.vy<SLEEP_V*SLEEP_V){ a.vx=0; a.vy=0; } else { a.vy+=GRAV*dt; }
+    a.sup=false;
+    a.vx*=AIRDRAG; a.x+=a.vx*dt; a.y+=a.vy*dt;
     wallHit(a, WALL_L, NL); wallHit(a, WALL_R, NR);
     if(a.x-a.r<0){ a.x=a.r; a.vx=-a.vx*WALLREST; }          // canvas edge, only reachable above the rim
     if(a.x+a.r>W){ a.x=W-a.r; a.vx=-a.vx*WALLREST; }
     if(a.y+a.r>FLOOR){ a.y=FLOOR-a.r; if(a.vy>2.2){ a.sqv+=Math.min(0.9,a.vy/11); sPop(a.t); } a.vy=-a.vy*REST; a.vx*=SPINDRAG; }
+    if(a.y+a.r>=FLOOR-0.6){ a.onF=true; a.sup=true; a.vx*=Math.pow(FLOORGRIP,dt); if(Math.abs(a.vx)<0.12) a.vx=0; a.cy+=a.r*0.16; }
     if(a.pop>0) a.pop=Math.max(0,a.pop-0.07*dt);
     a.sqv+=-a.sq*WOBBLE_K*dt; a.sqv*=Math.pow(WOBBLE_D,dt); a.sq+=a.sqv*dt;   // jelly wobble
   }
@@ -1754,29 +1763,40 @@ function physics(dt){
       for(j=i+1;j<balls.length;j++){
         a=balls[i]; b=balls[j];
         var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), min=a.r+b.r;
-        if(pass===0 && d>=min && d<min+STICK_RANGE && a.t!==b.t){
+        if(pass===0 && d>=min && d<min+STICK_RANGE){
+          // sticky: nearly-touching balls creep together (positional, so sleeping balls feel it too; same tier then merges)
           var pull=STICK_PULL*(1-(d-min)/STICK_RANGE)*dt, ux=dx/d, uy=dy/d;
-          var ma0=a.r*a.r, mb0=b.r*b.r, t0=ma0+mb0;
-          a.vx+=ux*pull*(mb0/t0); a.vy+=uy*pull*(mb0/t0); b.vx-=ux*pull*(ma0/t0); b.vy-=uy*pull*(ma0/t0);
+          var ma0=mass(a), mb0=mass(b), t0=ma0+mb0;
+          a.x+=ux*pull*(mb0/t0); a.y+=uy*pull*(mb0/t0); b.x-=ux*pull*(ma0/t0); b.y-=uy*pull*(ma0/t0);
+          d=Math.sqrt((b.x-a.x)*(b.x-a.x)+(b.y-a.y)*(b.y-a.y)); dx=b.x-a.x; dy=b.y-a.y;
         }
         if(d>0 && d<min){
           if(a.t===b.t && pass===0){ merge(i,j); i=Math.max(0,i-1); j=i; continue; }
           var nxn=dx/d, nyn=dy/d, overlap=(min-d);
-          var ma=a.r*a.r, mb=b.r*b.r, tot=ma+mb;
-          a.x-=nxn*overlap*(mb/tot); a.y-=nyn*overlap*(mb/tot);
-          b.x+=nxn*overlap*(ma/tot); b.y+=nyn*overlap*(ma/tot);
+          var soft=SOFT*Math.min(a.r,b.r);                       // jelly: they may sink into each other this much
+          if(pass===0){ a.cx+=nxn*overlap; a.cy+=nyn*overlap; b.cx-=nxn*overlap; b.cy-=nyn*overlap;
+            if(nyn>0.3) a.sup=true; else if(nyn<-0.3) b.sup=true; }        // whoever is underneath supports the other
+          var ma=mass(a), mb=mass(b);
+          var wa=mb*(a.y<b.y?1+UPBIAS:1), wb=ma*(b.y<a.y?1+UPBIAS:1), tot=wa+wb;   // the upper ball takes the shove
+          var fix=Math.max(0, overlap-soft)+overlap*0.25;
+          a.x-=nxn*fix*(wa/tot); a.y-=nyn*fix*(wa/tot);
+          b.x+=nxn*fix*(wb/tot); b.y+=nyn*fix*(wb/tot);
           if(pass===0){
             var rvx=b.vx-a.vx, rvy=b.vy-a.vy, sep=rvx*nxn+rvy*nyn;
             if(sep<0){
               var imp=-(1+REST)*sep/(1/ma+1/mb);
               a.vx-=imp*nxn/ma; a.vy-=imp*nyn/ma; b.vx+=imp*nxn/mb; b.vy+=imp*nyn/mb;
-              if(-sep>2.0){ var s=Math.min(0.8,-sep/9); a.sqv+=s*(mb/tot); b.sqv+=s*(ma/tot); }
+              if(-sep>2.0){ var s=Math.min(0.8,-sep/9); a.sqv+=s*(mb/(ma+mb)); b.sqv+=s*(ma/(ma+mb)); }
             }
+            var txx=-nyn, tyy=nxn, st=(b.vx-a.vx)*txx+(b.vy-a.vy)*tyy;          // contact friction: no sliding off
+            var jt=-st*PAIRGRIP/(1/ma+1/mb);
+            a.vx-=jt*txx/ma; a.vy-=jt*tyy/ma; b.vx+=jt*txx/mb; b.vy+=jt*tyy/mb;
           }
         }
       }
     }
   }
+  for(i=0;i<balls.length;i++){ a=balls[i]; a.dfx+=(a.cx-a.dfx)*0.35*dt; a.dfy+=(a.cy-a.dfy)*0.35*dt; }   // ease the squash in and out
   for(i=parts.length-1;i>=0;i--){ var q=parts[i]; q.vy+=0.22*dt; q.x+=q.vx*dt; q.y+=q.vy*dt; q.vx*=0.97; q.life-=0.035*dt; if(q.life<=0) parts.splice(i,1); }
   for(i=floats.length-1;i>=0;i--){ var f=floats[i]; f.y-=0.55*dt; f.life-=0.022*dt; if(f.life<=0) floats.splice(i,1); }
   if(shake>0) shake=Math.max(0, shake-0.9*dt);
@@ -1799,7 +1819,11 @@ function ring(b, c){
   var T=TIERS[b.t], r=b.r*(1+0.16*b.pop), x=b.x, y=b.y;
   c.save();
   var w=Math.max(-0.35,Math.min(0.35,b.sq||0));
-  c.translate(x,y); c.scale(1+w*0.26, 1-w*0.26); c.translate(-x,-y);
+  c.translate(x,y); c.scale(1+w*0.26, 1-w*0.26);
+  var mag=Math.sqrt((b.dfx||0)*(b.dfx||0)+(b.dfy||0)*(b.dfy||0));
+  if(mag>0.15){ var k=Math.min(SQUASH_MAX, SQUASH_K*mag/r), ang=Math.atan2(b.dfy,b.dfx);
+    c.rotate(ang); c.scale(1-k, 1+k*0.55); c.rotate(-ang); }       // flatten toward whatever it is pressed against
+  c.translate(-x,-y);
   var g=c.createRadialGradient(x-r*0.36, y-r*0.42, r*0.10, x, y, r);
   g.addColorStop(0, T.a); g.addColorStop(1, T.b);
   c.beginPath(); c.arc(x,y,r,0,6.2832); c.fillStyle=g; c.fill();
