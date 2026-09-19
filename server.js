@@ -1629,22 +1629,22 @@ var overEl=document.getElementById('cOver'), againBtn=document.getElementById('c
 var overTitle=document.getElementById('cOverTitle');
 
 var TIERS=[
- {n:'Ping pong', r:14, a:'#FBFBF6', b:'#D2D2C6', k:'plain', p:'#EDEDE6'},
- {n:'Golf',      r:18, a:'#FFFFFF', b:'#C3CBD2', k:'golf',  p:'#E4EAF0'},
- {n:'Tennis',    r:23, a:'#DCF45C', b:'#9DBA25', k:'seam',  p:'#CDEB3E'},
- {n:'Cricket',   r:29, a:'#C23B36', b:'#7C201D', k:'cricket',p:'#E05A54'},
- {n:'Baseball',  r:36, a:'#FCF8F1', b:'#D6CBB8', k:'baseball',p:'#F3E9D8'},
- {n:'Basketball',r:44, a:'#E8944A', b:'#A9551F', k:'basket',p:'#F4A85F'},
- {n:'Volleyball',r:53, a:'#F9EBC8', b:'#C6A765', k:'volley',p:'#F2DFA8'},
- {n:'Football',  r:63, a:'#FFFFFF', b:'#AEB6BE', k:'football',p:'#E8ECEF'},
- {n:'Matchball', r:74, a:'#FFD466', b:'#CE8A0D', k:'match', p:'#FFE28E'}
+ {n:'Ping pong', r:12, a:'#FBFBF6', b:'#D2D2C6', k:'plain', p:'#EDEDE6'},
+ {n:'Golf',      r:15, a:'#FFFFFF', b:'#C3CBD2', k:'golf',  p:'#E4EAF0'},
+ {n:'Tennis',    r:19, a:'#DCF45C', b:'#9DBA25', k:'seam',  p:'#CDEB3E'},
+ {n:'Cricket',   r:25, a:'#C23B36', b:'#7C201D', k:'cricket',p:'#E05A54'},
+ {n:'Baseball',  r:31, a:'#FCF8F1', b:'#D6CBB8', k:'baseball',p:'#F3E9D8'},
+ {n:'Basketball',r:38, a:'#E8944A', b:'#A9551F', k:'basket',p:'#F4A85F'},
+ {n:'Volleyball',r:45, a:'#F9EBC8', b:'#C6A765', k:'volley',p:'#F2DFA8'},
+ {n:'Football',  r:54, a:'#FFFFFF', b:'#AEB6BE', k:'football',p:'#E8ECEF'},
+ {n:'Matchball', r:63, a:'#FFD466', b:'#CE8A0D', k:'match', p:'#FFE28E'}
 ];
 
-var W=268, H=330, LINE=54;
+var W=268, H=330, LINE=140;
 // The basket. Wider at the rim than the floor, like a real one. Walls are line
 // segments from rim to floor; above the rim there is nothing, so a ball CAN
 // leave -- and leaving is how you lose.
-var RIM=LINE, FLOOR=H-10, TL=10, TR=W-10, BL=44, BR=W-44;
+var RIM=LINE, FLOOR=H-10, TL=34, TR=W-34, BL=58, BR=W-58;   // 200 wide at the rim, 152 at the floor, 180 tall
 var WALL_L={x1:TL,y1:RIM,x2:BL,y2:FLOOR}, WALL_R={x1:TR,y1:RIM,x2:BR,y2:FLOOR};
 function wallNormal(w, sign){ var dx=w.x2-w.x1, dy=w.y2-w.y1, L=Math.sqrt(dx*dx+dy*dy); return {x:sign*(-dy/L), y:sign*(dx/L)}; }
 var NL=wallNormal(WALL_L, -1), NR=wallNormal(WALL_R, 1);   // both point into the basket
