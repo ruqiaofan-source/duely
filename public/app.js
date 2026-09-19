@@ -1272,7 +1272,7 @@ function renderChallengeHub() {
     <p class="sub">Pick an event, make your call, then choose who gets to answer it.</p>
     <button class="cta commit" id="friendChallenge">Challenge a friend →</button>
     <button class="cta ghost2" id="publicChallenge" style="margin-top:10px">Post a public challenge →</button>
-    <p class="sub" style="margin:14px 0 0">Friend challenges create a shareable link. Public challenges appear in Answer for anyone to accept.</p>
+    <p class="sub" style="margin:14px 0 0">A friend challenge gives you a link to send. A public challenge goes straight onto the Answer tab for anyone to take.</p>
   </div>`;
   $('#friendChallenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
   $('#publicChallenge').addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
@@ -1394,6 +1394,7 @@ async function renderCreate() {
     if (hadFocus) seg.querySelector(`[data-o="${hadFocus}"]`)?.focus();
     updatePreview();
   };
+  const publicPost = Boolean(PREFILL?.arena); // opened from "Post a public challenge"
   const onMatchChange = () => {
     const season = sel.value === 'season';
     if (season) track('season_picked');
@@ -1402,7 +1403,7 @@ async function renderCreate() {
     // a season call has no kickoff to wait for, so it can't be an Arena listing
     // a stranger stumbles onto months later — keep it between mates
     const ar = $('#arenaChk')?.closest('.checkrow');
-    if (ar) ar.style.display = season ? 'none' : '';
+    if (ar) ar.style.display = (season || publicPost) ? 'none' : '';
     renderSeg();
   };
   sel.addEventListener('change', onMatchChange);
@@ -1415,9 +1416,12 @@ async function renderCreate() {
   document.querySelectorAll('#sheetPanel [data-line]').forEach((chip) =>
     chip.addEventListener('click', () => { $('#lineInput').value = chip.dataset.line; haptic(8); updatePreview(); }));
   $('#sheetClose').addEventListener('click', closeSheet);
-  const syncArenaUi = () => { const ac = $('#arenaChk'), cb = $('#createBtn'); if (ac && cb && !cb.disabled) cb.textContent = ac.checked ? '🌍 Lock it in & post to the Arena →' : 'Lock it in & get link →'; };
+  const syncArenaUi = () => { const ac = $('#arenaChk'), cb = $('#createBtn'); if (ac && cb && !cb.disabled) cb.textContent = ac.checked ? '🌍 Post it to Answer →' : 'Lock it in & get link →'; };
   const acEl = $('#arenaChk'); if (acEl) acEl.addEventListener('change', () => { haptic(8); syncArenaUi(); });
-  if (PREFILL?.arena) { const ac = $('#arenaChk'); if (ac) ac.checked = true; syncArenaUi(); }
+  // Opened from "Post a public challenge": the Arena/Answer listing is the whole point,
+  // so the checkbox is forced on and hidden, and the finish line is the Answer tab,
+  // not the share-a-link screen. Filip: "these two make the same thing".
+  if (publicPost) { const ac = $('#arenaChk'); if (ac) { ac.checked = true; const row = ac.closest('.checkrow'); if (row) row.style.display = 'none'; } syncArenaUi(); }
 
   if (copy) { sel.value = 'custom'; $('#home').value = copy.home || ''; $('#away').value = copy.away || ''; }
   if (PREFILL?.season) { sel.value = 'season'; const cl = $('#claim'); if (cl && PREFILL.claim) cl.value = PREFILL.claim; }
@@ -1467,6 +1471,11 @@ async function renderCreate() {
       try { sessionStorage.setItem('duely_stamp', bet.id); } catch {}
       track('bet_created', { stake: p.stake, forfeit: Boolean(p.line) });
       closeSheet();
+      if (publicPost) {
+        history.pushState({}, '', '/answer'); setTab('answer'); renderArena();
+        toast('Posted to Answer 🌍 — anyone on Clashly can take the other side');
+        return;
+      }
       history.pushState({}, '', '/b/' + bet.id); renderBet(bet.id);
     } catch (e) { toast(e.message); btn.disabled = false; syncArenaUi(); if (!$('#arenaChk')?.checked) btn.textContent = 'Lock it in & get link →'; }
   };
