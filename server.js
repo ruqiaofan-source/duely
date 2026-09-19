@@ -1629,22 +1629,22 @@ var overEl=document.getElementById('cOver'), againBtn=document.getElementById('c
 var overTitle=document.getElementById('cOverTitle');
 
 var TIERS=[
- {n:'Ping pong', r:12, a:'#FBFBF6', b:'#D2D2C6', k:'plain', p:'#EDEDE6'},
- {n:'Golf',      r:15, a:'#FFFFFF', b:'#C3CBD2', k:'golf',  p:'#E4EAF0'},
- {n:'Tennis',    r:19, a:'#DCF45C', b:'#9DBA25', k:'seam',  p:'#CDEB3E'},
- {n:'Cricket',   r:25, a:'#C23B36', b:'#7C201D', k:'cricket',p:'#E05A54'},
- {n:'Baseball',  r:31, a:'#FCF8F1', b:'#D6CBB8', k:'baseball',p:'#F3E9D8'},
- {n:'Basketball',r:38, a:'#E8944A', b:'#A9551F', k:'basket',p:'#F4A85F'},
- {n:'Volleyball',r:45, a:'#F9EBC8', b:'#C6A765', k:'volley',p:'#F2DFA8'},
- {n:'Football',  r:54, a:'#FFFFFF', b:'#AEB6BE', k:'football',p:'#E8ECEF'},
- {n:'Matchball', r:63, a:'#FFD466', b:'#CE8A0D', k:'match', p:'#FFE28E'}
+ {n:'Ping pong', r:11, a:'#FBFBF6', b:'#D2D2C6', k:'plain', p:'#EDEDE6'},
+ {n:'Golf',      r:14, a:'#FFFFFF', b:'#C3CBD2', k:'golf',  p:'#E4EAF0'},
+ {n:'Tennis',    r:17, a:'#DCF45C', b:'#9DBA25', k:'seam',  p:'#CDEB3E'},
+ {n:'Cricket',   r:22, a:'#C23B36', b:'#7C201D', k:'cricket',p:'#E05A54'},
+ {n:'Baseball',  r:28, a:'#FCF8F1', b:'#D6CBB8', k:'baseball',p:'#F3E9D8'},
+ {n:'Basketball',r:34, a:'#E8944A', b:'#A9551F', k:'basket',p:'#F4A85F'},
+ {n:'Volleyball',r:41, a:'#F9EBC8', b:'#C6A765', k:'volley',p:'#F2DFA8'},
+ {n:'Football',  r:49, a:'#FFFFFF', b:'#AEB6BE', k:'football',p:'#E8ECEF'},
+ {n:'Matchball', r:58, a:'#FFD466', b:'#CE8A0D', k:'match', p:'#FFE28E'}
 ];
 
-var W=268, H=330, LINE=140;
+var W=268, H=330, LINE=180, DROP_Y=30;
 // The basket. Wider at the rim than the floor, like a real one. Walls are line
 // segments from rim to floor; above the rim there is nothing, so a ball CAN
 // leave -- and leaving is how you lose.
-var RIM=LINE, FLOOR=H-10, TL=34, TR=W-34, BL=58, BR=W-58;   // 200 wide at the rim, 152 at the floor, 180 tall
+var RIM=LINE, FLOOR=H-10, TL=48, TR=W-48, BL=68, BR=W-68;   // 172 wide at the rim, 132 at the floor, 140 tall
 var WALL_L={x1:TL,y1:RIM,x2:BL,y2:FLOOR}, WALL_R={x1:TR,y1:RIM,x2:BR,y2:FLOOR};
 function wallNormal(w, sign){ var dx=w.x2-w.x1, dy=w.y2-w.y1, L=Math.sqrt(dx*dx+dy*dy); return {x:sign*(-dy/L), y:sign*(dx/L)}; }
 var NL=wallNormal(WALL_L, -1), NR=wallNormal(WALL_R, 1);   // both point into the basket
@@ -1654,7 +1654,9 @@ function wallHit(b, w, n){
   if(d < b.r){ var push=b.r-d; b.x+=n.x*push; b.y+=n.y*push;
     var vn=b.vx*n.x+b.vy*n.y; if(vn<0){ b.vx-=(1+WALLREST)*vn*n.x; b.vy-=(1+WALLREST)*vn*n.y; b.vx*=0.96; } }
 }
-var GRAV=0.46, REST=0.18, WALLREST=0.28, AIRDRAG=0.999, SPINDRAG=0.94;
+var GRAV=0.46, REST=0.42, WALLREST=0.40, AIRDRAG=0.999, SPINDRAG=0.94;
+// jelly: wobble is a damped spring (sq, sqv); stick is a small pull between touching balls
+var WOBBLE_K=0.32, WOBBLE_D=0.84, STICK_RANGE=9, STICK_PULL=0.05;
 var balls=[], parts=[], floats=[];
 var score=0, shown=0, dead=false, aimX=W/2, nextT=0, holdOver=0, dropLock=0, raf=null, last=0;
 var best=+(localStorage.getItem('clashly_connect_best')||0);
@@ -1691,12 +1693,12 @@ function fit(){
   nextCv.width=38*nd; nextCv.height=38*nd; nctx.setTransform(nd,0,0,nd,0,0);
 }
 
-function add(t,x,y,vx){ balls.push({t:t, r:TIERS[t].r, x:x, y:y, vx:vx||0, vy:0, pop:0, sq:0, born:performance.now()}); }
+function add(t,x,y,vx){ balls.push({t:t, r:TIERS[t].r, x:x, y:y, vx:vx||0, vy:0, pop:0, sq:0, sqv:0, born:performance.now()}); }
 
 function drop(){
   if(dead||dropLock>0) return;
   var t=nextT, r=TIERS[t].r;
-  add(t, Math.max(TL+r+2, Math.min(TR-r-2, aimX)), LINE-16, 0);
+  add(t, Math.max(TL+r+2, Math.min(TR-r-2, aimX)), DROP_Y, 0);
   nextT=pickNext(); paintNext(); dropLock=13; sDrop(); buzz(6);
 }
 
@@ -1743,15 +1745,20 @@ function physics(dt){
     wallHit(a, WALL_L, NL); wallHit(a, WALL_R, NR);
     if(a.x-a.r<0){ a.x=a.r; a.vx=-a.vx*WALLREST; }          // canvas edge, only reachable above the rim
     if(a.x+a.r>W){ a.x=W-a.r; a.vx=-a.vx*WALLREST; }
-    if(a.y+a.r>FLOOR){ a.y=FLOOR-a.r; if(a.vy>2.2){ a.sq=Math.min(1,a.vy/9); sPop(a.t); } a.vy=-a.vy*REST; a.vx*=SPINDRAG; }
+    if(a.y+a.r>FLOOR){ a.y=FLOOR-a.r; if(a.vy>2.2){ a.sqv+=Math.min(0.9,a.vy/11); sPop(a.t); } a.vy=-a.vy*REST; a.vx*=SPINDRAG; }
     if(a.pop>0) a.pop=Math.max(0,a.pop-0.07*dt);
-    if(a.sq>0) a.sq=Math.max(0,a.sq-0.12*dt);
+    a.sqv+=-a.sq*WOBBLE_K*dt; a.sqv*=Math.pow(WOBBLE_D,dt); a.sq+=a.sqv*dt;   // jelly wobble
   }
   for(var pass=0; pass<4; pass++){
     for(i=0;i<balls.length;i++){
       for(j=i+1;j<balls.length;j++){
         a=balls[i]; b=balls[j];
         var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), min=a.r+b.r;
+        if(pass===0 && d>=min && d<min+STICK_RANGE && a.t!==b.t){
+          var pull=STICK_PULL*(1-(d-min)/STICK_RANGE)*dt, ux=dx/d, uy=dy/d;
+          var ma0=a.r*a.r, mb0=b.r*b.r, t0=ma0+mb0;
+          a.vx+=ux*pull*(mb0/t0); a.vy+=uy*pull*(mb0/t0); b.vx-=ux*pull*(ma0/t0); b.vy-=uy*pull*(ma0/t0);
+        }
         if(d>0 && d<min){
           if(a.t===b.t && pass===0){ merge(i,j); i=Math.max(0,i-1); j=i; continue; }
           var nxn=dx/d, nyn=dy/d, overlap=(min-d);
@@ -1763,7 +1770,7 @@ function physics(dt){
             if(sep<0){
               var imp=-(1+REST)*sep/(1/ma+1/mb);
               a.vx-=imp*nxn/ma; a.vy-=imp*nyn/ma; b.vx+=imp*nxn/mb; b.vy+=imp*nyn/mb;
-              if(-sep>2.4){ var s=Math.min(0.7,-sep/10); if(a.sq<s)a.sq=s; if(b.sq<s)b.sq=s; }
+              if(-sep>2.0){ var s=Math.min(0.8,-sep/9); a.sqv+=s*(mb/tot); b.sqv+=s*(ma/tot); }
             }
           }
         }
@@ -1791,7 +1798,8 @@ function ring(b, c){
   c=c||ctx;
   var T=TIERS[b.t], r=b.r*(1+0.16*b.pop), x=b.x, y=b.y;
   c.save();
-  c.translate(x,y); c.scale(1+b.sq*0.16, 1-b.sq*0.16); c.translate(-x,-y);
+  var w=Math.max(-0.35,Math.min(0.35,b.sq||0));
+  c.translate(x,y); c.scale(1+w*0.26, 1-w*0.26); c.translate(-x,-y);
   var g=c.createRadialGradient(x-r*0.36, y-r*0.42, r*0.10, x, y, r);
   g.addColorStop(0, T.a); g.addColorStop(1, T.b);
   c.beginPath(); c.arc(x,y,r,0,6.2832); c.fillStyle=g; c.fill();
@@ -1858,8 +1866,8 @@ function render(ts){
     var r=TIERS[nextT].r, ax=Math.max(TL+r+2, Math.min(TR-r-2, aimX));
     var bob=Math.sin(ts/260)*2.2;
     ctx.strokeStyle='rgba(255,200,61,.28)'; ctx.lineWidth=2; ctx.setLineDash([4,7]);
-    ctx.beginPath(); ctx.moveTo(ax,LINE); ctx.lineTo(ax,H); ctx.stroke(); ctx.setLineDash([]);
-    ring({t:nextT, r:r, x:ax, y:LINE-16+bob, pop:0, sq:0});
+    ctx.beginPath(); ctx.moveTo(ax,DROP_Y+r); ctx.lineTo(ax,FLOOR); ctx.stroke(); ctx.setLineDash([]);
+    ring({t:nextT, r:r, x:ax, y:DROP_Y+bob, pop:0, sq:0});
   }
   for(var i=0;i<balls.length;i++) ring(balls[i]);
   for(i=0;i<parts.length;i++){ var q=parts[i]; ctx.globalAlpha=Math.max(0,q.life); ctx.fillStyle=q.col; ctx.beginPath(); ctx.arc(q.x,q.y,q.r*q.life,0,6.2832); ctx.fill(); }
