@@ -1163,7 +1163,7 @@ async function serveArcade(req, res) {
 <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="The Clashly Arcade" />
-<meta property="og:description" content="Penalty timing, keepy-uppy, transfer-fee streaks and the daily career puzzle. Points go on the board. Free, no money, no prizes." />
+<meta property="og:description" content="Beat the keeper, merge the footballs, transfer-fee streaks and the daily career puzzle. Points go on the board. Free, no money, no prizes." />
 <meta property="og:url" content="${url}" />
 <meta property="og:image" content="https://clashly.live/og-home.png" />
 ${ARCADE_FONTS}
@@ -1191,7 +1191,6 @@ ${ARCADE_FONTS}
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
     ${tile('/score', '🥅', 'SCORE', 'beat the keeper', 15, '#14E0C8')}
-    ${tile('/keepy', '🤹', 'KEEPY-UPPY', "don't let it drop", 15, '#A78BFA')}
     ${tile('/hilo', '📈', 'HIGHER OR LOWER', 'streak the transfer fees', 12, '#FFC83D')}
     ${tile('/connect', '🟢', 'CONNECT', 'merge the balls', 15, '#A78BFA')}
     ${tile('/daily', '🎯', 'THE DAILY', 'one career a day', 8, '#14E0C8')}
@@ -1532,23 +1531,271 @@ async function serveHilo(req, res) {
 // Connect — a small, dependency-free physics toy. Balls have velocity, collision
 // separation and a little squash; matching balls merge into the next level.
 async function serveConnect(req, res) {
-  const body = `<div class="gcard"><h2 class="gname">Connect 🟢</h2><p class="gsub">Drop balls into the basket. Two of a kind merge; let one escape and it is over.</p><div id="cGame" style="position:relative;height:430px;overflow:hidden;border:2px solid #22303F;border-radius:14px;background:radial-gradient(circle at 50% 10%,#1c3041,#080c12)"></div><div class="stat" id="cStat">best ball: ping pong · score 0</div><button class="gbtn" id="cDrop">DROP BALL</button><button class="gbtn vio" id="cAgain" style="display:none">PLAY AGAIN</button></div><p class="note" style="text-align:center">Ping pong → tennis → baseball → volleyball → then fresh colours forever.</p>`;
-  const extraCss = `.ball{position:absolute;border-radius:50%;display:grid;place-items:center;font-size:18px;font-weight:900;box-shadow:inset -5px -6px 10px rgba(0,0,0,.2),0 3px 8px rgba(0,0,0,.3);user-select:none}`;
+  // A proper merge game: aim, drop, stack, combine. Deliberately NO cash-out
+  // button, no currency icons, no ability purchases and no ad prompts -- the
+  // reference game Filip sent has all four, and that is the social-casino shape
+  // this project refused in v20. Skill in, points out, capped like every game.
+  const body = `<div class="gcard">
+    <h2 class="gname">Connect \u{1F7E2}</h2>
+    <p class="gsub">Drag to aim, let go to drop. Two of the same ball merge into the next one up. Keep the stack below the dotted line.</p>
+    <div class="crow">
+      <div class="cstat"><small>SCORE</small><b id="cScore">0</b></div>
+      <div class="cstat"><small>BEST</small><b id="cBest">0</b></div>
+      <div class="cstat"><small>NEXT</small><span id="cNext"></span></div>
+    </div>
+    <div id="cWrap" class="cwrap"><canvas id="cCanvas" aria-label="Connect play area"></canvas></div>
+    <div id="cOver" class="cover" style="display:none">
+      <b>Stack topped out</b>
+      <p id="cStat" class="gsub" style="margin:6px 0 10px"></p>
+      <button class="cta" id="cAgain">GO AGAIN</button>
+    </div>
+    <p class="gsub" style="margin-top:12px;opacity:.75">Ping pong \u2192 golf \u2192 tennis \u2192 cricket \u2192 baseball \u2192 basketball \u2192 volleyball \u2192 football \u2192 matchball.</p>
+  </div>`;
+  const extraCss = `.crow{display:flex;gap:8px;margin:12px 0 10px}
+.cstat{flex:1;background:#141C29;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px 10px;text-align:center}
+.cstat small{display:block;font-size:9.5px;letter-spacing:.12em;color:#8494A8;font-weight:800}
+.cstat b{font-size:19px;font-family:Anton,Impact,sans-serif;font-weight:400;color:#EAF0F7}
+.cwrap{display:flex;justify-content:center}
+.cwrap canvas{border-radius:16px;border:1px solid rgba(255,255,255,.10);touch-action:none;display:block;background:#0E1520}
+.cover{text-align:center;margin-top:12px}
+.cover b{font-family:Anton,Impact,sans-serif;font-weight:400;font-size:19px;color:#FF5E5E;letter-spacing:.03em}`;
   const script = `
-var box=document.getElementById('cGame'), drop=document.getElementById('cDrop'), again=document.getElementById('cAgain'), stat=document.getElementById('cStat');
-var names=['ping pong','tennis','baseball','volleyball'], icons=['🏓','🎾','⚾','🏐'], colours=['#f6f6f3','#c7ed4b','#fff','#f2d8a6','#ca9cff','#56d9f0','#ff8499'];
-var balls=[], score=0, dead=false, next=0, best=+localStorage.getItem('clashly_connect_best')||0, last=performance.now();
-function save(){ if(next>best){best=next;localStorage.setItem('clashly_connect_best',best);} }
-function label(n){return names[n]||'colour '+(n-3)}
-function add(){if(dead)return; var level=Math.floor(Math.random()*Math.min(3,Math.max(1,next+1))), r=13+level*4, b={x:box.clientWidth/2-r+(Math.random()-.5)*80,y:2,r:r,vx:(Math.random()-.5)*1.2,vy:0,l:level,el:document.createElement('div')};b.el.className='ball';b.el.style.width=b.el.style.height=(r*2)+'px';b.el.style.background=colours[level%colours.length];b.el.textContent=icons[level]||'●';box.appendChild(b.el);balls.push(b)}
-function draw(b){b.el.style.transform='translate('+b.x+'px,'+b.y+'px) scale('+(1+Math.min(.08,Math.abs(b.vy)*.006))+')'}
-function merge(a,b){var level=a.l+1, r=13+level*4, n={x:(a.x+b.x)/2,y:(a.y+b.y)/2,r:r,vx:0,vy:-1,l:level,el:document.createElement('div')};a.el.remove();b.el.remove();balls=balls.filter(function(x){return x!==a&&x!==b});n.el.className='ball';n.el.style.width=n.el.style.height=(r*2)+'px';n.el.style.background=colours[level%colours.length];n.el.textContent=icons[level]||'●';box.appendChild(n.el);balls.push(n);next=Math.max(next,level);save();score+=Math.pow(2,level);}
-function frame(t){var dt=Math.min(2,(t-last)/16);last=t;var w=box.clientWidth,h=box.clientHeight;for(var i=0;i<balls.length;i++){var b=balls[i];b.vy+=.18*dt;b.x+=b.vx*dt;b.y+=b.vy*dt;if(b.x<0||b.x+b.r*2>w){b.x=Math.max(0,Math.min(w-b.r*2,b.x));b.vx*=-.65}if(b.y+b.r*2>h){b.y=h-b.r*2;b.vy*=-.36;b.vx*=.94}if(b.y<-18){dead=true}draw(b)}for(var i=0;i<balls.length;i++)for(var j=i+1;j<balls.length;j++){var a=balls[i],b=balls[j],dx=(b.x+b.r)-(a.x+a.r),dy=(b.y+b.r)-(a.y+a.r),d=Math.hypot(dx,dy)||1,min=a.r+b.r;if(d<min){if(a.l===b.l){merge(a,b);break}var push=(min-d)/2,ux=dx/d,uy=dy/d;a.x-=ux*push;a.y-=uy*push;b.x+=ux*push;b.y+=uy*push;a.vx-=ux*.12;a.vy-=uy*.12;b.vx+=ux*.12;b.vy+=uy*.12}}stat.textContent='best ball: '+label(best)+' · score '+score;if(dead){drop.style.display='none';again.style.display='block';stat.textContent='Basket overflowed — score '+score+' · best ball: '+label(best);if(score)submit('connect',Math.min(15,Math.floor(score/4)));}else requestAnimationFrame(frame)}
-function start(){balls.forEach(function(b){b.el.remove()});balls=[];score=0;next=0;dead=false;drop.style.display='block';again.style.display='none';add();last=performance.now();requestAnimationFrame(frame)}drop.addEventListener('click',add);again.addEventListener('click',start);start();`;
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/connect', title: 'CONNECT', kicker: 'MERGE THE BALLS', metaTitle: 'Connect — the Clashly Arcade', desc: 'A physics ball-merging game with endless levels. Free, no money, no prizes.', body, script, extraCss }));
+var cv=document.getElementById('cCanvas'), ctx=cv.getContext('2d');
+var scoreEl=document.getElementById('cScore'), bestEl=document.getElementById('cBest');
+var nextEl=document.getElementById('cNext'), overEl=document.getElementById('cOver');
+var againBtn=document.getElementById('cAgain'), statEl=document.getElementById('cStat');
+
+// Football, smallest to biggest. Merge two of a kind to climb the ladder.
+var TIERS=[
+ {n:'Ping pong', r:14, a:'#FBFBF6', b:'#D2D2C6', k:'plain'},
+ {n:'Golf',      r:18, a:'#FFFFFF', b:'#C3CBD2', k:'golf'},
+ {n:'Tennis',    r:23, a:'#DCF45C', b:'#9DBA25', k:'seam'},
+ {n:'Cricket',   r:29, a:'#C23B36', b:'#7C201D', k:'cricket'},
+ {n:'Baseball',  r:36, a:'#FCF8F1', b:'#D6CBB8', k:'baseball'},
+ {n:'Basketball',r:44, a:'#E8944A', b:'#A9551F', k:'basket'},
+ {n:'Volleyball',r:53, a:'#F9EBC8', b:'#C6A765', k:'volley'},
+ {n:'Football',  r:63, a:'#FFFFFF', b:'#AEB6BE', k:'football'},
+ {n:'Matchball', r:74, a:'#FFD466', b:'#CE8A0D', k:'match'}
+];
+
+var W=268, H=330, LINE=54;
+var GRAV=0.46, REST=0.18, WALLREST=0.28, AIRDRAG=0.999, SPINDRAG=0.94;
+var balls=[], score=0, dead=false, aimX=W/2, nextT=0, holdOver=0, dropLock=0, raf=null, last=0;
+var best=+(localStorage.getItem('clashly_connect_best')||0);
+var merged=0;
+
+function rnd(max){ return Math.floor(Math.random()*max); }
+function pickNext(){ var top=0; for(var i=0;i<balls.length;i++) if(balls[i].t>top) top=balls[i].t; return rnd(Math.min(4, Math.max(2, top))); }
+
+function fit(){
+  var w=Math.min(cv.parentNode.clientWidth, 340);
+  var scale=w/W, dpr=Math.min(2, window.devicePixelRatio||1);
+  cv.style.width=w+'px'; cv.style.height=Math.round(H*scale)+'px';
+  cv.width=Math.round(W*scale*dpr); cv.height=Math.round(H*scale*dpr);
+  ctx.setTransform(dpr*scale,0,0,dpr*scale,0,0);   // draw in world units, crisp at any size
 }
 
+function add(t,x,y,vx){
+  balls.push({t:t, r:TIERS[t].r, x:x, y:y, vx:vx||0, vy:0, pop:0});
+}
+
+function drop(){
+  if(dead||dropLock>0) return;
+  var t=nextT, r=TIERS[t].r;
+  add(t, Math.max(r+2, Math.min(W-r-2, aimX)), LINE-14, 0);
+  nextT=pickNext(); paintNext(); dropLock=14;
+}
+
+function paintNext(){
+  var T=TIERS[nextT];
+  nextEl.innerHTML='<span style="font-size:12.5px;font-weight:800;color:#EAF0F7">'+T.n+'</span>';
+  nextEl.setAttribute('aria-label','Next ball: '+T.n);
+}
+
+function merge(i,j){
+  var a=balls[i], b=balls[j], t=a.t+1;
+  var nx=(a.x+b.x)/2, ny=(a.y+b.y)/2;
+  balls.splice(Math.max(i,j),1); balls.splice(Math.min(i,j),1);
+  merged++;
+  if(t<TIERS.length){ add(t,nx,ny,0); balls[balls.length-1].vy=-2.2; balls[balls.length-1].pop=1; score+=(t+1)*2; }
+  else { score+=40; }            // topped the ladder, it clears itself
+  scoreEl.textContent=score;
+}
+
+function physics(dt){
+  var i,j,a,b;
+  for(i=0;i<balls.length;i++){
+    a=balls[i];
+    a.vy+=GRAV*dt; a.vx*=AIRDRAG; a.x+=a.vx*dt; a.y+=a.vy*dt;
+    if(a.x-a.r<0){ a.x=a.r; a.vx=-a.vx*WALLREST; }
+    if(a.x+a.r>W){ a.x=W-a.r; a.vx=-a.vx*WALLREST; }
+    if(a.y+a.r>H){ a.y=H-a.r; a.vy=-a.vy*REST; a.vx*=SPINDRAG; }
+    if(a.pop>0) a.pop=Math.max(0,a.pop-0.08*dt);
+  }
+  // a few relaxation passes keep a tall stack from jittering apart
+  for(var pass=0; pass<4; pass++){
+    for(i=0;i<balls.length;i++){
+      for(j=i+1;j<balls.length;j++){
+        a=balls[i]; b=balls[j];
+        var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), min=a.r+b.r;
+        if(d>0 && d<min){
+          if(a.t===b.t && pass===0){ merge(i,j); i=Math.max(0,i-1); j=i; continue; }
+          var nxn=dx/d, nyn=dy/d, overlap=(min-d);
+          var ma=a.r*a.r, mb=b.r*b.r, tot=ma+mb;
+          a.x-=nxn*overlap*(mb/tot); a.y-=nyn*overlap*(mb/tot);
+          b.x+=nxn*overlap*(ma/tot); b.y+=nyn*overlap*(ma/tot);
+          if(pass===0){
+            var rvx=b.vx-a.vx, rvy=b.vy-a.vy, sep=rvx*nxn+rvy*nyn;
+            if(sep<0){
+              var imp=-(1+REST)*sep/(1/ma+1/mb);
+              a.vx-=imp*nxn/ma; a.vy-=imp*nyn/ma;
+              b.vx+=imp*nxn/mb; b.vy+=imp*nyn/mb;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function overCheck(dt){
+  var high=false;
+  for(var i=0;i<balls.length;i++){
+    var b=balls[i];
+    if(b.y-b.r<LINE && Math.abs(b.vy)<1.1) { high=true; break; }
+  }
+  holdOver = high ? holdOver+dt : 0;
+  if(holdOver>75) end();
+}
+
+function ring(b){
+  var T=TIERS[b.t], r=b.r*(1+0.14*b.pop), x=b.x, y=b.y;
+  ctx.save();
+  var g=ctx.createRadialGradient(x-r*0.36, y-r*0.42, r*0.10, x, y, r);
+  g.addColorStop(0, T.a); g.addColorStop(1, T.b);
+  ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fillStyle=g; ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.lineCap='round';
+  var ink='rgba(0,0,0,.42)', k=T.k;
+  if(k==='golf'){
+    ctx.fillStyle='rgba(0,0,0,.10)';
+    for(var gy=-r; gy<r; gy+=r*0.34) for(var gx=-r; gx<r; gx+=r*0.34){
+      ctx.beginPath(); ctx.arc(x+gx+r*0.17, y+gy+r*0.17, r*0.075, 0, 6.2832); ctx.fill();
+    }
+  } else if(k==='seam'){
+    ctx.strokeStyle='rgba(255,255,255,.92)'; ctx.lineWidth=Math.max(1.6,r*0.10);
+    ctx.beginPath(); ctx.arc(x-r*1.05, y, r*1.25, -0.85, 0.85); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x+r*1.05, y, r*1.25, Math.PI-0.85, Math.PI+0.85); ctx.stroke();
+  } else if(k==='cricket'){
+    ctx.strokeStyle='rgba(255,255,255,.80)'; ctx.lineWidth=Math.max(1.4,r*0.07);
+    ctx.beginPath(); ctx.moveTo(x-r,y); ctx.lineTo(x+r,y); ctx.stroke();
+    ctx.lineWidth=Math.max(1,r*0.045);
+    for(var s=-3;s<=3;s++){ ctx.beginPath(); ctx.moveTo(x+s*r*0.26, y-r*0.16); ctx.lineTo(x+s*r*0.26, y+r*0.16); ctx.stroke(); }
+  } else if(k==='baseball'){
+    ctx.strokeStyle='#D3403C'; ctx.lineWidth=Math.max(1.3,r*0.06);
+    ctx.beginPath(); ctx.arc(x-r*1.12, y, r*1.3, -0.78, 0.78); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x+r*1.12, y, r*1.3, Math.PI-0.78, Math.PI+0.78); ctx.stroke();
+  } else if(k==='basket'){
+    ctx.strokeStyle=ink; ctx.lineWidth=Math.max(1.5,r*0.075);
+    ctx.beginPath(); ctx.moveTo(x-r,y); ctx.lineTo(x+r,y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y-r); ctx.lineTo(x,y+r); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x-r*1.3, y, r*1.15, -1.0, 1.0); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x+r*1.3, y, r*1.15, Math.PI-1.0, Math.PI+1.0); ctx.stroke();
+  } else if(k==='volley'){
+    ctx.strokeStyle='rgba(60,90,140,.55)'; ctx.lineWidth=Math.max(1.5,r*0.085);
+    ctx.beginPath(); ctx.arc(x-r*1.15, y-r*0.2, r*1.2, -0.7, 0.7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x+r*0.5, y+r*1.2, r*1.2, -2.5, -0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x+r*0.6, y-r*1.25, r*1.2, 0.8, 2.4); ctx.stroke();
+  } else if(k==='football'){
+    ctx.fillStyle='#1B222B';
+    var pr=r*0.30;
+    pent(x, y-r*0.02, pr);
+    for(var a2=0;a2<5;a2++){ var ang=-1.5708+a2*1.2566; pent(x+Math.cos(ang)*r*0.78, y+Math.sin(ang)*r*0.78, pr*0.78); }
+  } else if(k==='match'){
+    ctx.strokeStyle='rgba(255,255,255,.75)'; ctx.lineWidth=Math.max(2,r*0.09);
+    for(var a3=0;a3<3;a3++){ var an=a3*1.047;
+      ctx.beginPath(); ctx.arc(x+Math.cos(an)*r*1.1, y+Math.sin(an)*r*1.1, r*1.0, an+2.1, an+4.2); ctx.stroke(); }
+  }
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(x,y,r,0,6.2832);
+  ctx.lineWidth=1.6; ctx.strokeStyle='rgba(0,0,0,.34)'; ctx.stroke();
+  // top-left sheen sells it as a sphere
+  var sg=ctx.createRadialGradient(x-r*0.38, y-r*0.46, 0, x-r*0.38, y-r*0.46, r*0.72);
+  sg.addColorStop(0,'rgba(255,255,255,.42)'); sg.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fillStyle=sg; ctx.fill();
+  ctx.restore();
+}
+
+function pent(cx,cy,rr){
+  ctx.beginPath();
+  for(var i=0;i<5;i++){ var a=-1.5708+i*1.2566; var px=cx+Math.cos(a)*rr, py=cy+Math.sin(a)*rr;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+  ctx.closePath(); ctx.fill();
+}
+
+function render(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0E1520'; ctx.fillRect(0,0,W,H);
+  // danger line
+  ctx.setLineDash([6,6]); ctx.lineWidth=1.5;
+  ctx.strokeStyle = holdOver>28 ? 'rgba(255,94,94,.95)' : 'rgba(255,255,255,.18)';
+  ctx.beginPath(); ctx.moveTo(0,LINE); ctx.lineTo(W,LINE); ctx.stroke(); ctx.setLineDash([]);
+  if(!dead){
+    var r=TIERS[nextT].r, ax=Math.max(r+2, Math.min(W-r-2, aimX));
+    ctx.strokeStyle='rgba(255,200,61,.30)'; ctx.lineWidth=2; ctx.setLineDash([4,7]);
+    ctx.beginPath(); ctx.moveTo(ax,LINE); ctx.lineTo(ax,H); ctx.stroke(); ctx.setLineDash([]);
+    ring({t:nextT, r:r, x:ax, y:LINE-14, pop:0});
+  }
+  for(var i=0;i<balls.length;i++) ring(balls[i]);
+}
+
+function frame(ts){
+  var dt=Math.min(2.4,(ts-last)/16.667); last=ts;
+  if(dropLock>0) dropLock-=dt;
+  if(!dead){ physics(dt); overCheck(dt); }
+  render();
+  raf=requestAnimationFrame(frame);
+}
+
+function end(){
+  dead=true;
+  if(score>best){ best=score; try{localStorage.setItem('clashly_connect_best',best);}catch(e){} }
+  bestEl.textContent=best;
+  overEl.style.display='block';
+  var sc=Math.min(15, Math.floor(score/8));
+  submit('connect', sc, function(d){
+    statEl.innerHTML = d
+      ? merged+' merges, '+score+' points. <b>+'+d.awarded+'</b> on the board'+(d.awarded<sc?' (daily cap)':'')+' · '+d.allTime+' all time'
+      : merged+' merges, '+score+' points.';
+    if(typeof refreshCap==='function') refreshCap();
+  });
+}
+
+function start(){
+  balls=[]; score=0; merged=0; dead=false; holdOver=0; dropLock=0;
+  nextT=rnd(2); paintNext();
+  scoreEl.textContent='0'; bestEl.textContent=best;
+  overEl.style.display='none'; statEl.textContent='';
+  last=performance.now();
+  if(raf) cancelAnimationFrame(raf);
+  raf=requestAnimationFrame(frame);
+}
+
+function pos(e){
+  var rct=cv.getBoundingClientRect();
+  var cx=(e.touches&&e.touches[0]?e.touches[0].clientX:e.clientX);
+  return (cx-rct.left)*(W/rct.width);
+}
+cv.addEventListener('pointerdown', function(e){ e.preventDefault(); aimX=pos(e); });
+cv.addEventListener('pointermove', function(e){ if(e.buttons||e.pressure>0){ e.preventDefault(); aimX=pos(e); } });
+cv.addEventListener('pointerup', function(e){ e.preventDefault(); aimX=pos(e); drop(); });
+againBtn.addEventListener('click', start);
+window.addEventListener('resize', fit);
+fit(); start();
+`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(arcadePage({ path: '/connect', title: 'CONNECT', kicker: 'MERGE THE BALLS', metaTitle: 'Connect \u2014 the Clashly Arcade', desc: 'Drop and merge footballs, smallest to biggest. Free, no money, no prizes, 18+.', body, script, extraCss }));
+}
 // The Daily — one player a day, everyone gets the same one. Career steps as
 // clues, a wrong guess unlocks the next step. Points once a day, ever.
 const DAILY_PLAYERS = [
@@ -2033,7 +2280,6 @@ async function serveSitemap(req, res) {
     ['https://clashly.live/penalty', 'weekly', '0.5'],
     ['https://clashly.live/score', 'weekly', '0.5'],
     ['https://clashly.live/connect', 'weekly', '0.5'],
-    ['https://clashly.live/keepy', 'weekly', '0.5'],
   ];
   Object.keys(GUIDES).forEach((p) => urls.push(['https://clashly.live' + p, 'monthly', '0.8']));
   matches.slice(0, 60).forEach((m) => {
@@ -3146,7 +3392,8 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/arcade') return serveArcade(req, res);
   if (url.pathname === '/penalty' || url.pathname === '/score') return servePenalty(req, res);
   if (url.pathname === '/connect') return serveConnect(req, res);
-  if (url.pathname === '/keepy') return serveKeepy(req, res);
+  // Keepy-Uppy retired 19 Sep (Qiao's call). Old links redirect rather than 404.
+  if (url.pathname === '/keepy') { res.writeHead(301, { Location: '/arcade' }); return res.end(); }
   if (url.pathname === '/hilo') return serveHilo(req, res);
   if (url.pathname === '/daily') return serveDaily(req, res);
   if (url.pathname === '/weekcard.png' || url.pathname === '/weekcard.svg') return serveWeekCard(req, res);
@@ -3527,7 +3774,7 @@ async function slateSweep() {
 // hilo — streak game, one point a step, capped so a god-run can't drown the
 // board. daily — Wordle-shaped, once:true means the server refuses a second
 // award the same day however many times the client asks.
-const ARCADE_GAMES = { penalty: { max: 15 }, score: { max: 15 }, connect: { max: 15 }, keepy: { max: 15 }, hilo: { max: 12 }, daily: { max: 8, once: true } };
+const ARCADE_GAMES = { penalty: { max: 15 }, score: { max: 15 }, connect: { max: 15 }, hilo: { max: 12 }, daily: { max: 8, once: true } };
 const ARCADE_DAILY_CAP = 30;
 const dayKey = () => new Date().toISOString().slice(0, 10);
 
