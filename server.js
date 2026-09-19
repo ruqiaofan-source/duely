@@ -1227,7 +1227,8 @@ async function servePenalty(req, res) {
   const body = `
   <div class="gcard">
     <h2 class="gname">Score 🥅</h2>
-    <p class="gsub">Pick your moment and beat the keeper. Every goal makes the next save harder.</p>
+    <p class="gsub">Pick your moment and beat the keeper. Every goal makes the next save harder, and it never stops. One save and it's full time.</p>
+    <div class="lvlrow"><span class="lvl" id="lvl">LEVEL 1</span><span class="streak" id="streak">0 goals</span><span class="best" id="best"></span></div>
     <div class="goal" id="goal"><div class="zone" id="zone"><span class="keeper" aria-hidden="true">🧤</span></div><div class="marker" id="marker"></div></div>
     <div class="kicks" id="kicks"></div>
     <button class="gbtn" id="shoot">SHOOT</button>
@@ -1235,14 +1236,22 @@ async function servePenalty(req, res) {
   </div>
   <p class="note" id="capline" style="text-align:center"></p>`;
   const extraCss = `
+.lvlrow{display:flex;align-items:baseline;gap:10px;margin:2px 0 8px}
+.lvl{font-family:Anton,Impact,sans-serif;font-size:22px;letter-spacing:.8px;background:linear-gradient(90deg,#14E0C8,#7C3AED);-webkit-background-clip:text;background-clip:text;color:transparent}
+.streak{font:700 13px Inter,system-ui,sans-serif;color:#EAF0F7}
+.best{margin-left:auto;font:600 11px Inter,system-ui,sans-serif;color:rgba(233,238,243,.5);letter-spacing:.4px}
 .goal{position:relative;height:64px;border-radius:12px;background:#0B0F14;border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0}
-.zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8}
+.goal.saved{animation:gshake .35s}
+@keyframes gshake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8;transition:left .18s ease}
 .marker{position:absolute;top:6px;bottom:6px;width:5px;border-radius:3px;background:#FFC83D}
 .keeper{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:24px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}
-.kicks{display:flex;gap:6px;margin-top:10px}
-.kick{width:26px;height:26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
+.kicks{display:flex;gap:6px;margin-top:10px;min-height:26px;overflow:hidden}
+.kick{width:26px;height:26px;flex:0 0 26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
 .kick.hit{border-color:#14E0C8;color:#14E0C8}
-.kick.miss{border-color:#FF5A6E;color:#FF5A6E}`;
+.kick.top{border-color:#FFC83D;color:#FFC83D}
+.kick.miss{border-color:#FF5A6E;color:#FF5A6E}
+@media (prefers-reduced-motion: reduce){ .goal.saved{animation:none} .zone{transition:none} }`;
   const script = `
   var capline=document.getElementById('capline');
   function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
@@ -1251,40 +1260,55 @@ async function servePenalty(req, res) {
   refreshCap();
   var goal=document.getElementById('goal'), zone=document.getElementById('zone'), marker=document.getElementById('marker');
   var shoot=document.getElementById('shoot'), kicksEl=document.getElementById('kicks'), pstat=document.getElementById('pstat');
-  var KICKS=5, kick=0, total=0, pos=0, dir=1, speed=2.6, playing=true, zoneW=0.30, zoneX=0.35, raf;
+  var lvlEl=document.getElementById('lvl'), streakEl=document.getElementById('streak'), bestEl=document.getElementById('best');
+  var BEST_KEY='clashly_score_best', best=0; try{ best=parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0; }catch(e){}
+  // endless: every goal is a level. The zone shrinks, the marker speeds up, and from level 10 the keeper shifts mid-swing.
+  var level=1, goals=0, total=0, pos=0, dir=1, playing=true, zoneW=0.30, zoneX=0.35, raf, driftT=0, SHOW=10;
+  function speedFor(l){ return Math.min(8.8, 2.6+0.42*(l-1)); }
+  function widthFor(l){ return Math.max(0.07, 0.30-0.022*(l-1)); }
+  function driftEvery(l){ return l>=10 ? Math.max(28, 90-4*(l-10)) : 0; }   // frames between keeper shifts, 0 = keeper stands still
   function layoutZone(){
     zoneX = 0.08 + Math.random()*(0.84-zoneW);
     zone.style.left=(zoneX*100)+'%'; zone.style.width=(zoneW*100)+'%';
   }
-  function dots(){ kicksEl.innerHTML=''; for(var i=0;i<KICKS;i++){ var d=document.createElement('div'); d.className='kick'; d.textContent=i+1; kicksEl.appendChild(d);} }
+  function hud(){ lvlEl.textContent='LEVEL '+level; streakEl.textContent=goals+(goals===1?' goal':' goals'); bestEl.textContent = best ? 'BEST: LEVEL '+best : ''; }
+  function dot(cls, txt){ var d=document.createElement('div'); d.className='kick '+cls; d.textContent=txt; kicksEl.appendChild(d); while(kicksEl.children.length>SHOW) kicksEl.removeChild(kicksEl.firstChild); }
   function step(){
-    var w=goal.clientWidth-5;
-    pos+=dir*speed; if(pos<=0||pos>=w){dir*=-1; pos=Math.max(0,Math.min(w,pos));}
+    var w=goal.clientWidth-5, sp=speedFor(level);
+    pos+=dir*sp; if(pos<=0||pos>=w){dir*=-1; pos=Math.max(0,Math.min(w,pos));}
     marker.style.transform='translateX('+pos+'px)';
+    var de=driftEvery(level); if(de){ driftT++; if(driftT>=de){ driftT=0; layoutZone(); } }
     raf=requestAnimationFrame(step);
   }
-  dots(); layoutZone(); step();
+  function reset(){ level=1; goals=0; total=0; zoneW=widthFor(1); driftT=0; playing=true; shoot.disabled=false; shoot.textContent='SHOOT'; kicksEl.innerHTML=''; pstat.textContent=''; hud(); layoutZone(); cancelAnimationFrame(raf); step(); }
+  hud(); layoutZone(); step();
   shoot.addEventListener('click', function(){
-    if(!playing) return;
+    if(!playing){ reset(); return; }
     var w=goal.clientWidth-5, rel=pos/w;
     var inZone = rel>=zoneX && rel<=zoneX+zoneW;
     var centre = zoneX+zoneW/2, closeness = 1-Math.min(1, Math.abs(rel-centre)/(zoneW/2));
-    var pts = inZone ? (closeness>0.6?3:2) : 0;
-    total+=pts;
-    var d=kicksEl.children[kick]; d.className='kick '+(pts?'hit':'miss'); d.textContent=pts||'✕';
-    kick++;
-    zoneW=Math.max(0.12, zoneW-0.045); speed+=0.55; layoutZone();
-    if(kick>=KICKS){
-      playing=false; cancelAnimationFrame(raf); shoot.disabled=true; shoot.textContent='FULL TIME';
+    if(inZone){
+      var pts = closeness>0.6?3:2; total+=pts; goals++; level++;
+      dot(pts===3?'top':'hit', pts);
+      zoneW=widthFor(level); layoutZone(); hud();
+      if(level%10===0) pstat.textContent='Level '+level+'. The keeper is reading you now.';
+      return;
+    }
+    // saved: full time
+    playing=false; cancelAnimationFrame(raf); dot('miss','✕');
+    goal.classList.remove('saved'); void goal.offsetWidth; goal.classList.add('saved');
+    if(level>best){ best=level; try{ localStorage.setItem(BEST_KEY,String(best)); }catch(e){} }
+    hud(); shoot.textContent='AGAIN';
+    var reached='Saved at level '+level+' · '+goals+(goals===1?' goal':' goals');
+    if(total>0){
       submit('penalty', total, function(d){
-        pstat.innerHTML = d ? 'Scored '+total+' of 15. <b>+'+d.awarded+' points</b>'+(d.awarded<total?' (daily cap)':'')+' · '+d.allTime+' all time' : 'Could not save that one.';
+        pstat.innerHTML = d ? reached+'. <b>+'+d.awarded+' points</b>'+(d.awarded<total?' (capped)':'')+' · '+d.allTime+' all time' : reached+'. Could not bank that one.';
         refreshCap();
       });
-      setTimeout(function(){ kick=0; total=0; zoneW=0.30; speed=2.6; playing=true; shoot.disabled=false; shoot.textContent='SHOOT'; dots(); layoutZone(); step(); }, 2600);
-    }
+    } else { pstat.textContent=reached+'. Unlucky. Go again.'; }
   });`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/score', title: 'SCORE', kicker: 'BEAT THE KEEPER', metaTitle: 'Score — the Clashly Arcade', desc: 'Timing game: beat an improving keeper and keep your score alive. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: '/score', title: 'SCORE', kicker: 'BEAT THE KEEPER', metaTitle: 'Score — the Clashly Arcade', desc: 'Timing game: beat an improving keeper through endless levels, one save and it is full time. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
 }
 
 async function serveKeepy(req, res) {
