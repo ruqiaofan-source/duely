@@ -3537,7 +3537,9 @@ const server = http.createServer(async (req, res) => {
   if (leagueMatch) return serveLeagueHtml(req, res, leagueMatch[1].toUpperCase());
   // SPA client routes — a hard load (reload, direct link) must get the app shell,
   // not a 404. The client router takes over from there.
-  if (/^\/(arena|board|duels|leagues|profile)(\/|$)/.test(url.pathname)) {
+  // challenge/answer/games were added client-side in PR #3 without this line, so
+  // a refresh on any of those tabs 404'd until 19 Sep.
+  if (/^\/(arena|answer|challenge|games|board|duels|leagues|profile)(\/|$)/.test(url.pathname)) {
     req.url = '/index.html';
     return serveStatic(req, res);
   }
