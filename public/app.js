@@ -999,7 +999,7 @@ function renderGames() {
     <div class="card" style="border-color:rgba(255,200,61,.45)">
       <div class="cardhead"><h2>Games 🕹️</h2><span class="tag-rival">BESTS SAVED</span></div>
       <p class="sub" style="margin:2px 0 14px">Four quick tests of nerve. Every run banks points on the public board, up to 30 a day.</p>
-      <a class="game-launch" href="/score"><span>🥅</span><div><b>Score</b><small>Beat the keeper. Each goal makes the next save harder.</small></div><i>›</i></a>
+      <a class="game-launch" href="/score"><span>🥅</span><div><b>Score</b><small>Beat the keeper. Endless levels, one save and it's full time.</small></div><i>›</i></a>
       <a class="game-launch" href="/hilo"><span>📈</span><div><b>Higher / Lower</b><small>Four decks: transfer fees, who is older, who is taller, more caps.</small></div><i>›</i></a>
       <a class="game-launch" href="/connect"><span>🟢</span><div><b>Connect</b><small>Aim, drop, merge. Let a ball out of the basket and you lose.</small></div><i>›</i></a>
       <a class="game-launch" href="/daily"><span>🗓️</span><div><b>The Daily</b><small>One career, six guesses. A new player every day.</small></div><i>›</i></a>
