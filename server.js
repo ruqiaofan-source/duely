@@ -1121,7 +1121,8 @@ ${ARCADE_FONTS}
 <style>${ARCADE_CSS}${extraCss}</style>
 </head><body><div class="wrap wk">
   <div class="ghead">
-    <a class="gback" href="/arcade" aria-label="Back to the Arcade">‹</a>
+    <a class="gback" id="gback" href="/arcade" aria-label="Back to the games">‹</a>
+    <script>try{ if(localStorage.getItem('settle_me')) document.getElementById('gback').href='/games'; }catch(e){}</script>
     <div class="gtitle"><b>${title}</b><span>${kicker}</span></div>
     <div style="width:34px"></div>
   </div>
@@ -1414,8 +1415,63 @@ const HILO_TRANSFERS = [
   ['Eric Cantona', 1992, 'Leeds', 'Man Utd', 1],
 ];
 
-async function serveHilo(req, res) {
+// Player facts for the extra Higher or Lower decks. Birth year and listed height
+// are stable facts. Caps are FINAL tallies and only given for players retired
+// from international football, so the deck never goes stale. null = still active.
+// [name, born, height cm, caps]
+const HILO_PLAYERS = [
+  ['Cristiano Ronaldo',1985,187,null], ['Zlatan Ibrahimović',1981,195,122], ['Luka Modrić',1985,172,null],
+  ['Robert Lewandowski',1988,185,null], ['Kylian Mbappé',1998,178,null], ['Erling Haaland',2000,194,null],
+  ['Jude Bellingham',2003,186,null], ['Neymar',1992,175,null], ['Mohamed Salah',1992,175,null],
+  ['Harry Kane',1993,188,null], ['Kevin De Bruyne',1991,181,null], ['Virgil van Dijk',1991,193,null],
+  ['Sadio Mané',1992,175,null], ['Son Heung-min',1992,183,null], ['Karim Benzema',1987,185,null],
+  ['Thierry Henry',1977,188,123], ['Zinedine Zidane',1972,185,108], ['Ronaldo',1976,183,98],
+  ['Ronaldinho',1980,181,97], ['Kaká',1982,186,92], ['David Beckham',1975,183,115],
+  ['Wayne Rooney',1985,176,120], ['Andrea Pirlo',1979,177,116], ['Gianluigi Buffon',1978,192,176],
+  ['Andriy Shevchenko',1976,183,111], ['Dennis Bergkamp',1969,183,79], ['Eric Cantona',1966,188,45],
+  ['Diego Maradona',1960,165,91], ['Luís Figo',1972,180,127], ['Didier Drogba',1978,189,105],
+  ['Arjen Robben',1984,180,96], ['Robin van Persie',1983,188,102], ['Fernando Torres',1984,186,110],
+  ['Gareth Bale',1989,185,111], ['Eden Hazard',1991,175,126], ['Luis Suárez',1987,182,143],
+  ['Samuel Eto\'o',1981,180,118], ['Rio Ferdinand',1978,189,81], ['Paul Pogba',1993,191,null],
+  ['Antoine Griezmann',1991,176,null], ['Ángel Di María',1988,180,145], ['Gonzalo Higuaín',1987,186,75],
+  ['Carlos Tevez',1984,173,76], ['Radamel Falcao',1986,177,null], ['Hernán Crespo',1975,184,64],
+  ['Juan Sebastián Verón',1975,186,73], ['Dimitar Berbatov',1981,189,78], ['Nicolas Anelka',1979,185,69],
+  ['Alexis Sánchez',1988,169,null], ['Jamie Vardy',1987,179,26], ['Raheem Sterling',1994,170,null],
+  ['Declan Rice',1999,185,null], ['Harry Maguire',1993,194,null], ['Jack Grealish',1995,180,null],
+  ['Vinícius Júnior',2000,176,null], ['Florian Wirtz',2003,177,null], ['Alexander Isak',1999,192,null],
+  ['Darwin Núñez',1999,187,null], ['Victor Osimhen',1998,185,null], ['Enzo Fernández',2001,178,null],
+  ['Moisés Caicedo',2001,178,null], ['Mykhailo Mudryk',2001,175,null], ['Romelu Lukaku',1993,191,null],
+  ['Pierre-Emerick Aubameyang',1989,187,null], ['Riyad Mahrez',1991,179,null], ['Roberto Firmino',1991,181,null],
+  ['Philippe Coutinho',1992,172,null], ['Ousmane Dembélé',1997,178,null], ['João Félix',1999,181,null],
+  ['James Rodríguez',1991,180,null], ['N\'Golo Kanté',1991,168,null], ['Álvaro Morata',1992,189,null],
+  ['Robinho',1984,172,100], ['Andy Carroll',1989,193,9], ['Nicolas Pépé',1995,183,null],
+  ['Tanguy Ndombele',1996,181,null], ['Antony',2000,172,null], ['Lucas Hernández',1996,184,null],
+  ['Kepa Arrizabalaga',1994,186,null], ['Piotr Zieliński',1994,180,null], ['Wojciech Szczęsny',1990,196,null]
+];
+
+// Every Higher or Lower deck, normalised to [name, meta, value] rows so one
+// engine serves them all. `up` is the button that means "value goes UP"; the
+// age deck flips that, since older = a SMALLER birth year.
+const HILO_DECKS = {
+  fees:   { key: 'hilo',        path: '/hilo',        kicker: 'TRANSFER FEES', q: 'Was the fee higher or lower?',
+            up: '\u25B2 HIGHER', down: '\u25BC LOWER', greaterIsUp: true,  kind: 'fee',  close: 5,
+            rows: () => HILO_TRANSFERS.map((r) => [r[0], r[1] + ' \u00b7 ' + r[2] + ' \u2192 ' + r[3], r[4]]) },
+  age:    { key: 'hilo_age',    path: '/hilo/age',    kicker: 'WHO IS OLDER?', q: 'Older or younger than the last one?',
+            up: '\u25B2 OLDER',  down: '\u25BC YOUNGER', greaterIsUp: false, kind: 'born', close: 1,
+            rows: () => HILO_PLAYERS.map((r) => [r[0], '', r[1]]) },
+  height: { key: 'hilo_height', path: '/hilo/height', kicker: 'WHO IS TALLER?', q: 'Taller or shorter?',
+            up: '\u25B2 TALLER', down: '\u25BC SHORTER', greaterIsUp: true,  kind: 'cm',   close: 2,
+            rows: () => HILO_PLAYERS.map((r) => [r[0], '', r[2]]) },
+  caps:   { key: 'hilo_caps',   path: '/hilo/caps',   kicker: 'MORE CAPS?', q: 'More international caps, or fewer?',
+            up: '\u25B2 MORE',   down: '\u25BC FEWER', greaterIsUp: true,  kind: 'caps', close: 5,
+            rows: () => HILO_PLAYERS.filter((r) => r[3] != null).map((r) => [r[0], 'retired', r[3]]) },
+};
+
+async function serveHilo(req, res, deckId) {
+  const D = HILO_DECKS[deckId] || HILO_DECKS.fees;
+  const chips = Object.entries(HILO_DECKS).map(([id, d]) => `<a href="${d.path}" class="dchip${id === (HILO_DECKS[deckId] ? deckId : 'fees') ? ' on' : ''}">${d.kicker.replace(/\?$/, '')}</a>`).join('');
   const body = `
+  <div class="decks">${chips}</div>
   <div class="gcard" id="cardA" style="text-align:center;padding:22px 18px">
     <img class="pimg" id="aImg" alt="" />
     <div class="sil" id="aSil" style="display:none"><div class="sc"></div><div class="ss"></div></div>
@@ -1439,23 +1495,28 @@ async function serveHilo(req, res) {
       <div class="pill-pts" id="banked" style="margin-top:8px;display:none"></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px" id="hlBtns">
-      <button class="gbtn" id="btnH" style="margin-top:0">▲ HIGHER</button>
-      <button class="gbtn vio" id="btnL" style="margin-top:0">▼ LOWER</button>
+      <button class="gbtn" id="btnH" style="margin-top:0">${D.up}</button>
+      <button class="gbtn vio" id="btnL" style="margin-top:0">${D.down}</button>
     </div>
     <button class="gbtn" id="again" style="display:none">GO AGAIN</button>
   </div>
-  <p class="note" style="text-align:center">Was the fee higher or lower? One point a step, banked when the run ends — up to 12 a run, 30 a day.</p>`;
+  <p class="note" style="text-align:center">${D.q} One point a step, banked when the run ends \u2014 up to 12 a run, 30 a day.</p>`;
   const extraCss = `
 .sil{display:flex;flex-direction:column;align-items:center}
 .sc{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.09)}
 .ss{width:84px;height:28px;border-radius:16px 16px 0 0;background:rgba(255,255,255,.09);margin-top:-6px}
-.pimg{width:84px;height:84px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.16);display:block;margin:0 auto;background:rgba(255,255,255,.06)}`;
+.pimg{width:84px;height:84px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.16);display:block;margin:0 auto;background:rgba(255,255,255,.06)}
+.decks{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 10px;-webkit-overflow-scrolling:touch}
+.dchip{flex:0 0 auto;font:800 11px Inter,system-ui,sans-serif;letter-spacing:.06em;padding:7px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.14);color:rgba(233,238,243,.7);text-decoration:none;white-space:nowrap}
+.dchip.on{background:rgba(20,224,200,.14);border-color:rgba(20,224,200,.5);color:#14E0C8}`;
   const script = `
-  var DATA=${JSON.stringify(HILO_TRANSFERS)};
+  var DATA=${JSON.stringify(D.rows())}, KIND=${JSON.stringify(D.kind)}, GUP=${D.greaterIsUp}, CLOSE=${D.close}, GAME=${JSON.stringify(D.key)};
   var deck=[], A=null, B=null, streak=0, over=false;
-  var best=0; try{ best=parseInt(localStorage.getItem('clashly_hilo_best')||'0',10)||0; }catch(e){}
+  var BESTKEY='clashly_'+GAME+'_best';
+  var best=0; try{ best=parseInt(localStorage.getItem(BESTKEY)||'0',10)||0; }catch(e){}
   function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
-  function fee(n){ return '€'+n+'M'; }
+  function fee(n){ if(KIND==='fee') return '\u20AC'+n+'M'; if(KIND==='born') return 'born '+n; if(KIND==='cm') return (n/100).toFixed(2)+'m'; return n+' caps'; }
+  function gap(d){ if(KIND==='fee') return '\u20AC'+d+'M'; if(KIND==='born') return d+(d===1?' year':' years'); if(KIND==='cm') return d+'cm'; return d+(d===1?' cap':' caps'); }
   function pslug(n){ return n.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-\$/g,''); }
   function setImg(id, silId, name){
     var im=document.getElementById(id); if(!im) return;
@@ -1466,15 +1527,15 @@ async function serveHilo(req, res) {
   }
   function draw(){ if(!deck.length) deck=shuffle(DATA.slice());
     var c=deck.pop();
-    if(A && c[4]===A[4]){ deck.unshift(c); c=deck.pop() || c; }
+    if(A && c[2]===A[2]){ deck.unshift(c); c=deck.pop() || c; }
     return c; }
   function paint(){
     setImg('aImg','aSil',A[0]); setImg('bImg',null,B[0]);
     document.getElementById('aName').textContent=A[0].toUpperCase();
-    document.getElementById('aMeta').textContent=A[1]+' · '+A[2]+' → '+A[3];
-    document.getElementById('aFee').textContent=fee(A[4]);
+    document.getElementById('aMeta').textContent=A[1];
+    document.getElementById('aFee').textContent=fee(A[2]);
     document.getElementById('bName').textContent=B[0].toUpperCase();
-    document.getElementById('bMeta').textContent=B[1]+' · '+B[2]+' → '+B[3];
+    document.getElementById('bMeta').textContent=B[1];
     document.getElementById('streakTxt').textContent='STREAK '+streak;
     document.getElementById('bestTxt').textContent='best '+best;
     document.getElementById('bMystery').style.display='';
@@ -1488,14 +1549,15 @@ async function serveHilo(req, res) {
   function start(){ deck=shuffle(DATA.slice()); A=deck.pop(); B=draw(); streak=0; over=false; paint(); }
   function guess(higher){
     if(over) return;
-    var correct = higher ? (B[4]>A[4]) : (B[4]<A[4]);
+    var up = GUP ? (B[2]>A[2]) : (B[2]<A[2]);
+    var correct = higher ? up : !up;
     document.getElementById('bMystery').style.display='none';
     document.getElementById('bReveal').style.display='';
-    document.getElementById('bFee').textContent=fee(B[4]);
+    document.getElementById('bFee').textContent=fee(B[2]);
     document.getElementById('hlBtns').style.display='none';
     if(correct){
       streak++;
-      if(streak>best){ best=streak; try{ localStorage.setItem('clashly_hilo_best',String(best)); }catch(e){} }
+      if(streak>best){ best=streak; try{ localStorage.setItem(BESTKEY,String(best)); }catch(e){} }
       document.getElementById('bFee').style.color='#14E0C8';
       document.getElementById('bFee').style.textShadow='0 0 32px rgba(20,224,200,.3)';
       document.getElementById('verdict').textContent='CALLED IT';
@@ -1505,17 +1567,17 @@ async function serveHilo(req, res) {
       setTimeout(function(){ A=B; B=draw(); paint(); }, 950);
     } else {
       over=true;
-      var d=Math.abs(B[4]-A[4]);
+      var d=Math.abs(B[2]-A[2]);
       document.getElementById('bFee').style.color='#FFC83D';
       document.getElementById('bFee').style.textShadow='0 0 32px rgba(255,200,61,.35)';
       document.getElementById('cardB').style.borderColor='rgba(255,200,61,.4)';
-      document.getElementById('verdict').textContent=(d<=5?'SO CLOSE — ':'')+'it was €'+d+'M '+(B[4]>A[4]?'more':'less');
+      document.getElementById('verdict').textContent=(d<=CLOSE?'SO CLOSE \u2014 ':'')+'it was '+gap(d)+' '+(up?(KIND==='born'?'older':'more'):(KIND==='born'?'younger':'less'));
       document.getElementById('verdict').style.color='#FFC83D';
       document.getElementById('fire').style.filter='grayscale(1)'; document.getElementById('fire').style.opacity='.6';
       document.getElementById('streakTxt').textContent='STREAK ENDS AT '+streak;
       document.getElementById('streakTxt').style.color='rgba(233,238,243,.6)';
       document.getElementById('again').style.display='';
-      if(streak>0) submit('hilo', Math.min(12,streak), function(r){
+      if(streak>0) submit(GAME, Math.min(12,streak), function(r){
         if(r && r.awarded){ var b=document.getElementById('banked'); b.textContent='+'+r.awarded+' PTS BANKED'; b.style.display='inline-block'; }
       });
     }
@@ -1525,7 +1587,7 @@ async function serveHilo(req, res) {
   document.getElementById('again').addEventListener('click', start);
   start();`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/hilo', title: 'HIGHER OR LOWER', kicker: 'TRANSFER FEES', metaTitle: 'Higher or Lower: transfer fees — the Clashly Arcade', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
+  res.end(arcadePage({ path: D.path, title: 'HIGHER OR LOWER', kicker: D.kicker, metaTitle: 'Higher or Lower: ' + D.kicker.toLowerCase().replace(/\?$/, '') + ' \u2014 the Clashly Arcade', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
 }
 
 // Connect — a small, dependency-free physics toy. Balls have velocity, collision
@@ -1537,7 +1599,7 @@ async function serveConnect(req, res) {
   // this project refused in v20. Skill in, points out, capped like every game.
   const body = `<div class="gcard">
     <h2 class="gname">Connect \u{1F7E2}</h2>
-    <p class="gsub">Drag to aim, let go to drop. Two of the same ball merge into the next one up. Keep the stack below the dotted line.</p>
+    <p class="gsub">Drag to aim, let go to drop. Two of the same ball merge into the next one up. If a ball leaves the basket, you lose.</p>
     <div class="crow">
       <div class="cstat"><small>SCORE</small><b id="cScore">0</b></div>
       <div class="cstat"><small>BEST</small><b id="cBest">0</b></div>
@@ -1579,11 +1641,24 @@ var TIERS=[
 ];
 
 var W=268, H=330, LINE=54;
+// The basket. Wider at the rim than the floor, like a real one. Walls are line
+// segments from rim to floor; above the rim there is nothing, so a ball CAN
+// leave -- and leaving is how you lose.
+var RIM=LINE, FLOOR=H-10, TL=10, TR=W-10, BL=44, BR=W-44;
+var WALL_L={x1:TL,y1:RIM,x2:BL,y2:FLOOR}, WALL_R={x1:TR,y1:RIM,x2:BR,y2:FLOOR};
+function wallNormal(w, sign){ var dx=w.x2-w.x1, dy=w.y2-w.y1, L=Math.sqrt(dx*dx+dy*dy); return {x:sign*(-dy/L), y:sign*(dx/L)}; }
+var NL=wallNormal(WALL_L, -1), NR=wallNormal(WALL_R, 1);   // both point into the basket
+function wallHit(b, w, n){
+  if(b.y+b.r < w.y1) return;                       // above the rim: no wall
+  var d=(b.x-w.x1)*n.x+(b.y-w.y1)*n.y;            // signed distance to the wall line
+  if(d < b.r){ var push=b.r-d; b.x+=n.x*push; b.y+=n.y*push;
+    var vn=b.vx*n.x+b.vy*n.y; if(vn<0){ b.vx-=(1+WALLREST)*vn*n.x; b.vy-=(1+WALLREST)*vn*n.y; b.vx*=0.96; } }
+}
 var GRAV=0.46, REST=0.18, WALLREST=0.28, AIRDRAG=0.999, SPINDRAG=0.94;
 var balls=[], parts=[], floats=[];
 var score=0, shown=0, dead=false, aimX=W/2, nextT=0, holdOver=0, dropLock=0, raf=null, last=0;
 var best=+(localStorage.getItem('clashly_connect_best')||0);
-var merged=0, combo=0, lastMerge=-9999, shake=0, topTier=0, t0=0, idle=0;
+var merged=0, combo=0, lastMerge=-9999, shake=0, topTier=0, t0=0, idle=0, escaped=null;
 
 // ---------- sound: tiny synth, no files ----------
 var AC=null;
@@ -1621,7 +1696,7 @@ function add(t,x,y,vx){ balls.push({t:t, r:TIERS[t].r, x:x, y:y, vx:vx||0, vy:0,
 function drop(){
   if(dead||dropLock>0) return;
   var t=nextT, r=TIERS[t].r;
-  add(t, Math.max(r+2, Math.min(W-r-2, aimX)), LINE-16, 0);
+  add(t, Math.max(TL+r+2, Math.min(TR-r-2, aimX)), LINE-16, 0);
   nextT=pickNext(); paintNext(); dropLock=13; sDrop(); buzz(6);
 }
 
@@ -1665,9 +1740,10 @@ function physics(dt){
     a=balls[i];
     var pvy=a.vy;
     a.vy+=GRAV*dt; a.vx*=AIRDRAG; a.x+=a.vx*dt; a.y+=a.vy*dt;
-    if(a.x-a.r<0){ a.x=a.r; a.vx=-a.vx*WALLREST; }
+    wallHit(a, WALL_L, NL); wallHit(a, WALL_R, NR);
+    if(a.x-a.r<0){ a.x=a.r; a.vx=-a.vx*WALLREST; }          // canvas edge, only reachable above the rim
     if(a.x+a.r>W){ a.x=W-a.r; a.vx=-a.vx*WALLREST; }
-    if(a.y+a.r>H){ a.y=H-a.r; if(a.vy>2.2){ a.sq=Math.min(1,a.vy/9); sPop(a.t); } a.vy=-a.vy*REST; a.vx*=SPINDRAG; }
+    if(a.y+a.r>FLOOR){ a.y=FLOOR-a.r; if(a.vy>2.2){ a.sq=Math.min(1,a.vy/9); sPop(a.t); } a.vy=-a.vy*REST; a.vx*=SPINDRAG; }
     if(a.pop>0) a.pop=Math.max(0,a.pop-0.07*dt);
     if(a.sq>0) a.sq=Math.max(0,a.sq-0.12*dt);
   }
@@ -1701,10 +1777,14 @@ function physics(dt){
 }
 
 function overCheck(dt){
-  var high=false;
-  for(var i=0;i<balls.length;i++){ var b=balls[i]; if(b.y-b.r<LINE && Math.abs(b.vy)<1.1){ high=true; break; } }
-  holdOver = high ? holdOver+dt : 0;
-  if(holdOver>75) end();
+  var now=performance.now(), warn=false;
+  for(var i=0;i<balls.length;i++){ var b=balls[i];
+    if(now-b.born<700) continue;                        // the one you just dropped is still on its way in
+    if(b.y+b.r<RIM){ escaped=b; end(); return; }        // clear of the rim: it is out of the basket
+    if(b.y<RIM && Math.abs(b.vy)<0.9 && Math.abs(b.vx)<0.9){ escaped=null; end(); return; }   // resting with its centre above the rim: overflow
+    if(b.y-b.r<RIM+6) warn=true;                        // poking above the rim: warn
+  }
+  holdOver = warn ? Math.min(75,holdOver+dt) : Math.max(0,holdOver-dt*2);
 }
 
 function ring(b, c){
@@ -1753,20 +1833,29 @@ function render(ts){
   ctx.save();
   if(shake>0){ ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake); }
   ctx.clearRect(-20,-20,W+40,H+40);
-  // pitch-ish ground with a vignette so the basket reads as a space
   var bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#0F1722'); bg.addColorStop(1,'#0A1018');
   ctx.fillStyle=bg; ctx.fillRect(-20,-20,W+40,H+40);
-  ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
-  for(var gy=H-40; gy>LINE; gy-=40){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke(); }
-  // danger line pulses as you get close
-  var danger=Math.min(1, holdOver/75);
-  ctx.setLineDash([6,6]); ctx.lineWidth=1.5+danger*1.5;
-  var pulse=0.5+0.5*Math.sin(ts/140);
-  ctx.strokeStyle = danger>0 ? 'rgba(255,94,94,'+(0.55+0.45*pulse)+')' : 'rgba(255,255,255,.18)';
-  ctx.beginPath(); ctx.moveTo(0,LINE); ctx.lineTo(W,LINE); ctx.stroke(); ctx.setLineDash([]);
-  if(danger>0){ ctx.fillStyle='rgba(255,94,94,'+(0.06*danger)+')'; ctx.fillRect(0,0,W,LINE); }
+  // basket interior
+  ctx.beginPath(); ctx.moveTo(TL,RIM); ctx.lineTo(BL,FLOOR); ctx.lineTo(BR,FLOOR); ctx.lineTo(TR,RIM); ctx.closePath();
+  var ig=ctx.createLinearGradient(0,RIM,0,FLOOR); ig.addColorStop(0,'rgba(255,255,255,.035)'); ig.addColorStop(1,'rgba(0,0,0,.25)');
+  ctx.fillStyle=ig; ctx.fill();
+  // hatched walls, like the reference
+  ctx.save(); ctx.strokeStyle='rgba(233,238,243,.55)'; ctx.lineWidth=1.2;
+  function hatch(w, dir){ var dx=w.x2-w.x1, dy=w.y2-w.y1, L=Math.sqrt(dx*dx+dy*dy), ux=dx/L, uy=dy/L, nx=-uy*dir, ny=ux*dir;
+    for(var t=6; t<L-4; t+=9){ var px=w.x1+ux*t, py=w.y1+uy*t; ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+nx*9+ux*4, py+ny*9+uy*4); ctx.stroke(); } }
+  hatch(WALL_L, 1); hatch(WALL_R, -1);
+  ctx.restore();
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  var danger=Math.min(1, holdOver/75), pulse=0.5+0.5*Math.sin(ts/140);
+  ctx.strokeStyle='#E9EEF3'; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(TL,RIM); ctx.lineTo(BL,FLOOR); ctx.lineTo(BR,FLOOR); ctx.lineTo(TR,RIM); ctx.stroke();
+  // rim lips, red when something is poking out
+  ctx.strokeStyle= danger>0 ? 'rgba(255,94,94,'+(0.6+0.4*pulse)+')' : '#E9EEF3'; ctx.lineWidth=6;
+  ctx.beginPath(); ctx.moveTo(TL-6,RIM); ctx.lineTo(TL+10,RIM); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(TR-10,RIM); ctx.lineTo(TR+6,RIM); ctx.stroke();
+  if(danger>0){ ctx.fillStyle='rgba(255,94,94,'+(0.07*danger)+')'; ctx.fillRect(0,0,W,RIM); }
   if(!dead){
-    var r=TIERS[nextT].r, ax=Math.max(r+2, Math.min(W-r-2, aimX));
+    var r=TIERS[nextT].r, ax=Math.max(TL+r+2, Math.min(TR-r-2, aimX));
     var bob=Math.sin(ts/260)*2.2;
     ctx.strokeStyle='rgba(255,200,61,.28)'; ctx.lineWidth=2; ctx.setLineDash([4,7]);
     ctx.beginPath(); ctx.moveTo(ax,LINE); ctx.lineTo(ax,H); ctx.stroke(); ctx.setLineDash([]);
@@ -1794,7 +1883,7 @@ function end(){
   dead=true; sOver(); buzz([30,60,30]); shake=8;
   if(score>best){ best=score; try{localStorage.setItem('clashly_connect_best',best);}catch(e){} }
   bestEl.textContent=best; scoreEl.textContent=score;
-  overTitle.textContent = topTier>=7 ? 'Matchball run' : topTier>=5 ? 'Stack topped out' : 'Buried early';
+  overTitle.textContent = escaped ? TIERS[escaped.t].n+' left the basket' : 'Basket overflowed';
   overEl.style.display='block';
   var sc=Math.min(15, Math.floor(score/30));
   var secs=Math.round((performance.now()-t0)/1000);
@@ -1806,7 +1895,7 @@ function end(){
 }
 
 function start(){
-  balls=[]; parts=[]; floats=[]; score=0; shown=0; merged=0; combo=0; topTier=0; dead=false; holdOver=0; dropLock=0; shake=0;
+  balls=[]; parts=[]; floats=[]; escaped=null; score=0; shown=0; merged=0; combo=0; topTier=0; dead=false; holdOver=0; dropLock=0; shake=0;
   nextT=rnd(2); paintNext(); t0=performance.now();
   scoreEl.textContent='0'; bestEl.textContent=best;
   overEl.style.display='none'; statEl.textContent='';
@@ -2305,6 +2394,9 @@ async function serveSitemap(req, res) {
     ['https://clashly.live/arcade', 'weekly', '0.6'],
     ['https://clashly.live/daily', 'daily', '0.8'],
     ['https://clashly.live/hilo', 'weekly', '0.6'],
+    ['https://clashly.live/hilo/age', 'weekly', '0.5'],
+    ['https://clashly.live/hilo/height', 'weekly', '0.5'],
+    ['https://clashly.live/hilo/caps', 'weekly', '0.5'],
     ['https://clashly.live/penalty', 'weekly', '0.5'],
     ['https://clashly.live/score', 'weekly', '0.5'],
     ['https://clashly.live/connect', 'weekly', '0.5'],
@@ -2350,6 +2442,9 @@ Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, 
 - https://clashly.live/arcade (football skill games; points join the public board; no money, no prizes)
 - https://clashly.live/daily (The Daily: guess the footballer from their career, one a day, six guesses)
 - https://clashly.live/hilo (Higher or Lower: streak the famous transfer fees)
+- https://clashly.live/hilo/age (Higher or Lower: who is older?)
+- https://clashly.live/hilo/height (Higher or Lower: who is taller?)
+- https://clashly.live/hilo/caps (Higher or Lower: who has more international caps?)
 ${Object.entries(GUIDES).map(([p, g]) => `- https://clashly.live${p} (${g.h1})`).join('\n')}
 ${matches.slice(0, 20).map((m) => `- https://clashly.live/call/${fixtureSlug(m)} (${m.home} v ${m.away})`).join('\n')}
 `;
@@ -3422,7 +3517,10 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/connect') return serveConnect(req, res);
   // Keepy-Uppy retired 19 Sep (Qiao's call). Old links redirect rather than 404.
   if (url.pathname === '/keepy') { res.writeHead(301, { Location: '/arcade' }); return res.end(); }
-  if (url.pathname === '/hilo') return serveHilo(req, res);
+  if (url.pathname === '/hilo') return serveHilo(req, res, 'fees');
+  if (url.pathname === '/hilo/age') return serveHilo(req, res, 'age');
+  if (url.pathname === '/hilo/height') return serveHilo(req, res, 'height');
+  if (url.pathname === '/hilo/caps') return serveHilo(req, res, 'caps');
   if (url.pathname === '/daily') return serveDaily(req, res);
   if (url.pathname === '/weekcard.png' || url.pathname === '/weekcard.svg') return serveWeekCard(req, res);
   if (url.pathname.startsWith('/ltable/')) return serveLeagueTable(req, res, url);
@@ -3802,7 +3900,7 @@ async function slateSweep() {
 // hilo — streak game, one point a step, capped so a god-run can't drown the
 // board. daily — Wordle-shaped, once:true means the server refuses a second
 // award the same day however many times the client asks.
-const ARCADE_GAMES = { penalty: { max: 15 }, score: { max: 15 }, connect: { max: 15 }, hilo: { max: 12 }, daily: { max: 8, once: true } };
+const ARCADE_GAMES = { penalty: { max: 15 }, score: { max: 15 }, connect: { max: 15 }, hilo: { max: 12 }, hilo_age: { max: 12 }, hilo_height: { max: 12 }, hilo_caps: { max: 12 }, daily: { max: 8, once: true } };
 const ARCADE_DAILY_CAP = 30;
 const dayKey = () => new Date().toISOString().slice(0, 10);
 
