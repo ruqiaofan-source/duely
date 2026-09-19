@@ -998,10 +998,11 @@ function renderGames() {
   app.innerHTML = `
     <div class="card" style="border-color:rgba(255,200,61,.45)">
       <div class="cardhead"><h2>Games 🕹️</h2><span class="tag-rival">BESTS SAVED</span></div>
-      <p class="sub" style="margin:2px 0 14px">Three quick tests of nerve. No ceiling — only your best run.</p>
-      <a class="game-launch" href="/score"><span>🥅</span><div><b>Score</b><small>Beat the keeper. Each save makes them sharper.</small></div><i>›</i></a>
-      <a class="game-launch" href="/hilo"><span>📈</span><div><b>Higher / Lower</b><small>Put famous football transfer fees in order.</small></div><i>›</i></a>
-      <a class="game-launch" href="/connect"><span>🟢</span><div><b>Connect</b><small>Drop, nudge and merge balls before the basket overflows.</small></div><i>›</i></a>
+      <p class="sub" style="margin:2px 0 14px">Four quick tests of nerve. Every run banks points on the public board, up to 30 a day.</p>
+      <a class="game-launch" href="/score"><span>🥅</span><div><b>Score</b><small>Beat the keeper. Each goal makes the next save harder.</small></div><i>›</i></a>
+      <a class="game-launch" href="/hilo"><span>📈</span><div><b>Higher / Lower</b><small>Put famous transfer fees in order. Streak banks.</small></div><i>›</i></a>
+      <a class="game-launch" href="/connect"><span>🟢</span><div><b>Connect</b><small>Aim, drop and merge footballs before the stack tops out.</small></div><i>›</i></a>
+      <a class="game-launch" href="/daily"><span>🗓️</span><div><b>The Daily</b><small>One career, six guesses. A new player every day.</small></div><i>›</i></a>
     </div>`;
 }
 
@@ -1458,7 +1459,12 @@ async function renderCreate() {
       history.pushState({}, '', '/b/' + bet.id); renderBet(bet.id);
     } catch (e) { toast(e.message); btn.disabled = false; syncArenaUi(); if (!$('#arenaChk')?.checked) btn.textContent = 'Lock it in & get link →'; }
   };
-  armHold($('#createBtn'), doCreate);
+  // Tap to commit. This used to be a 650ms press-and-hold, which nobody discovered:
+  // Filip, a co-owner, could not create a challenge at all because a tap did nothing.
+  // It sits on the single most important action in the product, so it is now a
+  // normal button. The form already needs a match, an outcome and a forfeit before
+  // it enables, so an accidental tap cannot create anything.
+  $('#createBtn').addEventListener('click', doCreate);
 }
 
 // brief "locked in" seal animation between commit and next screen
