@@ -1672,19 +1672,34 @@ var RIM=LINE, FLOOR=H-10, TL=48, TR=W-48, BL=68, BR=W-68;   // 172 wide at the r
 var WALL_L={x1:TL,y1:RIM,x2:BL,y2:FLOOR}, WALL_R={x1:TR,y1:RIM,x2:BR,y2:FLOOR};
 function wallNormal(w, sign){ var dx=w.x2-w.x1, dy=w.y2-w.y1, L=Math.sqrt(dx*dx+dy*dy); return {x:sign*(-dy/L), y:sign*(dx/L)}; }
 var NL=wallNormal(WALL_L, -1), NR=wallNormal(WALL_R, 1);   // both point into the basket
-function wallHit(b, w, n){
-  if(b.y+b.r < w.y1) return;                       // above the rim: no wall
-  var d=(b.x-w.x1)*n.x+(b.y-w.y1)*n.y;            // signed distance to the wall line
-  if(d < b.r){ var push=b.r-d; b.x+=n.x*push; b.y+=n.y*push;
-    var vn=b.vx*n.x+b.vy*n.y; if(vn<0){ b.vx-=(1+WALLREST)*vn*n.x; b.vy-=(1+WALLREST)*vn*n.y; b.vx*=0.96; } b.cx-=n.x*b.r*0.14; b.cy-=n.y*b.r*0.14; }
+// Physics: position-based dynamics with Coulomb friction, the way a proper 2D engine keeps a heap of circles
+// stable (Ball Guys, Suika). Nothing is ever frozen: balls hold their shape through friction, roll off shoulders,
+// nestle into crevices and bounce a little. Jelly is restitution plus the drawn squash, not glue. (20 Sep)
+var GRAV=0.46, REST=0.30, AIRDRAG=0.995, SUB=4, ITER=3, VMAX=14;
+var MU_BALL=0.55, MU_WALL=0.55, MU_FLOOR=0.75;               // friction: floor grips hardest so the bottom row never skates
+var WOBBLE_K=0.32, WOBBLE_D=0.84, SQUASH_K=0.9, SQUASH_MAX=0.30;
+var contacts=[];
+function invm(b){ return 1/(b.r*b.r); }                        // mass = area, big balls shove small ones (that is correct)
+// positional friction (Macklin et al. 2014): undo the tangential slide of this substep, fully when it is within the
+// friction cone (static), otherwise by the cone's width (dynamic)
+function friction(a, b, nx, ny, corr, mu, wa, wb){
+  var tx=-ny, ty=nx;
+  var sx=(a.x-a.px), sy=(a.y-a.py), ux=b?(b.x-b.px):0, uy=b?(b.y-b.py):0;
+  var slide=(sx-ux)*tx+(sy-uy)*ty;
+  if(slide===0) return;
+  var mag=Math.abs(slide), lim=mu*corr, f=mag<lim?mag:lim, w=wa+wb; if(w<=0) return;
+  var sgn=slide>0?-1:1;
+  a.x+=tx*f*sgn*(wa/w); a.y+=ty*f*sgn*(wa/w);
+  if(b){ b.x-=tx*f*sgn*(wb/w); b.y-=ty*f*sgn*(wb/w); }
 }
-var GRAV=0.46, REST=0.42, WALLREST=0.40, AIRDRAG=0.999, SPINDRAG=0.94;
-// jelly: wobble is a damped spring (sq, sqv); stick is a small pull between touching balls
-var WOBBLE_K=0.32, WOBBLE_D=0.84, STICK_RANGE=8, STICK_PULL=0.14;
-// jelly heap: settled balls act heavy, balls on the floor grip it, contacts have friction, the ball on top takes the shove.
-// Result: a ball dropped between two touching balls lands ON them instead of wedging them apart (Filip, 19 Sep).
-var FLOORGRIP=0.72, PAIRGRIP=0.85, SETTLE_MASS=12, UPBIAS=2.5, SOFT=0.10, SQUASH_K=0.9, SQUASH_MAX=0.30, SLEEP_V=0.32;
-function mass(b){ var sp=Math.sqrt(b.vx*b.vx+b.vy*b.vy); return b.r*b.r*(1+SETTLE_MASS*Math.max(0,1-sp/1.6)); }
+function wallProj(a, w, n, mu, first){
+  if(a.y+a.r < w.y1) return;                                  // above the rim there is no wall
+  var d=(a.x-w.x1)*n.x+(a.y-w.y1)*n.y;
+  if(d>=a.r) return;
+  var corr=a.r-d; a.x+=n.x*corr; a.y+=n.y*corr;
+  friction(a, null, n.x, n.y, corr, mu, 1, 0);
+  if(first){ var vn=a.vx0*n.x+a.vy0*n.y; contacts.push({a:a,b:null,nx:n.x,ny:n.y,vn0:vn}); a.cx-=n.x*a.r*0.06; a.cy-=n.y*a.r*0.06; }
+}
 var balls=[], parts=[], floats=[];
 var score=0, shown=0, dead=false, aimX=W/2, nextT=0, holdOver=0, dropLock=0, raf=null, last=0;
 var best=+(localStorage.getItem('clashly_connect_best')||0);
@@ -1721,7 +1736,7 @@ function fit(){
   nextCv.width=38*nd; nextCv.height=38*nd; nctx.setTransform(nd,0,0,nd,0,0);
 }
 
-function add(t,x,y,vx){ balls.push({t:t, r:TIERS[t].r, x:x, y:y, vx:vx||0, vy:0, pop:0, sq:0, sqv:0, dfx:0, dfy:0, cx:0, cy:0, onF:false, sup:false, born:performance.now()}); }
+function add(t,x,y,vx){ balls.push({t:t, r:TIERS[t].r, x:x, y:y, px:x, py:y, vx:vx||0, vy:0, vx0:0, vy0:0, pop:0, sq:0, sqv:0, dfx:0, dfy:0, cx:0, cy:0, born:performance.now()}); }
 
 function drop(){
   if(dead||dropLock>0) return;
@@ -1752,7 +1767,7 @@ function merge(i,j){
   score+=gained;
   burst(nx,ny,TIERS[a.t].p, 10+t*3, 2.2+t*0.35);
   if(t<TIERS.length){
-    add(t,nx,ny,0); var nb=balls[balls.length-1]; nb.vy=-2.4; nb.pop=1; nb.sq=0;
+    add(t,nx,ny,0); var nb=balls[balls.length-1]; nb.vy=-1.6; nb.pop=1; nb.sq=0; nb.r=a.r; nb.r0=a.r; nb.rT=TIERS[t].r;   // grows into its new size over a few frames so it nudges the heap instead of detonating it
     if(t>topTier) topTier=t;
     floatText(nx, ny-TIERS[t].r-6, '+'+gained, combo>1?'#FFC83D':'#EAF0F7', t>=5);
     if(combo>1) floatText(nx, ny-TIERS[t].r-26, 'x'+combo+' combo', '#FFC83D', true);
@@ -1765,59 +1780,50 @@ function merge(i,j){
 }
 
 function physics(dt){
-  var i,j,a,b;
-  for(i=0;i<balls.length;i++){
-    a=balls[i];
-    var pvy=a.vy;
-    a.cx=0; a.cy=0; a.onF=false;
-    // a slow ball with something under it sleeps: no gravity creep, so it stays put on the heap (sticky jelly)
-    if(a.sup && a.y>RIM && a.vx*a.vx+a.vy*a.vy<SLEEP_V*SLEEP_V){ a.vx=0; a.vy=0; } else { a.vy+=GRAV*dt; }
-    a.sup=false;
-    a.vx*=AIRDRAG; a.x+=a.vx*dt; a.y+=a.vy*dt;
-    wallHit(a, WALL_L, NL); wallHit(a, WALL_R, NR);
-    if(a.x-a.r<0){ a.x=a.r; a.vx=-a.vx*WALLREST; }          // canvas edge, only reachable above the rim
-    if(a.x+a.r>W){ a.x=W-a.r; a.vx=-a.vx*WALLREST; }
-    if(a.y+a.r>FLOOR){ a.y=FLOOR-a.r; if(a.vy>2.2){ a.sqv+=Math.min(0.9,a.vy/11); sPop(a.t); } a.vy=-a.vy*REST; a.vx*=SPINDRAG; }
-    if(a.y+a.r>=FLOOR-0.6){ a.onF=true; a.sup=true; a.vx*=Math.pow(FLOORGRIP,dt); if(Math.abs(a.vx)<0.12) a.vx=0; a.cy+=a.r*0.16; }
-    if(a.pop>0) a.pop=Math.max(0,a.pop-0.07*dt);
-    a.sqv+=-a.sq*WOBBLE_K*dt; a.sqv*=Math.pow(WOBBLE_D,dt); a.sq+=a.sqv*dt;   // jelly wobble
-  }
-  for(var pass=0; pass<4; pass++){
-    for(i=0;i<balls.length;i++){
-      for(j=i+1;j<balls.length;j++){
-        a=balls[i]; b=balls[j];
-        var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), min=a.r+b.r;
-        if(pass===0 && d>=min && d<min+STICK_RANGE && a.y>RIM && b.y>RIM){
-          // sticky: nearly-touching balls creep together (positional, so sleeping balls feel it too; same tier then merges)
-          var pull=STICK_PULL*(1-(d-min)/STICK_RANGE)*dt, ux=dx/d, uy=dy/d;
-          var ma0=mass(a), mb0=mass(b), t0=ma0+mb0;
-          a.x+=ux*pull*(mb0/t0); a.y+=uy*pull*(mb0/t0); b.x-=ux*pull*(ma0/t0); b.y-=uy*pull*(ma0/t0);
-          d=Math.sqrt((b.x-a.x)*(b.x-a.x)+(b.y-a.y)*(b.y-a.y)); dx=b.x-a.x; dy=b.y-a.y;
-        }
-        if(d>0 && d<min){
-          if(a.t===b.t && pass===0){ merge(i,j); i=Math.max(0,i-1); j=i; continue; }
-          var nxn=dx/d, nyn=dy/d, overlap=(min-d);
-          var soft=SOFT*Math.min(a.r,b.r);                       // jelly: they may sink into each other this much
-          if(pass===0){ a.cx+=nxn*overlap; a.cy+=nyn*overlap; b.cx-=nxn*overlap; b.cy-=nyn*overlap;
-            if(nyn>0.55) a.sup=true; else if(nyn<-0.55) b.sup=true; }      // support only when fairly underneath: a ball on a steep shoulder rolls off
-          var ma=mass(a), mb=mass(b);
-          var wa=mb*(a.y<b.y?1+UPBIAS:1), wb=ma*(b.y<a.y?1+UPBIAS:1), tot=wa+wb;   // the upper ball takes the shove
-          var fix=Math.max(0, overlap-soft)+overlap*0.25;
-          a.x-=nxn*fix*(wa/tot); a.y-=nyn*fix*(wa/tot);
-          b.x+=nxn*fix*(wb/tot); b.y+=nyn*fix*(wb/tot);
-          if(pass===0){
-            var rvx=b.vx-a.vx, rvy=b.vy-a.vy, sep=rvx*nxn+rvy*nyn;
-            if(sep<0){
-              var imp=-(1+REST)*sep/(1/ma+1/mb);
-              a.vx-=imp*nxn/ma; a.vy-=imp*nyn/ma; b.vx+=imp*nxn/mb; b.vy+=imp*nyn/mb;
-              if(-sep>2.0){ var s=Math.min(0.8,-sep/9); a.sqv+=s*(mb/(ma+mb)); b.sqv+=s*(ma/(ma+mb)); }
-            }
-            var txx=-nyn, tyy=nxn, st=(b.vx-a.vx)*txx+(b.vy-a.vy)*tyy;          // contact friction: no sliding off
-            var jt=-st*PAIRGRIP/(1/ma+1/mb);
-            a.vx-=jt*txx/ma; a.vy-=jt*tyy/ma; b.vx+=jt*txx/mb; b.vy+=jt*tyy/mb;
+  var i,j,k,a,b,h=dt/SUB;
+  for(i=0;i<balls.length;i++){ a=balls[i]; a.cx=0; a.cy=0; if(a.pop>0) a.pop=Math.max(0,a.pop-0.07*dt);
+    if(a.rT){ a.r=Math.min(a.rT, a.r+(a.rT-a.r0)*0.1*dt); if(a.r>=a.rT){ a.r=a.rT; a.rT=0; } } a.sqv+=-a.sq*WOBBLE_K*dt; a.sqv*=Math.pow(WOBBLE_D,dt); a.sq+=a.sqv*dt; }
+  for(var sub=0; sub<SUB; sub++){
+    contacts.length=0;
+    for(i=0;i<balls.length;i++){ a=balls[i]; a.vy+=GRAV*h; a.vx0=a.vx; a.vy0=a.vy; a.px=a.x; a.py=a.y; a.x+=a.vx*h; a.y+=a.vy*h; }
+    for(var it=0; it<ITER; it++){
+      var first=(it===0);
+      for(i=0;i<balls.length;i++){
+        for(j=i+1;j<balls.length;j++){
+          a=balls[i]; b=balls[j];
+          var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), min=a.r+b.r;
+          if(d<=0 || d>=min+3.5) continue;
+          if(a.t===b.t && first && sub===0){ merge(i,j); i=Math.max(0,i-1); j=i; continue; }   // twins merge on touch (3.5px tolerance so a near miss still counts)
+          if(d>=min) continue;
+          var nx=dx/d, ny=dy/d, corr=min-d, wa=invm(a), wb=invm(b), w=wa+wb;
+          a.x-=nx*corr*(wa/w); a.y-=ny*corr*(wa/w); b.x+=nx*corr*(wb/w); b.y+=ny*corr*(wb/w);
+          friction(a, b, nx, ny, corr, MU_BALL, wa, wb);
+          if(first){
+            var vn=(b.vx0-a.vx0)*nx+(b.vy0-a.vy0)*ny;
+            contacts.push({a:a,b:b,nx:nx,ny:ny,vn0:vn});
+            if(sub===0){ var press=Math.min(a.r,b.r)*0.05+Math.min(4,Math.max(0,-vn))*0.5; a.cx+=nx*press; a.cy+=ny*press; b.cx-=nx*press; b.cy-=ny*press; }
           }
         }
       }
+      for(i=0;i<balls.length;i++){
+        a=balls[i];
+        wallProj(a, WALL_L, NL, MU_WALL, first); wallProj(a, WALL_R, NR, MU_WALL, first);
+        if(a.x-a.r<0){ a.x=a.r; } if(a.x+a.r>W){ a.x=W-a.r; }                       // canvas edge, only reachable above the rim
+        if(a.y+a.r>FLOOR){ var c=a.y+a.r-FLOOR; a.y=FLOOR-a.r; friction(a, null, 0, -1, c, MU_FLOOR, 1, 0);
+          if(first){ contacts.push({a:a,b:null,nx:0,ny:-1,vn0:-a.vy0}); a.cy+=a.r*0.07; } }
+      }
+    }
+    // velocities from positions, then restitution on the contacts that were actually closing
+    for(i=0;i<balls.length;i++){ a=balls[i]; a.vx=(a.x-a.px)/h; a.vy=(a.y-a.py)/h; a.vx*=AIRDRAG; a.vy*=AIRDRAG;
+      var sp=Math.sqrt(a.vx*a.vx+a.vy*a.vy); if(sp>VMAX){ a.vx*=VMAX/sp; a.vy*=VMAX/sp; } }
+    for(k=0;k<contacts.length;k++){
+      var c2=contacts[k]; a=c2.a; b=c2.b;
+      if(c2.vn0>=-0.35) continue;                                                     // resting or separating: no bounce, no jitter
+      var vn=b?((b.vx-a.vx)*c2.nx+(b.vy-a.vy)*c2.ny):(a.vx*c2.nx+a.vy*c2.ny);
+      var want=-REST*c2.vn0, dv=want-vn;
+      if(b){ var wa2=invm(a), wb2=invm(b), w2=wa2+wb2; a.vx-=c2.nx*dv*(wa2/w2); a.vy-=c2.ny*dv*(wa2/w2); b.vx+=c2.nx*dv*(wb2/w2); b.vy+=c2.ny*dv*(wb2/w2); }
+      else { a.vx+=c2.nx*dv; a.vy+=c2.ny*dv; }
+      if(-c2.vn0>2.0){ var sq=Math.min(0.9,-c2.vn0/10); if(b){ var ma=a.r*a.r, mb=b.r*b.r; a.sqv+=sq*(mb/(ma+mb)); b.sqv+=sq*(ma/(ma+mb)); } else { a.sqv+=sq; if(c2.ny===-1) sPop(a.t); } }
     }
   }
   for(i=0;i<balls.length;i++){ a=balls[i]; a.dfx+=(a.cx-a.dfx)*0.35*dt; a.dfy+=(a.cy-a.dfy)*0.35*dt; }   // ease the squash in and out
