@@ -1623,7 +1623,7 @@ async function serveConnect(req, res) {
   // this project refused in v20. Skill in, points out, capped like every game.
   const body = `<div class="gcard">
     <h2 class="gname">Connect \u{1F7E2}</h2>
-    <p class="gsub">Drag to aim, let go to drop. Two of the same ball merge into the next one up. If a ball leaves the basket, you lose.</p>
+    <p class="gsub">Drag to aim, let go to drop. Two of the same ball merge into the next one up. Pile as high as you like: you only lose when a ball falls out of the basket.</p>
     <div class="crow">
       <div class="cstat"><small>SCORE</small><b id="cScore">0</b></div>
       <div class="cstat"><small>BEST</small><b id="cBest">0</b></div>
@@ -1695,7 +1695,7 @@ function friction(a, b, nx, ny, corr, mu, wa, wb){
 function wallProj(a, w, n, mu, first){
   if(a.y+a.r < w.y1) return;                                  // above the rim there is no wall
   var d=(a.x-w.x1)*n.x+(a.y-w.y1)*n.y;
-  if(d>=a.r) return;
+  if(d>=a.r || d<0) return;                                   // d<0: centre is past the wall, it is outside and falling
   var corr=a.r-d; a.x+=n.x*corr; a.y+=n.y*corr;
   friction(a, null, n.x, n.y, corr, mu, 1, 0);
   if(first){ var vn=a.vx0*n.x+a.vy0*n.y; contacts.push({a:a,b:null,nx:n.x,ny:n.y,vn0:vn}); a.cx-=n.x*a.r*0.06; a.cy-=n.y*a.r*0.06; }
@@ -1837,8 +1837,9 @@ function overCheck(dt){
   var now=performance.now(), warn=false;
   for(var i=0;i<balls.length;i++){ var b=balls[i];
     if(now-b.born<700) continue;                        // the one you just dropped is still on its way in
-    if(b.y+b.r<RIM){ escaped=b; end(); return; }        // clear of the rim: it is out of the basket
-    if(b.y-b.r<RIM+6) warn=true;                        // poking above the rim: warn
+    var outside = b.x<TL || b.x>TR;                     // centre past the rim's edge
+    if((outside && b.y>RIM) || b.y>H+b.r || b.x<-b.r || b.x>W+b.r){ escaped=b; end(); return; }   // fell down the outside: out of the basket
+    if(outside || (b.y+b.r<RIM && Math.abs(b.x-W/2)>(TR-TL)/2-b.r)) warn=true;   // hanging over the edge: warn
   }
   holdOver = warn ? Math.min(75,holdOver+dt) : Math.max(0,holdOver-dt*2);
 }
@@ -1910,11 +1911,10 @@ function render(ts){
   var danger=Math.min(1, holdOver/75), pulse=0.5+0.5*Math.sin(ts/140);
   ctx.strokeStyle='#E9EEF3'; ctx.lineWidth=5;
   ctx.beginPath(); ctx.moveTo(TL,RIM); ctx.lineTo(BL,FLOOR); ctx.lineTo(BR,FLOOR); ctx.lineTo(TR,RIM); ctx.stroke();
-  // rim lips, red when something is poking out
+  // rim lips, red when something is hanging over the edge (piling above the rim is fine, falling out is not)
   ctx.strokeStyle= danger>0 ? 'rgba(255,94,94,'+(0.6+0.4*pulse)+')' : '#E9EEF3'; ctx.lineWidth=6;
   ctx.beginPath(); ctx.moveTo(TL-6,RIM); ctx.lineTo(TL+10,RIM); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(TR-10,RIM); ctx.lineTo(TR+6,RIM); ctx.stroke();
-  if(danger>0){ ctx.fillStyle='rgba(255,94,94,'+(0.07*danger)+')'; ctx.fillRect(0,0,W,RIM); }
   if(!dead){
     var r=TIERS[nextT].r, ax=Math.max(TL+r+2, Math.min(TR-r-2, aimX));
     var bob=Math.sin(ts/260)*2.2;
