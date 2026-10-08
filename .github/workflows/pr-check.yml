@@ -24,7 +24,7 @@ jobs:
       - name: Syntax check every JS file
         run: |
           set -e
-          for f in server.js cards.js public/app.js public/i18n.js public/sounds.js; do
+          for f in server.js cards.js economy.js content.js public/app.js public/hub.js public/play.js public/i18n.js public/sounds.js; do
             printf '  %-22s' "$f"
             node --check "$f"
             echo 'OK'
@@ -35,7 +35,7 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha }}"
           CHANGED=$(git diff --name-only "$BASE"...HEAD || true)
-          NEEDS_BUST=$(echo "$CHANGED" | grep -E '^public/(app|i18n|sounds)\.js$|^public/styles\.css$' || true)
+          NEEDS_BUST=$(echo "$CHANGED" | grep -E '^public/(app|hub|play|i18n|sounds)\.js$|^public/styles\.css$' || true)
           if [ -n "$NEEDS_BUST" ]; then
             if echo "$CHANGED" | grep -q '^public/index\.html$'; then
               echo "Cache-bust: index.html was updated alongside the asset change. Good."
