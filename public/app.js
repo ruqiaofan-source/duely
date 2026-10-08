@@ -27,7 +27,7 @@ const api = async (path, opts = {}) => {
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sym = (c) => (c === 'EUR' ? '€' : c === 'GBP' ? '£' : c === 'USD' ? '$' : c + ' ');
 // what's on the line: forfeit text if set, else the money stake, else bragging rights
-const money = (b) => (b.line && b.line.trim()) ? b.line : (b.stake > 0 ? `${sym(b.currency)}${b.stake}` : 'bragging rights');
+const money = (b) => [b.credits > 0 ? `${Number(b.credits).toLocaleString('en-GB')} C` : '', (b.line && b.line.trim()) ? b.line : (b.stake > 0 ? `${sym(b.currency)}${b.stake}` : '')].filter(Boolean).join(' + ') || 'bragging rights';
 const signed = (n, c) => `${n >= 0 ? '+' : '−'}${sym(c)}${Math.abs(n)}`;
 // net is null when stakes span multiple currencies (summing £ and € is nonsense)
 const netTxt = (n, c) => (n == null ? '—' : signed(n, c || 'EUR'));
@@ -35,7 +35,7 @@ const initials = (n) => String(n || '?').trim().slice(0, 2).toUpperCase();
 
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1900); }
 // haptics — progressive enhancement (Android Chrome; iOS Safari no-ops). Respects reduced-motion.
-function haptic(p) { try { if (navigator.vibrate && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(p); } catch {} }
+function haptic(p) { try { if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return; if (navigator.vibrate && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(p); } catch {} }
 // Per-device voter id for the weekly call. Separate from `settle_me` on purpose:
 // the whole point of the weekly is that it works before you are anybody, so it
 // must never depend on, or disturb, the player identity.
@@ -112,14 +112,6 @@ function setTab(name) {
   const bar = document.getElementById('tabbar'); if (!bar) return;
   document.body.classList.toggle('has-tabbar', Boolean(me.get()) && Boolean(name));
   bar.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
-}
-
-function statusLabel(b) {
-  if (b.status === 'open') return 'open';
-  if (b.status === 'accepted') return b.pending ? 'confirm' : 'live';
-  if (b.status === 'void') return 'void';
-  if (!(b.stake > 0)) return b.won ? 'W' : 'L'; // forfeit bets settle in bragging rights
-  return (b.won ? '+' : '−') + sym(b.currency) + b.stake;
 }
 
 // ---- emoji reactions ----
@@ -316,43 +308,9 @@ const complementLabel = (b) => isSeason(b) ? (b.backedOutcome === 'HOME' ? "it d
 
 let CONFIG = { brand: 'Clashly', live: false };
 let PREFILL = null; // for rematch
-let RECWIN = 'week'; // high-scores window: week | all
 const _betCache = {}; // last-fetched bet per id (optimistic reactions reconcile against it)
 let _gen = 0; // render generation — a newer render invalidates a slower older one
 
-// Season-call prompts. Rotates daily so the card never reads like static furniture,
-// and every one is a real argument someone in a group chat is already having.
-const SEASON_IDEAS = [
-  'Arsenal finish above Spurs',
-  'Man United sack their manager before Christmas',
-  'Haaland is the top scorer',
-  'We finish in the top four',
-  'Liverpool win the league',
-  'Chelsea finish above Man United',
-  'Our lot get relegated',
-  'Salah is still here in May',
-];
-
-// rank fixtures for the Home "Big games" spotlight: tournament > big competition,
-// big-club bonus, near-kickoff bonus. Threshold keeps filler fixtures out.
-const COMP_W = [[/world cup|fifa|\bwc\b/i, 100], [/champions league/i, 80], [/europa/i, 55], [/premier league/i, 50], [/la ?liga/i, 45], [/serie a/i, 42], [/bundesliga/i, 42], [/eredivisie/i, 40], [/ligue 1/i, 38]];
-const BIG_CLUBS = /man(chester)? (city|united)|liverpool|arsenal|chelsea|tottenham|newcastle|real madrid|barcelona|atl[ée]tico|bayern|dortmund|leverkusen|psg|paris|inter|ac milan|juventus|napoli|ajax|psv|feyenoord|benfica|porto|celtic|rangers|galatasaray|boca|river|flamengo/i;
-function pickBigGames(matches, n = 3) {
-  const now = Date.now(), soon = 3 * 86400000;
-  return (matches || [])
-    .map((mm) => {
-      let sc = 0;
-      for (const [re, w] of COMP_W) if (re.test(mm.competition || '')) { sc += w; break; }
-      if (BIG_CLUBS.test(mm.home)) sc += 25;
-      if (BIG_CLUBS.test(mm.away)) sc += 25;
-      const t = new Date(mm.utcDate || 0).getTime();
-      if (t > now && t - now < soon) sc += 10;
-      return { ...mm, _score: sc };
-    })
-    .filter((mm) => mm._score >= 60)
-    .sort((a, b) => (b._score - a._score) || (new Date(a.utcDate || 0) - new Date(b.utcDate || 0)))
-    .slice(0, n);
-}
 const timeAgo = (iso) => { const s = Math.max(1, (Date.now() - new Date(iso).getTime()) / 1000); if (s < 60) return 'now'; if (s < 3600) return Math.floor(s / 60) + 'm'; if (s < 86400) return Math.floor(s / 3600) + 'h'; return Math.floor(s / 86400) + 'd'; };
 const kickoffTxt = (iso) => { try { return new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
 
@@ -416,11 +374,12 @@ function renderHeader() {
   const lang = (window.CLASHLY_I18N && window.CLASHLY_I18N.lang()) || 'en';
   const segS = (on) => on ? 'padding:5px 10px;background:var(--teal);color:#06140f' : 'padding:5px 10px;color:var(--muted)';
   const langBtn = `<div id="langBtn" role="button" tabindex="0" title="Language / Język" style="display:flex;border:1.5px solid var(--line);border-radius:999px;overflow:hidden;cursor:pointer;font-size:12px;font-weight:800;flex:none"><span style="${segS(lang !== 'pl')}">🇬🇧 EN</span><span style="${segS(lang === 'pl')}">🇵🇱 PL</span></div>`;
-  h.innerHTML = (m ? `<div class="idchip" id="idchip"><span class="av">${initials(m.name)}</span>${esc(m.name)}</div>` : '') + langBtn;
+  // players see their Credits (the language switch lives in Profile > Settings);
+  // visitors see the language switch
+  h.innerHTML = m ? '<div id="pillBox" class="pillbox"></div>' : langBtn;
   const lb = $('#langBtn');
   if (lb && window.CLASHLY_I18N) lb.addEventListener('click', () => window.CLASHLY_I18N.toggle());
-  const chip = $('#idchip');
-  if (chip) chip.addEventListener('click', () => { if (location.pathname !== '/') history.pushState({}, '', '/'); route(); });
+  if (m) paintPill();
 }
 
 // ---------------------------------------------------------------------------
@@ -464,139 +423,64 @@ async function route() {
   if (_me && (!_me.id || !_me.secret)) { try { _me = await register(_me.name || 'Player'); } catch { me.clear(); _me = null; } }
   renderHeader();
   if (_me && window.posthog) { try { posthog.identify(_me.id, { name: _me.name, email: _me.email || undefined }); } catch {} }
-  if (id) { setTab(null); await cfgP; return renderBet(id); }
-  if (code) { setTab('league'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); return renderLeague(code); }
-  if (!me.get()) { setTab(null); return renderOnboarding(); }
+  if (id) { setTab(null); await cfgP; if (me.get()) loadWallet(); return renderBet(id); }
+  if (code) { setTab('rank'); if (!me.get()) return renderOnboarding(() => renderLeague(code)); loadWallet(); return renderLeague(code); }
+  if (!me.get()) { setTab(null); return renderCreditsOnboarding(); }
+  // Credits onboarding once per player (the device remembers, the server is the truth)
+  let onb = false; try { onb = localStorage.getItem('clashly_onb') === _me.id; } catch {}
+  if (!onb) {
+    const w = await loadWallet();
+    if (w && !w.onboarded) return renderCreditsOnboarding();
+    try { localStorage.setItem('clashly_onb', _me.id); } catch {}
+  } else loadWallet();
+  refreshClashBadge();
   // arriving from a /call/:fixture landing page — open the create sheet on that match
   const callId = new URLSearchParams(location.search).get('call');
   if (callId) {
     history.replaceState({}, '', location.pathname);
-    setTab('home'); PREFILL = { matchId: callId };
-    await renderHome(); track('call_page_land', { match: callId });
-    return renderCreate();
+    setTab('home'); track('call_page_land', { match: callId });
+    await renderHub();
+    return openPredictSheet(callId);
   }
   const path = location.pathname;
-  if (path.startsWith('/challenge')) { setTab('challenge'); return renderChallengeHub(); }
-  if (path.startsWith('/arena') || path.startsWith('/answer')) { setTab('answer'); return renderArena(); }
-  if (path.startsWith('/games')) { setTab('games'); return renderGames(); }
-  if (path.startsWith('/board')) { setTab('board'); return renderBoard(); }
-  if (path.startsWith('/duels')) { setTab('duels'); return renderDuels(); }
-  if (path.startsWith('/leagues')) { setTab('league'); return renderLeagueHub(); }
-  if (path.startsWith('/profile')) { setTab('profile'); return renderProfile(); }
-  setTab('home'); return renderHome();
+  // the five tabs: Home · Rank · Clash · Play · Profile (old paths still land somewhere sensible)
+  if (/^\/(rank|board)(\/|$)/.test(path)) { setTab('rank'); return renderRank(); }
+  if (/^\/(clash|challenge|answer|arena|duels)(\/|$)/.test(path)) { setTab('clash'); return renderClash(); }
+  const pg = path.match(/^\/play\/([a-z]+)/);
+  if (pg) { setTab('play'); return renderGameIntro(pg[1]); }
+  if (/^\/(play|games)(\/|$)/.test(path)) { setTab('play'); return renderPlay(); }
+  if (path.startsWith('/leagues')) { setTab('rank'); return renderLeagueHub(); }
+  if (path.startsWith('/profile')) { setTab('profile'); return renderProfileCard(); }
+  setTab('home'); return renderHub();
 }
 
 // ---------------------------------------------------------------------------
 // Onboarding
 // ---------------------------------------------------------------------------
-// The Arcade as a proper billboard, not a tiny row — Qiao: the games need to be
-// obvious and it must say plainly that they earn points. Used on the landing
-// turnstile AND the logged-in home.
-function arcadeHero(mb) {
-  return `
-    <div class="card" data-door="arcade" role="button" tabindex="0" style="cursor:pointer;border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.08),transparent);margin-bottom:${mb || '14px'}">
-      <div style="display:flex;align-items:center;gap:14px">
-        <span style="font-size:34px">🕹️</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-family:Anton,sans-serif;font-size:24px;letter-spacing:.8px;color:var(--gold)">THE ARCADE</div>
-          <div class="sm" style="color:var(--muted);margin-top:2px">Penalty Sweep · Keepy-Uppy · Higher or Lower · The Daily</div>
-        </div>
-        <span style="color:var(--gold);font-size:22px">›</span>
-      </div>
-      <div style="margin-top:10px;font-weight:800;font-size:13.5px;color:var(--gold)">⚡ Play games. Earn points. Up to 30 a day on the public board.</div>
-    </div>`;
-}
-
+// League invites from someone who is not a player yet: the short join card.
+// Everyone else gets the Credits onboarding (hub.js).
 function renderOnboarding(next) {
   track('onboard_view');
-  // v22 — the turnstile landing (design: Clashly Screens). A first-time visitor
-  // gets a question they can answer in one tap before anyone asks their name,
-  // then three doors. The join form stays below, revealed by the purple door.
-  // Arrivals with a destination (league invite) skip straight to the form.
-  const turnstile = !next;
-  const joinCard = `
-    <div class="card" id="joinCard" ${turnstile ? 'style="display:none"' : ''}>
-      <h2>Think you know ball? Prove it. ⚽</h2>
-      <p class="sub">Call the match, your mate takes the other side, and the winner goes on the record. Clashly keeps the score — the rivalry does the rest.</p>
+  app.innerHTML = `
+    <div class="card" id="joinCard">
+      <h2>Back yourself. ⚽</h2>
+      <p class="sub">Predict, compete, prove it. You start with 10,000 free Clashly Credits (virtual, no cash value).</p>
       <label for="name">What should mates call you?</label>
       <input id="name" placeholder="e.g. Alex" maxlength="40" />
       <div class="checkrow">
         <input type="checkbox" id="age" />
-        <label for="age">I'm 18 or over, and I'm here for the bragging rights.</label>
+        <label for="age">I'm 18 or over.</label>
       </div>
-      <button class="cta" id="go">Let's go →</button>
+      <button class="cta" id="go">Join →</button>
       <button class="muted-link" id="signin">I already have an account → sign in</button>
     </div>`;
-  const door = (id, emoji, title, sub, col, colBg, colBorder) => `
-    <div class="riv-row" data-door="${id}" role="button" tabindex="0" style="cursor:pointer;border:1px solid ${colBorder};background:${colBg};border-radius:14px;padding:14px 16px;margin:0">
-      <div style="display:flex;align-items:center;gap:14px">
-        <span style="font-size:21px">${emoji}</span>
-        <div>
-          <div style="font-family:Anton,sans-serif;font-size:16px;letter-spacing:.8px;color:${col}">${title}</div>
-          <div class="sm" style="color:var(--muted);margin-top:2px">${sub}</div>
-        </div>
-      </div>
-      <span style="color:${col};font-size:20px">›</span>
-    </div>`;
-  app.innerHTML = turnstile ? `
-    <div style="font-family:Anton,sans-serif;font-size:44px;line-height:1.04;letter-spacing:.3px;margin:8px 0 0">
-      <div>THINK YOU</div>
-      <div>KNOW BALL?</div>
-      <div style="color:var(--teal);text-shadow:0 0 40px rgba(20,224,200,.45)">PROVE IT.</div>
-    </div>
-    <div class="card" id="tonight" style="display:none;margin-top:20px"></div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
-      ${door('duel', '⚔️', 'CHALLENGE A MATE', 'the record starts here', '#A78BFA', 'rgba(124,58,237,.13)', 'rgba(124,58,237,.45)')}
-      ${door('week', '🗓️', 'CALL THE WEEKEND', '6 games, one board', 'var(--teal)', 'rgba(20,224,200,.09)', 'rgba(20,224,200,.35)')}
-      ${arcadeHero('0')}
-    </div>
-    ${joinCard}
-    <div class="banner" style="border-style:solid;border-color:rgba(255,200,61,.35);color:var(--text)">🔰 Early days — join now and you're a <b style="color:var(--gold)">Founder</b>: your number's stamped on your profile and your perks carry over when Pro launches.</div>
-    <p class="sub" style="text-align:center;margin:14px 0 0;color:var(--muted)">No money, no prizes, just receipts. 18+</p>` : `
-    ${joinCard}
-    <div class="banner" style="border-style:solid;border-color:rgba(255,200,61,.35);color:var(--text)">🔰 Early days — join now and you're a <b style="color:var(--gold)">Founder</b>: your number's stamped on your profile and your perks carry over when Pro launches.</div>
-    <div class="banner">Quick start needs just a name. Sign in (Google or email) to save your record across devices.</div>`;
-  if (turnstile) {
-    app.querySelectorAll('[data-door]').forEach((d) => d.addEventListener('click', () => {
-      const which = d.dataset.door; haptic(8); track('landing_door', { door: which });
-      if (which === 'week') { location.href = '/this-week'; return; }
-      if (which === 'arcade') { location.href = '/arcade'; return; }
-      const jc = $('#joinCard'); jc.style.display = ''; jc.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); $('#name').focus();
-    }));
-    // Tonight's call — the weekly question, answerable before any name ask
-    api('/weekly?v=' + encodeURIComponent(voterId())).then((wk) => {
-      if (!wk || !wk.match || wk.result || wk.locked) return;
-      const el = $('#tonight'); if (!el) return;
-      const opts = [['HOME', wk.match.home + ' win'], ['DRAW', 'Draw'], ['AWAY', wk.match.away + ' win']];
-      const t0 = wk.tally || { total: 0 };
-      el.style.display = '';
-      el.innerHTML = `
-        <div class="sm" style="color:var(--teal);font-weight:800;letter-spacing:2px;font-size:10.5px">TONIGHT'S CALL</div>
-        <div style="font-size:18px;font-weight:700;margin:6px 0 10px">Will ${esc(wk.match.home)} beat ${esc(wk.match.away)}?</div>
-        <div style="display:flex;flex-direction:column;gap:9px" id="tnOpts">
-          ${opts.map(([c, l]) => `<button data-tn="${c}" class="${wk.myCall === c ? 'active' : ''}" style="background:rgba(255,255,255,.05);border:1px solid ${wk.myCall === c ? 'var(--teal)' : 'rgba(255,255,255,.13)'};border-radius:12px;padding:13px 16px;font:600 15px Inter,system-ui,sans-serif;color:var(--text);text-align:left;cursor:pointer">${esc(l)}</button>`).join('')}
-        </div>
-        <p class="sub" id="tnNote" style="text-align:center;margin:8px 0 0">${wk.myCall ? "You're on the record — see how it lands at full time." : 'one tap, no account, on the record'}${t0.total ? ` · ${t0.total} called it` : ''}</p>`;
-      el.querySelectorAll('[data-tn]').forEach((b) => b.addEventListener('click', async () => {
-        haptic(10); track('landing_call_tap'); track('weekly_call_tap');
-        el.querySelectorAll('[data-tn]').forEach((x) => { x.style.borderColor = x === b ? 'var(--teal)' : 'rgba(255,255,255,.13)'; x.style.background = x === b ? 'rgba(20,224,200,.08)' : 'rgba(255,255,255,.05)'; });
-        try {
-          const r = await api('/weekly/call', { method: 'POST', body: JSON.stringify({ outcome: b.dataset.tn, v: voterId() }) });
-          const tt = (r && r.tally) || {}; const tot = tt.total || 0;
-          $('#tnNote').innerHTML = `✅ On the record.${tot ? ` <b>${Math.round(((tt[b.dataset.tn] || 0) / tot) * 100)}%</b> agree with you.` : ''} <a class="muted-link" href="/this-week" style="display:inline;margin:0">See the board →</a>`;
-        } catch (e) { toast(e.message || 'Try again'); }
-      }));
-    }).catch(() => {});
-  }
   $('#go').addEventListener('click', async () => {
     const name = $('#name').value.trim();
     if (!name) return toast('Pick a name');
     if (!$('#age').checked) return toast("Confirm you're 18+");
     const btn = $('#go'); btn.disabled = true; btn.textContent = 'Setting up…';
-    // go through the router (not the render fn directly) so setTab runs and the
-    // tab bar actually appears now that an identity exists
-    try { await register(name); track('onboard_done'); renderHeader(); route(); }
-    catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Let's go →"; }
+    try { await register(name); track('onboard_done'); renderHeader(); loadWallet(); (next || route)(); }
+    catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Join →'; }
   });
   $('#signin').addEventListener('click', () => openLoginSheet());
 }
@@ -605,7 +489,7 @@ function renderOnboarding(next) {
 // Vinted-style item card for an open Arena challenge — the bet as a listing
 function arenaItemCard(c) {
   const backedLbl = c.backedOutcome === 'HOME' ? c.home + ' win' : c.backedOutcome === 'AWAY' ? c.away + ' win' : 'Draw';
-  const stakeLbl = c.line || (c.stake > 0 ? sym(c.currency) + c.stake : 'bragging rights');
+  const stakeLbl = money(c);
   const st = c.proposerStats || {};
   const cred = (st.w || st.l) ? `${st.w}\u2013${st.l}` : 'new';
   const fire = st.streakType === 'W' && st.streakCount >= 2 ? ' \ud83d\udd25' + st.streakCount : '';
@@ -615,518 +499,6 @@ function arenaItemCard(c) {
     <div class="pick">backs <b>${esc(backedLbl)}</b>${c.utcDate ? ' \u00b7 ' + kickoffTxt(c.utcDate) : ''}</div>
     <div class="seller"><span class="av2">${initials(c.proposerName)}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.proposerName)} \u00b7 ${cred}${fire}</span></div>
   </div>`;
-}
-
-// ---------------------------------------------------------------------------
-// Home dashboard — the rivalry hub
-// ---------------------------------------------------------------------------
-async function renderHome() {
-  const my = ++_gen; const live = () => my === _gen;
-  const m = me.get();
-  const actP = api('/activity').catch(() => null);
-  const myBetsP = m ? api('/players/me/bets').catch(() => null) : Promise.resolve(null);
-  const weeklyP = api('/weekly?v=' + encodeURIComponent(voterId())).catch(() => null);
-  const motwP = api('/motw').catch(() => null);
-  const matchP = api('/matches').catch(() => null); // in parallel with the ledger fetches
-  const recP = api('/records?window=' + RECWIN).catch(() => null);
-  const arenaP = api('/arena').catch(() => null);
-  const terrP = api('/terrace').catch(() => null);
-  const [sRes, lgRes] = await Promise.allSettled([api('/players/me/summary'), api('/players/me/leagues')]);
-  const s = sRes.status === 'fulfilled' ? sRes.value : { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [], recent: [] };
-  const lg = lgRes.status === 'fulfilled' ? lgRes.value : { leagues: [] };
-  let big = [];
-  try { const mr = await matchP; if (mr) big = pickBigGames(mr.matches); } catch {}
-  let rec = null;
-  try { rec = await recP; } catch {}
-  let arena = [];
-  try { const ar = await arenaP; if (ar && ar.challenges) arena = ar.challenges; } catch {}
-  let terrace = [];
-  try { const tr = await terrP; if (tr && tr.posts) terrace = tr.posts; } catch {}
-  let activity = [];
-  try { const av = await actP; if (av && av.items) activity = av.items; } catch {}
-  let motw = null;
-  try { const mw = await motwP; if (mw && mw.match && new Date(mw.match.utcDate || 0).getTime() > Date.now()) motw = mw.match; } catch {}
-  // v14 — bets waiting on ME to settle or confirm: the single most valuable tap
-  // on the whole site, so it renders above everything else on home.
-  let toSettle = [];
-  try { const mb = await myBetsP; if (mb && mb.active) toSettle = mb.active.filter((b) => b.status === 'accepted' && b.yourMove); } catch {}
-  let wk = null;
-  try { wk = await weeklyP; } catch {}
-  if (wk && wk.match) track('weekly_view');
-  if (!live()) return; // superseded by a newer navigation
-  const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
-  const recHtml = rec ? [
-    prefs.get().hideStreaks ? '' : recRow('🔥', 'Hot streak', rec.streak && `${esc(rec.streak.name)} · ${rec.streak.count}W`),
-    recRow('⚔️', 'Most duels', rec.mostDuels && `${esc(rec.mostDuels.name)} · ${rec.mostDuels.duels}`),
-    recRow('🎯', 'Best record', rec.bestRecord && `${esc(rec.bestRecord.name)} · ${rec.bestRecord.w}-${rec.bestRecord.l}`),
-    recRow('😅', 'Biggest bottle', rec.biggestBottle && `${esc(rec.biggestBottle.name)} · ${rec.biggestBottle.l} Ls`),
-    recRow('🥊', 'Fiercest rivalry', rec.fiercest && `${esc(rec.fiercest.a)} v ${esc(rec.fiercest.b)} · ${rec.fiercest.games}`),
-    recRow('👑', 'Arena crown', rec.arenaKing && `${esc(rec.arenaKing.name)} · ${rec.arenaKing.wins} arena W${rec.arenaKing.wins === 1 ? '' : 's'}`),
-  ].join('') : '';
-
-  const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
-  const hideStreaks = prefs.get().hideStreaks;
-  const streakTxt = (!hideStreaks && s.streak.count) ? `${s.streak.count}${s.streak.type}` : '—';
-  const onFire = !hideStreaks && s.streak.type === 'W' && s.streak.count >= 2;
-  const isNew = s.w === 0 && s.l === 0 && s.rivalries.length === 0 && lg.leagues.length === 0;
-  // the single most-contested rivalry — an unsettled score is an open loop you return to settle
-  const hot = s.rivalries
-    .filter((r) => Math.abs(r.w - r.l) <= 1 && (r.w + r.l) >= 2)
-    .sort((a, b) => (Math.abs(a.w - a.l) - Math.abs(b.w - b.l)) || ((b.w + b.l) - (a.w + a.l)))[0];
-  const hotLine = hot ? (hot.w === hot.l ? `Level with ${esc(hot.opponent)} — nobody's ahead` : hot.w > hot.l ? `You lead ${esc(hot.opponent)} by one` : `${esc(hot.opponent)} leads you by one`) : '';
-
-  const rivalriesHtml = s.rivalries.length
-    ? s.rivalries.map((r) => {
-        const lead = r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : 'level';
-        const verb = r.w > r.l ? 'You lead' : r.w < r.l ? 'You trail' : 'Level with';
-        return `
-          <div class="riv-row" data-rivid="${esc(r.opponentId)}" data-rivname="${esc(r.opponent)}" role="button" tabindex="0" style="cursor:pointer">
-            <div>
-              <div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}${r.streakWeeks >= 2 ? ` <span class="wkchip">🔥${r.streakWeeks}wk</span>` : ''}</div>
-              <div class="sm">${verb} · ${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div>
-            </div>
-            <div style="text-align:right">
-              <div class="rec ${lead}">${r.w}–${r.l}</div>
-              <button class="muted-link" style="margin:2px 0 0;font-size:12px" data-rematch="${esc(r.opponent)}">Rematch →</button>
-            </div>
-          </div>`;
-      }).join('')
-    : `<p class="sub" style="margin:8px 0 0">No rivalries yet. Challenge a mate and start one. 👀</p>`;
-
-  const recentHtml = s.recent.length
-    ? s.recent.map((r) => `
-        <div class="recent">
-          <span>${esc(matchLabel(r))} · <span style="color:var(--muted)">${esc(r.opponent)}</span></span>
-          <span class="res ${r.won ? 'w' : 'l'}">${r.won ? '+' : '−'}${sym(r.currency)}${r.amount}</span>
-        </div>`).join('')
-    : '';
-
-  app.innerHTML = `
-    <div style="font-family:Anton,sans-serif;font-size:38px;line-height:1.04;letter-spacing:.3px;margin:4px 0 16px">
-      <div>THINK YOU</div>
-      <div>KNOW BALL?</div>
-      <div style="color:var(--teal);text-shadow:0 0 40px rgba(20,224,200,.45)">PROVE IT.</div>
-    </div>
-    ${wk && wk.match ? (() => {
-      const t = wk.tally || { HOME: 0, DRAW: 0, AWAY: 0, total: 0 };
-      const pc = (n) => (t.total ? Math.round((n / t.total) * 100) : 0);
-      const done = Boolean(wk.result);
-      const rightOne = done && wk.myCall && wk.myCall === wk.result;
-      const opts = [['HOME', wk.match.home + ' win'], ['DRAW', 'Draw'], ['AWAY', wk.match.away + ' win']];
-      return `<div class="card" style="border-color:rgba(20,224,200,.5);background:linear-gradient(180deg,rgba(20,224,200,.06),transparent)">
-        <div class="cardhead"><h2>📣 The weekly call</h2>${wk.record && wk.record.streak > 1 ? `<span class="pill accepted">${wk.record.streak} weeks running</span>` : ''}</div>
-        <div class="match" style="margin:2px 0 10px"><div class="teams">${esc(wk.match.home)} <span class="vs">VS</span> ${esc(wk.match.away)}</div>
-          <div class="meta">${esc(wk.match.competition || 'Football')}${wk.match.utcDate ? ' · ' + kickoffTxt(wk.match.utcDate) : ''}</div></div>
-        ${done
-          ? `<div class="banner" style="border-style:solid;border-color:${rightOne ? 'rgba(20,224,200,.5)' : 'rgba(255,90,110,.45)'};color:var(--text);text-align:left">${wk.myCall ? (rightOne ? `✅ <b>You called it.</b>${wk.crowd != null ? ` Only ${wk.crowd}% agreed with you.` : ''} <b style="color:var(--teal)">+${wk.points} points</b>` : '❌ <b>Wrong one this week.</b> Nothing lost, go again.') : 'Full time.'}<br /><span class="sm">Result: ${esc(wk.result === 'HOME' ? wk.match.home + ' won' : wk.result === 'AWAY' ? wk.match.away + ' won' : 'Draw')}</span></div>`
-          : wk.locked
-            ? `<div class="banner">🔒 Kicked off. Calls are closed.</div>`
-            : `<div class="seg" id="wkSeg">${opts.map(([c, l]) => `<button data-w="${c}" class="${wk.myCall === c ? 'active' : ''}">${esc(l)}</button>`).join('')}</div>`}
-        <div id="wkSplit" ${t.total ? '' : 'style="display:none"'}>
-          ${opts.map(([c, l], i) => `<div class="riv-row" style="padding:6px 0;border:0">
-            <div style="flex:1"><div class="sm" style="margin-bottom:3px">${esc(l)}</div>
-              <div style="height:9px;border-radius:6px;background:rgba(255,255,255,.06);overflow:hidden">
-                <div style="height:100%;width:${pc(t[c])}%;background:${i === 0 ? 'var(--teal)' : i === 1 ? 'var(--muted)' : 'var(--purple)'};transition:width .5s"></div></div></div>
-            <span class="sm" style="width:44px;text-align:right;font-weight:800">${t.total ? pc(t[c]) + '%' : '—'}</span>
-          </div>`).join('')}
-          <p class="sub" style="margin:6px 0 0">${t.total} ${t.total === 1 ? 'person has' : 'people have'} called it${wk.record && wk.record.played ? ` · you're ${wk.record.right}/${wk.record.played} all time` : ''}</p>
-          ${wk.record && wk.record.points ? `<p class="sub" style="margin:3px 0 0;color:var(--teal);font-weight:800">${wk.record.points} points banked</p>` : ''}
-          <p class="sub" style="margin:6px 0 0;font-size:11.5px">Right calls bank points. The fewer people who agreed with you, the more it's worth. Wrong calls score nothing — there's nothing to lose.</p>
-        </div>
-        <button class="ghost" id="wkShare" style="margin-top:10px${wk.myCall ? '' : ';display:none'}">Copy it for the group 📋</button>
-        <a class="muted-link" href="/this-week" style="display:block;text-align:center;margin-top:8px">🗓️ Call the whole weekend →</a>
-      </div>`;
-    })() : ''}
-    ${toSettle.length ? `<div class="card" style="border-color:rgba(255,200,61,.55);background:linear-gradient(180deg,rgba(255,200,61,.06),transparent)">
-      <div class="cardhead"><h2>Full time 🏁 Settle up</h2></div>
-      ${toSettle.slice(0, 3).map((b) => `
-        <div class="riv-row" data-settle="${esc(b.id)}" role="button" tabindex="0" style="cursor:pointer">
-          <div><div class="nm">${esc(b.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(b.away)}</div>
-          <div class="sm">${b.pending ? 'Your mate reported the result — confirm it' : 'Match finished — report the result'}${b.opponent ? ' · vs ' + esc(b.opponent) : ''}</div></div>
-          <button class="linkbtn" data-settle="${esc(b.id)}" style="font-weight:800;color:var(--gold)">${b.pending ? 'Confirm ✓' : 'Report →'}</button>
-        </div>`).join('')}
-      <p class="sub" style="margin:8px 0 0">Unsettled duels never reach the record. Thirty seconds, on it goes.</p>
-    </div>` : ''}
-    ${arcadeHero()}
-    ${!isNew && terrace.length ? (() => { const hp = terrace[0]; return `<div class="card" style="border-color:rgba(255,200,61,.5);background:linear-gradient(180deg,rgba(255,200,61,.07),transparent)">
-      <div class="sm" style="color:var(--gold);font-weight:800;letter-spacing:1px;font-size:11px">📣 LATEST FROM THE TERRACE</div>
-      <div style="font-family:Anton,sans-serif;font-size:24px;line-height:1.25;margin:8px 0 6px">“${esc(hp.text)}”</div>
-      <div class="sm" style="color:var(--muted)">— ${esc(hp.by)}${hp.bot ? ' <span class="tag-rival">house bot 🤖</span>' : ` (${esc(hp.record)}${hp.streakType === 'W' && hp.streakCount >= 2 ? ' · 🔥' + hp.streakCount : ''})`} · ${timeAgo(hp.t)}</div>
-      <div style="display:flex;gap:10px;margin-top:12px">
-        <button class="cta" data-correct="${esc(hp.by)}" style="flex:1">🗣️ Reply on the Terrace</button>
-        <button class="cta commit" data-punish="${esc(hp.by)}" style="flex:1">⚔️ Duel them on it</button>
-      </div>
-      <p class="sub" style="margin:8px 0 0;font-size:11.5px">Reply is public and free. A duel makes a link you send them.</p>
-    </div>`; })() : ''}
-    ${!isNew && activity.length > 1 ? `<div class="ticker"><div class="ticker-track">${(activity.concat(activity)).map((a) => `<span class="tk">⚡ ${esc(a.text)}</span>`).join('')}</div></div>` : ''}
-    ${(() => { const mineOff = m ? arena.filter((c) => c.proposerId === m.id && c.offers > 0) : [];
-      return mineOff.length ? `<div class="card" style="border-color:rgba(124,58,237,.55)">
-      <div class="cardhead"><h2>💬 Counter-offers waiting</h2></div>
-      ${mineOff.map((c) => `<div class="riv-row" data-golisting="${esc(c.id)}" role="button" tabindex="0" style="cursor:pointer"><div><div class="nm">${esc(c.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(c.away)}</div><div class="sm">${c.offers} offer${c.offers === 1 ? '' : 's'} on your listing — someone wants different terms</div></div><button class="linkbtn" data-golisting="${esc(c.id)}" style="font-weight:800">Review →</button></div>`).join('')}
-    </div>` : ''; })()}
-    ${m && (s.w + s.l + (s.rivalries || []).length) > 0 && typeof Notification !== 'undefined' && Notification.permission === 'default' && !localStorage.getItem('clashly_push_dismissed') ? `<div class="banner" style="border-style:solid;border-color:rgba(124,58,237,.4);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>🔔 Know the second your bet resolves or someone counters.</span><button class="linkbtn" id="pushOn" style="flex:none;font-weight:800">Turn on</button><button class="linkbtn" id="pushNo" style="flex:none;color:var(--muted)">✕</button></div>` : ''}
-    ${m && (s.w + s.l) > 0 && !s.hasEmail ? `<div class="banner" style="border-style:solid;border-color:rgba(20,224,200,.4);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>🛡️ Protect your ${s.w}–${s.l} record — link your email so it survives any device.</span><button class="linkbtn" id="linkAcct" style="flex:none;font-weight:800">Link it →</button></div>` : ''}
-    ${isNew ? `<div class="card" style="border-color:rgba(20,224,200,.4)">
-      <h2>Duel #1 👋</h2>
-      <p class="sub" style="margin:2px 0 10px">Pick a match, back yourself, send the link. Your mate takes the other side and the record starts.</p>
-      <div style="display:flex;flex-direction:column;gap:9px;margin-top:6px">
-        <div style="display:flex;align-items:center;gap:10px;font-weight:800;color:var(--teal)"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--teal);color:#06140f;font-size:13px;font-weight:900">✓</span> Joined Clashly</div>
-        <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">2</span> Back a call &amp; set the stakes</div>
-        <div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:700"><span style="display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);font-size:12px">3</span> Fire the link — a mate takes the other side</div>
-      </div>
-      <button class="cta commit" id="firstBet" style="margin-top:16px">⚔️ Challenge a mate →</button>
-      ${arena.filter((c) => !m || c.proposerId !== m.id).length ? `<button class="ghost" id="firstTake" style="width:100%;margin-top:8px">🛒 Or take a live bet from the Arena</button>` : ''}
-    </div>` : ''}
-    ${hot ? `<div class="card hero-duel">
-      <div class="cardhead"><h2>Unfinished business ⚔️</h2></div>
-      <div class="rivalry" style="margin-top:2px"><div><div class="vsline">${hotLine}</div><div class="sm" style="color:var(--muted);font-size:12px">${hot.w + hot.l} duels in — settle the score</div></div><div class="score ${hot.w > hot.l ? 'lead' : hot.w < hot.l ? 'trail' : 'level'}">${hot.w}–${hot.l}</div></div>
-      <button class="cta commit" data-rematch="${esc(hot.opponent)}" style="margin-top:12px">Settle it with ${esc(hot.opponent)} →</button>
-      ${!lg.leagues.length ? `<button class="muted-link" id="escalateLeague">Start a league with ${esc(hot.opponent)} + the group →</button>` : ''}
-    </div>` : ''}
-    ${isNew ? '' : `<div class="card">
-      <div class="cardhead"><h2>Your season</h2><span class="flame ${onFire ? 'on' : ''}">${onFire ? '🔥 ' + s.streak.count + ' in a row' : ''}</span></div>
-      <div class="stats">
-        <div class="stat"><div class="n">${s.w}–${s.l}</div><div class="k">Record</div></div>
-        <div class="stat"><div class="n ${netClass}">${netTxt(s.net, s.currency)}</div><div class="k">Net</div></div>
-        <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
-      </div>
-      ${!hideStreaks && s.platformRecord ? `<div class="banner" style="margin:10px 0 0;border-style:solid;border-color:rgba(255,200,61,.3)">🏆 Clashly record: <b style="color:var(--gold)">${esc(s.platformRecord.name)}'s ${s.platformRecord.count}-win streak</b>${s.streak.type === 'W' && s.streak.count >= s.platformRecord.count ? " — that's you. Defend it." : ' — beat it.'}</div>` : ''}
-      <button class="cta commit" id="challenge">⚔️ Challenge a mate</button>
-    </div>`}
-
-    <div class="card">
-      <div class="cardhead"><h2>The Terrace 📣</h2><span class="pill open" style="font-size:10.5px">public · no bet</span></div>
-      <p class="sub" style="margin:2px 0 8px">An announcement to everyone on Clashly. No opponent, no stake, no link — just a take on the record.</p>
-      <div class="reacts" id="terrChips" style="margin:6px 0 6px">
-        <button type="button" class="react-chip" data-terr="Nobody in this app knows ball. Prove me wrong 😤">😤 rage bait</button>
-        <button type="button" class="react-chip" data-terr="Free Arena points on my open challenge — if you dare 🌍">🌍 call-out</button>
-        <button type="button" class="react-chip" data-terr="My record speaks for itself. Who's next? 👑">👑 flex</button>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <input id="terrIn" maxlength="180" placeholder="Announce it to all of Clashly…" style="flex:1" />
-        <button class="linkbtn" id="terrGo" style="font-weight:800;flex:none">Announce →</button>
-      </div>
-      <div style="max-height:320px;overflow-y:auto">
-      ${terrace.length ? terrace.slice(0, isNew ? 3 : 25).map((p) => `
-        <div class="recent" data-correct="${esc(p.by)}" role="button" tabindex="0" style="align-items:flex-start;cursor:pointer">
-          <span style="min-width:0"><b style="color:var(--text)">${esc(p.by)}</b> <span style="color:var(--muted-2);font-size:11.5px">${p.bot ? 'house bot 🤖' : esc(p.record) + (p.streakType === 'W' && p.streakCount >= 2 ? ' · 🔥' + p.streakCount : '')} · ${timeAgo(p.t)}</span><br/>${esc(p.text)}</span>
-        </div>`).join('') : '<p class="sub" style="margin:8px 0 0">Silence on the terrace. Someone say something spicy. 🌶️</p>'}
-      </div>
-    </div>
-
-
-    ${!isNew && big.length ? `<div class="card">
-      <div class="cardhead"><h2>Big games coming up 🔥</h2></div>
-      ${big.map((g) => `
-        <div class="riv-row" data-callit="${esc(g.id)}" role="button" tabindex="0" style="cursor:pointer">
-          <div>
-            <div class="nm">${esc(g.home)} <span style="color:var(--purple);font-family:Anton,sans-serif">v</span> ${esc(g.away)}</div>
-            <div class="sm">${esc(g.competition || 'Match')} · ${kickoffTxt(g.utcDate)}</div>
-          </div>
-          <button class="linkbtn" data-callit="${esc(g.id)}" style="font-weight:800">Call it →</button>
-        </div>`).join('')}
-    </div>` : ''}
-    ${/* Season calls were invisible: the only way in was a dropdown at the bottom of
-          the create sheet. This is the entry point — and it is the ONLY thing on the
-          page that still works during the 21 Sep - 6 Oct break, when there are no
-          fixtures to put in "Big games" at all. */ ''}
-    <div class="card" style="border-color:rgba(124,58,237,.45);background:linear-gradient(180deg,rgba(124,58,237,.07),transparent)">
-      <div class="cardhead"><h2>🗓️ Call the whole season</h2></div>
-      <p class="sub" style="margin:2px 0 10px">No fixture needed. "${esc(SEASON_IDEAS[new Date().getDate() % SEASON_IDEAS.length])}" — settled in May, on the record until then.</p>
-      <button class="cta" id="seasonCall" style="background:var(--purple);color:#fff">Make a season call →</button>
-    </div>
-
-
-
-    <div class="card" style="border-color:rgba(124,58,237,.45)">
-      <div class="cardhead"><h2>Answer public challenges 📬</h2><button class="linkbtn" id="arenaAll">See all →</button></div>
-      <p class="sub" style="margin:2px 0 0">Open bets from all of Clashly, listed like a marketplace. Take one, win it, bank <b style="color:var(--gold)">+3 points</b>.${s.arenaPts ? ` You have <b style=\"color:var(--gold)\">\u26a1 ${s.arenaPts}</b>.` : ''}</p>
-      ${(() => { const open = arena.filter((c) => !m || c.proposerId !== m.id); const mine = arena.length - open.length;
-        return (open.length ? `<div class="market">${open.slice(0, isNew ? 2 : 4).map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:8px 0 0">No public challenges right now — post the first one. 🥊</p>')
-          + (mine > 0 ? `<p class="sub" style="margin:8px 0 0">Your open challenge is live in the Arena — waiting for a taker. 👀</p>` : ''); })()}
-      ${isNew ? '' : `<button class="cta" id="arenaPost" style="margin-top:12px">🌍 Post a public challenge</button>`}
-    </div>
-
-    ${isNew ? '' : `<div class="card">
-      <h2>Rivalries</h2>
-      ${rivalriesHtml}
-    </div>`}
-
-
-    ${motw ? `<div class="card motw"><div class="cardhead"><h2>🏟️ Match of the Week</h2></div><div class="nm" style="font-family:Anton,sans-serif;font-size:19px;letter-spacing:.3px;margin:4px 0 2px">${esc(motw.home)} <span style="color:var(--purple-text)">v</span> ${esc(motw.away)}</div><div class="sm" style="color:var(--muted);font-size:12.5px">${esc(motw.competition || '')}${motw.utcDate ? ' · ' + kickoffTxt(motw.utcDate) : ''} · everyone's calling this one</div><button class="cta" id="motwCall" style="margin-top:12px">Make your call →</button></div>` : ''}
-
-    ${s.forfeits && s.forfeits.length ? `<div class="card"><div class="cardhead"><h2>Unpaid forfeits 🧾</h2></div>${s.forfeits.map((f) => `
-      <div class="riv-row" data-bet="${esc(f.betId)}" role="button" tabindex="0" style="cursor:pointer">
-        <div><div class="nm">${f.owedByMe ? 'You owe ' + esc(f.to) : esc(f.from) + ' owes you'}</div><div class="sm">“${esc(f.line)}”${f.since ? ' · since ' + new Date(f.since).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : ''}</div></div>
-        ${f.owedByMe ? `<span class="sm" style="color:var(--muted)">Make it right →</span>` : `<button class="linkbtn" data-collect="${esc(f.betId)}" data-cfrom="${esc(f.from)}" data-cline="${esc(f.line)}" style="font-weight:800;color:var(--gold)">Collect →</button>`}
-      </div>`).join('')}<p class="sub" style="margin:10px 0 0">Clashly never forgets a forfeit. Settle it and mark the duel sorted.</p></div>` : ''}
-
-    ${s.recent && s.recent.length >= 2 ? `<div class="card"><div class="cardhead"><h2>My form 📋</h2></div><div class="gw-strip">${s.recent.slice(0, 7).map((r) => r.won ? '🟩' : '🟥').reverse().join('')}</div><button class="ghost" id="gwCopy">Copy for the group chat 📋</button></div>` : ''}
-
-    ${recentHtml ? `<div class="card"><h2>Recent</h2>${recentHtml}</div>` : ''}
-
-    ${isNew ? '' : `<div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l + ' this season' : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b> this season'} — settle up with your mates and run it back.</div>`}`;
-
-  app.querySelectorAll('[data-door="arcade"]').forEach((el) => el.addEventListener('click', () => {
-    haptic(8); track('landing_door', { door: 'arcade' }); location.href = '/arcade';
-  }));
-  const wkSeg = $('#wkSeg');
-  if (wkSeg) wkSeg.querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
-    const o = b.dataset.w; haptic(10); track('weekly_call_tap');
-    wkSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
-    try {
-      const r = await api('/weekly/call', { method: 'POST', body: JSON.stringify({ outcome: o, v: voterId() }) });
-      const t = r.tally || {}; const tot = t.total || 0;
-      const split = $('#wkSplit'); if (split) {
-        split.style.display = '';
-        const bars = split.querySelectorAll('div[style*="height:100%"]');
-        const codes = ['HOME', 'DRAW', 'AWAY'];
-        bars.forEach((bar, i) => { bar.style.width = (tot ? Math.round((t[codes[i]] || 0) / tot * 100) : 0) + '%'; });
-        split.querySelectorAll('span.sm').forEach((sp, i) => { sp.textContent = (tot ? Math.round((t[codes[i]] || 0) / tot * 100) : 0) + '%'; });
-        const p = split.querySelector('p'); if (p) p.textContent = `${tot} ${tot === 1 ? 'person has' : 'people have'} called it`;
-      }
-      const sh = $('#wkShare'); if (sh) { sh.style.display = ''; sh.dataset.call = o; }
-      sfx('ping'); toast('On the record 📣');
-    } catch (e) { toast(e.message); }
-  }));
-  const wkSh = $('#wkShare');
-  if (wkSh && wk && wk.match) wkSh.addEventListener('click', async () => {
-    const call = wkSh.dataset.call || wk.myCall;
-    const lbl = call === 'HOME' ? wk.match.home + ' win' : call === 'AWAY' ? wk.match.away + ' win' : 'a draw';
-    // no link, on purpose: a scoreline reads as bragging, a link reads as an advert
-    const txt = `CLASHLY · ${wk.match.home} v ${wk.match.away}\nI called ${lbl}.` +
-      (wk.result ? (call === wk.result ? '\nCalled it. ✅' : '\nGot it wrong. ❌') : '\nCall it before kickoff and we will see who was right.');
-    track('weekly_share');
-    try { await navigator.clipboard.writeText(txt); sfx('clip'); toast('Copied — paste it in the chat'); }
-    catch { toast(txt); }
-  });
-  app.querySelectorAll('[data-settle]').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); track('settle_card_tap'); history.pushState({}, '', '/b/' + el.dataset.settle); renderBet(el.dataset.settle); }));
-  const chBtn = $('#challenge'); if (chBtn) chBtn.addEventListener('click', () => { PREFILL = null; renderCreate(); });
-  const mc = $('#motwCall'); if (mc) mc.addEventListener('click', () => { track('motw_tap'); PREFILL = { matchId: motw.id }; renderCreate(); });
-  app.querySelectorAll('[data-collect]').forEach((b) => b.addEventListener('click', (e) => {
-    e.stopPropagation(); track('forfeit_collect');
-    const link = location.origin + '/b/' + b.dataset.collect;
-    shareLink(link, `Oi ${b.dataset.cfrom} — still outstanding: “${b.dataset.cline}” 🧾 The receipt says it all 👇`);
-  }));
-  app.querySelectorAll('[data-bet]').forEach((el) => el.addEventListener('click', () => { history.pushState({}, '', '/b/' + el.dataset.bet); renderBet(el.dataset.bet); }));
-  const gw = $('#gwCopy'); if (gw) gw.addEventListener('click', async () => {
-    const strip = s.recent.slice(0, 7).map((r) => r.won ? '🟩' : '🟥').reverse().join('');
-    const txt = `My form on Clashly: ${strip} (${s.w}W–${s.l}L). Fancy your chances? clashly.live`;
-    try { await navigator.clipboard.writeText(txt); sfx('clip'); toast('Copied — paste it in the chat'); track('gw_copy'); }
-    catch { toast(txt); }
-  });
-  const fb = $('#firstBet'); if (fb) fb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
-  const ft = $('#firstTake'); if (ft) ft.addEventListener('click', () => { track('first_take_tap'); history.pushState({}, '', '/arena'); route(); });
-  const la = $('#linkAcct'); if (la) la.addEventListener('click', () => { track('link_nudge_tap'); history.pushState({}, '', '/profile'); route(); });
-  const po = $('#pushOn'); if (po) po.addEventListener('click', async () => { track('push_optin_tap'); const ok = await enablePush(); toast(ok ? 'Notifications on 🔔' : 'Could not enable notifications'); renderHome(); });
-  const pn = $('#pushNo'); if (pn) pn.addEventListener('click', () => { try { localStorage.setItem('clashly_push_dismissed', '1'); } catch {} renderHome(); });
-  app.querySelectorAll('[data-golisting]').forEach((el) =>
-    el.addEventListener('click', (e) => { e.stopPropagation(); history.pushState({}, '', '/b/' + el.dataset.golisting); renderBet(el.dataset.golisting); }));
-  app.querySelectorAll('[data-arena]').forEach((el) =>
-    el.addEventListener('click', (e) => { e.stopPropagation(); track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
-  const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
-  const sc = $('#seasonCall'); if (sc) sc.addEventListener('click', () => {
-    PREFILL = { season: true, claim: SEASON_IDEAS[new Date().getDate() % SEASON_IDEAS.length] };
-    renderCreate();
-  });
-  const aa = $('#arenaAll'); if (aa) aa.addEventListener('click', () => { history.pushState({}, '', '/arena'); route(); });
-  app.querySelectorAll('[data-correct]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const ti = $('#terrIn'); if (ti) { ti.value = '@' + b.dataset.correct + ' '; ti.focus(); ti.scrollIntoView({ behavior: 'smooth', block: 'center' }); haptic(8); } }));
-  app.querySelectorAll('[data-punish]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); PREFILL = { opponent: b.dataset.punish }; renderCreate(); }));
-  const tGo = $('#terrGo'), tIn = $('#terrIn');
-  if (tGo && tIn) {
-    const post = async () => { const v = tIn.value.trim(); if (v.length < 2) return toast('Say something worth saying'); tGo.disabled = true;
-      try { await api('/terrace', { method: 'POST', body: JSON.stringify({ text: v }) }); track('terrace_post'); haptic(10); sfx('pop'); renderHome(); }
-      catch (e) { toast(e.message); tGo.disabled = false; } };
-    tGo.addEventListener('click', post);
-    tIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); post(); } });
-    app.querySelectorAll('[data-terr]').forEach((c) => c.addEventListener('click', () => { tIn.value = c.dataset.terr; haptic(6); tIn.focus(); }));
-  }
-  app.querySelectorAll('[data-callit]').forEach((el) =>
-    el.addEventListener('click', (e) => { e.stopPropagation(); track('big_game_tap', { match: el.dataset.callit }); PREFILL = { matchId: el.dataset.callit }; renderCreate(); }));
-  app.querySelectorAll('[data-rivid]').forEach((row) =>
-    row.addEventListener('click', (e) => { if (e.target.closest('[data-rematch]')) return; openRivalrySheet(row.dataset.rivid, row.dataset.rivname); }));
-  app.querySelectorAll('[data-rematch]').forEach((b) =>
-    b.addEventListener('click', () => { PREFILL = { opponent: b.dataset.rematch }; renderCreate(); }));
-  const nl0 = $('#newLeague'); if (nl0) nl0.addEventListener('click', () => renderLeagueHub());
-  const sl = $('#startLeague'); if (sl) sl.addEventListener('click', () => renderLeagueHub());
-  const rw = $('#recWin'); if (rw) rw.addEventListener('click', () => { RECWIN = RECWIN === 'week' ? 'all' : 'week'; renderHome(); });
-  const el2 = $('#escalateLeague'); if (el2) el2.addEventListener('click', () => renderLeagueHub(`The ${hot.opponent} derby`));
-  app.querySelectorAll('[data-league]').forEach((b) =>
-    b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
-}
-
-
-// ---------------------------------------------------------------------------
-// Arena — the full marketplace of open bets (browse like listings)
-// ---------------------------------------------------------------------------
-async function renderArena() {
-  const my = ++_gen; const live = () => my === _gen;
-  const m = me.get();
-  const [arRes, sRes] = await Promise.allSettled([api('/arena'), api('/players/me/summary')]);
-  if (!live()) return;
-  const ar = arRes.status === 'fulfilled' ? arRes.value : null;
-  const s = sRes.status === 'fulfilled' ? sRes.value : { arenaPts: 0 };
-  const list = (ar && ar.challenges) || [];
-  const recent = (ar && ar.recent) || [];
-  const open = list.filter((c) => !m || c.proposerId !== m.id);
-  const mine = list.filter((c) => m && c.proposerId === m.id);
-  app.innerHTML = `
-    <div class="card" style="border-color:rgba(124,58,237,.45)">
-      <div class="cardhead"><h2>Answer public challenges 📬</h2>${s.arenaPts ? `<span class="flame on">⚡ ${s.arenaPts} pts</span>` : ''}</div>
-      <p class="sub" style="margin:2px 0 0">These are public challenges from other players. Pick one, take the other side and put your call on the record. 👑</p>
-      ${open.length ? `<div class="market">${open.map(arenaItemCard).join('')}</div>` : '<p class="sub" style="margin:10px 0 0">No public challenges right now — post the first one. 🥊</p>'}
-      ${mine.length ? `<p class="sub" style="margin:10px 0 0">📌 Yours, live in the Arena:</p><div class="market">${mine.map(arenaItemCard).join('')}</div>` : ''}
-      <button class="cta commit" id="arenaPost" style="margin-top:14px">🌍 Post a public challenge</button>
-      <button class="muted-link" id="homeLink">← Back to challenges</button>
-    </div>
-    ${recent.length ? `<div class="card"><div class="cardhead"><h2>Latest results 🏁</h2></div>${recent.map((r) => `
-      <div class="recent"><span><b style="color:var(--text)">${esc(r.winner)}</b> beat ${esc(r.loser)}${r.arena ? ' ⚡' : ''} · <span style="color:var(--muted)">${esc(matchLabel(r))}</span></span><span class="res" style="color:var(--muted)">${esc(r.stakeLbl)}</span></div>`).join('')}</div>` : ''}`;
-  app.querySelectorAll('[data-arena]').forEach((el) =>
-    el.addEventListener('click', () => { track('arena_tap', { bet: el.dataset.arena }); history.pushState({}, '', '/b/' + el.dataset.arena); renderBet(el.dataset.arena); }));
-  const ap = $('#arenaPost'); if (ap) ap.addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
-  const sc = $('#seasonCall'); if (sc) sc.addEventListener('click', () => {
-    PREFILL = { season: true, claim: SEASON_IDEAS[new Date().getDate() % SEASON_IDEAS.length] };
-    renderCreate();
-  });
-  const hl = $('#homeLink'); if (hl) hl.addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
-}
-
-// ---------------------------------------------------------------------------
-// Games — an in-app launchpad keeps the new bottom-bar destination obvious.
-// ---------------------------------------------------------------------------
-function renderGames() {
-  app.innerHTML = `
-    <div class="card" style="border-color:rgba(255,200,61,.45)">
-      <div class="cardhead"><h2>Games 🕹️</h2><span class="tag-rival">BESTS SAVED</span></div>
-      <p class="sub" style="margin:2px 0 14px">Four quick tests of nerve. Every run banks points on the public board, up to 30 a day.</p>
-      <a class="game-launch" href="/score"><span>🥅</span><div><b>Score</b><small>Beat the keeper. Endless levels, one save and it's full time.</small></div><i>›</i></a>
-      <a class="game-launch" href="/hilo"><span>📈</span><div><b>Higher / Lower</b><small>Four decks: transfer fees, who is older, who is taller, more caps.</small></div><i>›</i></a>
-      <a class="game-launch" href="/connect"><span>🟢</span><div><b>Connect</b><small>Aim, drop, merge. Let a ball out of the basket and you lose.</small></div><i>›</i></a>
-      <a class="game-launch" href="/daily"><span>🗓️</span><div><b>The Daily</b><small>One career, six guesses. A new player every day.</small></div><i>›</i></a>
-    </div>`;
-}
-
-// ---------------------------------------------------------------------------
-// Leaderboard — rankings, weekly crowns, leagues
-// ---------------------------------------------------------------------------
-async function renderBoard() {
-  const my = ++_gen; const live = () => my === _gen;
-  const m = me.get();
-  const [recRes, lgRes, sRes] = await Promise.allSettled([api('/records?window=' + RECWIN), api('/players/me/leagues'), api('/players/me/summary')]);
-  if (!live()) return;
-  const rec = recRes.status === 'fulfilled' ? recRes.value : null;
-  const lg = lgRes.status === 'fulfilled' ? lgRes.value : { leagues: [] };
-  const s = sRes.status === 'fulfilled' ? sRes.value : { arenaPts: 0 };
-  const recRow = (ico, label, val) => val ? `<div class="recent"><span>${ico} ${label}</span><span class="res" style="color:var(--gold)">${val}</span></div>` : '';
-  const crowns = rec ? [
-    recRow('🔥', 'Hot streak', rec.streak && `${esc(rec.streak.name)} · ${rec.streak.count}W`),
-    recRow('⚔️', 'Most duels', rec.mostDuels && `${esc(rec.mostDuels.name)} · ${rec.mostDuels.duels}`),
-    recRow('🎯', 'Best record', rec.bestRecord && `${esc(rec.bestRecord.name)} · ${rec.bestRecord.w}-${rec.bestRecord.l}`),
-    recRow('😅', 'Biggest bottle', rec.biggestBottle && `${esc(rec.biggestBottle.name)} · ${rec.biggestBottle.l} Ls`),
-    recRow('👑', 'Arena crown', rec.arenaKing && `${esc(rec.arenaKing.name)} · ${rec.arenaKing.wins} arena W${rec.arenaKing.wins === 1 ? '' : 's'}`),
-  ].join('') : '';
-  const table = (rec && rec.table) || [];
-  app.innerHTML = `
-    <div class="card">
-      <div class="cardhead"><h2>Player rankings 🏆</h2><button class="linkbtn" id="recWin">${RECWIN === 'week' ? 'This week ▾' : 'All time ▾'}</button></div>
-      ${table.length ? table.map((r, i) => `
-        <div class="recent"><span>${i === 0 ? '👑' : '#' + (i + 1)} <b style="color:var(--text)">${esc(r.name)}</b>${m && r.name === m.name ? ' <span class="tag-rival">you</span>' : ''}</span><span class="res" style="color:var(--gold)">${r.w}–${r.l}${r.arenaPts ? ' · ⚡' + r.arenaPts : ''}</span></div>`).join('')
-        : `<p class="sub" style="margin:8px 0 0">No decided duels ${RECWIN === 'week' ? 'this week' : 'yet'} — the throne is empty. 👑</p>`}
-      ${s.arenaPts ? `<div class="banner" style="margin-top:10px">⚡ Your Arena points: <b style="color:var(--gold)">${s.arenaPts}</b></div>` : ''}
-    </div>
-    <div class="card"><div class="cardhead"><h2>Weekly crowns</h2></div>${crowns || '<p class="sub" style="margin:8px 0 0">Play some duels and the crowns appear here.</p>'}</div>
-    <div class="card">
-      <div class="cardhead"><h2>My leagues</h2><button class="linkbtn" id="newLeague">+ New / join</button></div>
-      ${lg.leagues.length ? lg.leagues.map((l) => `
-        <div class="riv-row" data-league="${esc(l.code)}" role="button" tabindex="0" style="cursor:pointer">
-          <div><div class="nm">${esc(l.name)}</div><div class="sm">${l.members} mates · ${l.rank ? "you're #" + l.rank + ' of ' + l.total : 'unranked'}</div></div>
-          <div class="rec ${l.rank === 1 ? 'lead' : ''}">#${l.rank || '–'}</div>
-        </div>`).join('') : `<p class="sub" style="margin:8px 0 0">One table for your whole group chat — every duel between members counts. 🏆</p><button class="cta" id="startLeague" style="margin-top:12px">Start a group league →</button>`}
-    </div>`;
-  const rw = $('#recWin'); if (rw) rw.addEventListener('click', () => { RECWIN = RECWIN === 'week' ? 'all' : 'week'; renderBoard(); });
-  const nl = $('#newLeague'); if (nl) nl.addEventListener('click', () => renderLeagueHub());
-  const sl = $('#startLeague'); if (sl) sl.addEventListener('click', () => renderLeagueHub());
-  app.querySelectorAll('[data-league]').forEach((b) => b.addEventListener('click', () => { history.pushState({}, '', '/l/' + b.dataset.league); renderLeague(b.dataset.league); }));
-}
-
-
-// ---------------------------------------------------------------------------
-// Duels tab — all your bets
-// ---------------------------------------------------------------------------
-async function renderDuels() {
-  const my = ++_gen; const live = () => my === _gen;
-  const m = me.get();
-  let d = { active: [], history: [] };
-  try { d = await api('/players/me/bets'); } catch {}
-  const row = (b) => `
-    <div class="recent" data-bet="${b.id}" role="button" tabindex="0" style="cursor:pointer">
-      <span>${b.yourMove ? '<span class="pill accepted" style="margin-right:6px">your move</span>' : ''}${esc(matchLabel(b))}${b.opponent ? ' · <span style="color:var(--muted)">' + esc(b.opponent) + '</span>' : ''}</span>
-      <span class="res ${b.won === true ? 'w' : b.won === false ? 'l' : ''}">${statusLabel(b)}</span>
-    </div>`;
-  // whatever needs YOUR action surfaces first — the open loop you came back to close
-  const active = [...d.active].sort((a, b) => (b.yourMove === true) - (a.yourMove === true));
-  app.innerHTML = `
-    <div class="card">
-      <div class="cardhead"><h2>Active duels ⚔️</h2><button class="linkbtn" id="newBet">+ New</button></div>
-      ${active.length ? active.map(row).join('') : `<p class="sub" style="margin:8px 0 12px">No live duels.</p><button class="cta commit" id="emptyNewBet">⚔️ Challenge a mate</button>`}
-    </div>
-    ${d.history.length ? `<div class="card"><h2>Settled</h2>${d.history.map(row).join('')}</div>` : ''}`;
-  $('#newBet').addEventListener('click', () => { PREFILL = null; renderCreate(); });
-  const enb = $('#emptyNewBet'); if (enb) enb.addEventListener('click', () => { PREFILL = null; renderCreate(); });
-  app.querySelectorAll('[data-bet]').forEach((el) => el.addEventListener('click', () => { history.pushState({}, '', '/b/' + el.dataset.bet); renderBet(el.dataset.bet); }));
-}
-
-// ---------------------------------------------------------------------------
-// Profile tab — record, rivalries, identity
-// ---------------------------------------------------------------------------
-async function renderProfile() {
-  const my = ++_gen; const live = () => my === _gen;
-  let m = me.get();
-  // players saved before founder numbers existed → refresh once to pick up seq
-  if (m && m.seq == null) { try { const p = await api('/players/me'); me.save(p); m = p; } catch {} }
-  let s;
-  try { s = await api('/players/me/summary'); }
-  catch { s = { w: 0, l: 0, net: 0, currency: 'EUR', streak: { type: null, count: 0 }, rivalries: [] }; }
-  const netClass = s.net > 0 ? 'pos' : s.net < 0 ? 'neg' : '';
-  const hideStreaks = prefs.get().hideStreaks;
-  const streakTxt = (!hideStreaks && s.streak.count) ? `${s.streak.count}${s.streak.type}` : '—';
-  const lang = (window.CLASHLY_I18N && window.CLASHLY_I18N.lang()) || 'en';
-  const acct = m.email
-    ? `<div class="card"><div class="cardhead"><h2>Account</h2><button class="linkbtn" id="signout">Sign out</button></div><p class="sub" style="margin:0">Signed in as <b style="color:var(--text)">${esc(m.email)}</b>${m.verified ? ' ✓' : ''}. Your record syncs to this account.</p></div>`
-    : `<div class="card"><div class="cardhead"><h2>Account</h2></div><p class="sub" style="margin:0 0 10px">You're playing as a guest on this device. Save your record so it survives across devices.</p><button class="cta" id="signin">Sign in / create account</button></div>`;
-  app.innerHTML = `
-    <div class="card">
-      <div class="cardhead"><h2>${esc(m.name)} ${m.seq ? `<span class="tag-rival" style="background:rgba(255,200,61,.18);color:var(--gold)">🔰 FOUNDER #${m.seq}</span>` : ''}</h2><button class="linkbtn" id="rename">Edit name</button></div>
-      <div class="stats">
-        <div class="stat"><div class="n">${s.w}–${s.l}</div><div class="k">Record</div></div>
-        <div class="stat"><div class="n ${netClass}">${netTxt(s.net, s.currency)}</div><div class="k">Net</div></div>
-        <div class="stat"><div class="n gold">${streakTxt}</div><div class="k">Streak</div></div>
-      </div>
-    </div>
-    <div class="card"><div class="cardhead"><h2>Friends</h2></div>
-      ${(s.rivalries || []).length ? s.rivalries.slice(0, 8).map((r) => `<div class="recent"><span><b style="color:var(--text)">${esc(r.opponent)}</b></span><span class="res">${r.games} challenge${r.games === 1 ? '' : 's'}</span></div>`).join('') : '<p class="sub" style="margin:8px 0 0">Friends appear here after they open a challenge link and take you on.</p>'}
-    </div>
-    ${acct}
-    <div class="card"><div class="cardhead"><h2>Settle up 💸</h2><button class="linkbtn" id="allDuels">⚔️ All my duels →</button></div>
-      ${(s.rivalries || []).filter((r) => r.net).length ? (s.rivalries || []).filter((r) => r.net).map((r) => `<div class="recent" data-settlego="1" role="button" tabindex="0" style="cursor:pointer"><span>${esc(r.opponent)} <span style="color:var(--muted-2);font-size:11px">tap to settle →</span></span><span class="res ${r.net > 0 ? 'w' : 'l'}">${r.net > 0 ? 'owes you ' : 'you owe '}${sym(r.currency)}${Math.abs(r.net)}</span></div>`).join('') : '<p class="sub" style="margin:8px 0 0">All square — nobody owes anything. 🤝</p>'}
-      <p class="sub" style="margin:10px 0 0;font-size:12px">Clashly holds no money — settle between yourselves (cash, BLIK, Revolut…) and mark the duel sorted.</p>
-    </div>
-    <div class="card"><div class="cardhead"><h2>Settings</h2></div><div class="checkrow" style="margin-top:6px"><input type="checkbox" id="langPl" ${lang === 'pl' ? 'checked' : ''} /><label for="langPl">🇵🇱 Polski interfejs (Polish interface)</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="hideStreaks" ${hideStreaks ? 'checked' : ''} /><label for="hideStreaks">Hide streaks — no flame, no pressure</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="sndFx" ${(window.SFX && window.SFX.on()) ? 'checked' : ''} /><label for="sndFx">🔊 Sound effects</label></div><div class="checkrow" style="margin-top:10px"><input type="checkbox" id="pushChk" ${typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'checked' : ''} /><label for="pushChk">🔔 Notifications (results, counter-offers)</label></div></div>
-    <div class="card"><h2>Rivalries</h2>${s.rivalries.length
-      ? s.rivalries.map((r) => `<div class="riv-row" data-rivid="${esc(r.opponentId)}" data-rivname="${esc(r.opponent)}" role="button" tabindex="0" style="cursor:pointer"><div><div class="nm">${esc(r.opponent)} ${r.isRival ? '<span class="tag-rival">Rival</span>' : ''}</div><div class="sm">${r.w + r.l} duel${r.w + r.l === 1 ? '' : 's'}</div></div><div class="rec ${r.w > r.l ? 'lead' : r.w < r.l ? 'trail' : ''}">${r.w}–${r.l}</div></div>`).join('')
-      : '<p class="sub" style="margin:8px 0 0">No rivalries yet — challenge a mate.</p>'}</div>
-    <div class="banner">${s.net == null ? "You're " + s.w + '–' + s.l : "You're net <b style=\"color:var(--text)\">" + netTxt(s.net, s.currency) + '</b>'} — settle up with your mates and run it back.</div>`;
-  $('#rename').addEventListener('click', () => openRenameSheet(m.name));
-  const ad = $('#allDuels'); if (ad) ad.addEventListener('click', () => { history.pushState({}, '', '/duels'); route(); });
-  app.querySelectorAll('[data-settlego]').forEach((el) => el.addEventListener('click', () => { history.pushState({}, '', '/duels'); route(); }));
-  const lp = $('#langPl'); if (lp) lp.addEventListener('change', () => { if (window.CLASHLY_I18N) window.CLASHLY_I18N.toggle(); });
-  const so = $('#signout'); if (so) so.addEventListener('click', () => { me.clear(); localStorage.removeItem('settle_roles'); try { posthog.reset(); } catch {} renderHeader(); history.pushState({}, '', '/'); route(); });
-  const si = $('#signin'); if (si) si.addEventListener('click', () => openLoginSheet(renderProfile));
-  const hs = $('#hideStreaks'); if (hs) hs.addEventListener('change', () => { prefs.set('hideStreaks', hs.checked); renderProfile(); });
-  const sx = $('#sndFx'); if (sx) sx.addEventListener('change', () => { if (window.SFX) window.SFX.toggle(); sfx('pop'); });
-  const pc = $('#pushChk'); if (pc) pc.addEventListener('change', async () => { if (pc.checked) { const ok = await enablePush(); if (!ok) { pc.checked = false; toast('Blocked by the browser — allow notifications in site settings'); } else toast('Notifications on 🔔'); } else { toast('Turn off in your browser site settings'); pc.checked = true; } });
-  app.querySelectorAll('[data-rivid]').forEach((row) =>
-    row.addEventListener('click', () => openRivalrySheet(row.dataset.rivid, row.dataset.rivname)));
 }
 
 // ---------------------------------------------------------------------------
@@ -1266,18 +638,6 @@ async function renderLeague(code, full) {
 // ---------------------------------------------------------------------------
 // Create a bet
 // ---------------------------------------------------------------------------
-function renderChallengeHub() {
-  app.innerHTML = `<div class="card" style="border-color:rgba(124,58,237,.45)">
-    <div class="cardhead"><h2>Challenge ⚔️</h2></div>
-    <p class="sub">Pick an event, make your call, then choose who gets to answer it.</p>
-    <button class="cta commit" id="friendChallenge">Challenge a friend →</button>
-    <button class="cta ghost2" id="publicChallenge" style="margin-top:10px">Post a public challenge →</button>
-    <p class="sub" style="margin:14px 0 0">A friend challenge gives you a link to send. A public challenge goes straight onto the Answer tab for anyone to take.</p>
-  </div>`;
-  $('#friendChallenge').addEventListener('click', () => { PREFILL = null; renderCreate(); });
-  $('#publicChallenge').addEventListener('click', () => { PREFILL = { arena: true }; renderCreate(); });
-}
-
 async function renderCreate() {
   track('sheet_open');
   const m = me.get();
@@ -1286,14 +646,17 @@ async function renderCreate() {
   const matchesP = api('/matches').catch(() => null);
   const copy = PREFILL?.copy;
   const terms = copy || PREFILL?.terms; // last duel's line/stake carry into a rematch
-  const state = { backedOutcome: copy?.backedOutcome || 'HOME' };
+  const state = { backedOutcome: copy?.backedOutcome || PREFILL?.backed || 'HOME', credits: PREFILL?.arena ? 500 : 1000 };
   const rematchOf = PREFILL?.opponent;
+  const bal = WALLET ? WALLET.credits : null;
+  const CREDIT_CHIPS = [0, 250, 500, 1000, 2500];
+  if (bal != null && state.credits > bal) state.credits = 0;
 
   openSheet(`
     <div class="sheet-handle"></div>
-    <div class="sheet-head"><h2>${rematchOf ? 'Rematch ' + esc(rematchOf) + ' ⚔️' : copy ? 'Run it back 🔁' : 'Start a duel 🤝'}</h2><button class="sheet-x" id="sheetClose">✕</button></div>
+    <div class="sheet-head"><h2>${rematchOf ? 'Rematch ' + esc(rematchOf) + ' ⚔️' : copy ? 'Run it back 🔁' : PREFILL?.arena ? 'Post a public Clash 🌍' : 'Challenge a friend ⚔️'}</h2><button class="sheet-x" id="sheetClose">✕</button></div>
     <div class="sheet-body">
-      <p class="sub" style="margin:2px 0 12px">${rematchOf ? 'Winner takes the bragging rights and the lead.' : 'Set the terms, send the link — you settle up between yourselves.'}</p>
+      <p class="sub" style="margin:2px 0 12px">${rematchOf ? 'Winner takes the Credits and the lead.' : 'Pick the match, back your call, put Credits on it. Winner takes the pool.'}</p>
       <label for="matchSel">The match</label>
       <select id="matchSel"></select>
       <div id="customWrap" style="display:none"><div class="row"><div><label>Home team</label><input id="home" placeholder="Spain" maxlength="40" /></div><div><label>Away team</label><input id="away" placeholder="Uruguay" maxlength="40" /></div></div></div>
@@ -1311,25 +674,27 @@ async function renderCreate() {
       </div>
       <label>What are you backing?</label>
       <div class="seg" id="seg"></div>
-      <label for="lineInput">What's on the line?</label>
+      <label>Clash Credits${bal != null ? ` <span style="color:var(--muted-2);font-weight:600">· you have ${fmt(bal)} C</span>` : ''}</label>
+      <div class="reacts" id="credChips" style="margin-top:0">${CREDIT_CHIPS.map((c) => `<button type="button" class="react-chip ${c === state.credits ? 'mine' : ''}" data-cred="${c}" ${bal != null && c > bal ? 'disabled' : ''}>${c ? fmt(c) + ' C' : 'No Credits'}</button>`).join('')}</div>
+      <div class="pool" id="poolLine"></div>
+      <label for="lineInput">Forfeit too? (optional)</label>
       <input id="lineInput" maxlength="60" placeholder="e.g. loser buys the pints" value="${terms?.line ? esc(terms.line) : (terms?.stake ? esc(sym(terms.currency || 'EUR') + terms.stake) : '')}" />
       <div class="reacts" style="margin-top:8px">
         <button type="button" class="react-chip" data-line="Loser buys the pints 🍺">🍺 pints</button>
         <button type="button" class="react-chip" data-line="Loser wears the winner's shirt 👕">👕 the shirt</button>
         <button type="button" class="react-chip" data-line="Winner picks the forfeit 😈">😈 forfeit</button>
-        <button type="button" class="react-chip" data-line="€10">€10</button>
       </div>
       <label for="note">Trash talk (optional)</label>
       <div class="reacts" id="banterChips" style="margin:0 0 8px"></div>
       <input id="note" placeholder="No chance they keep it close 😏" maxlength="140" value="${copy?.note ? esc(copy.note) : ''}" />
       <div class="checkrow" style="margin-top:14px">
         <input type="checkbox" id="arenaChk" />
-        <label for="arenaChk">🌍 <b>Also list it in the Arena</b> — it stays a bet and you still get a link, but <b>anyone</b> on Clashly can take the other side too. Beat a stranger, bank <b style="color:var(--gold)">+3 Arena points</b>.<br /><span style="color:var(--muted-2);font-size:11.5px">Want to say something publicly without a bet? That's the Terrace, on the home tab.</span></label>
+        <label for="arenaChk">🌍 <b>Also make it public</b>: you still get a link, but <b>anyone</b> on Clashly can take the other side too.</label>
       </div>
       <div class="banner" style="margin-top:14px;text-align:left"><span id="previewLine">…</span></div>
       <div class="banner" id="fixSrc" style="margin-top:8px">⏳ Loading fixtures…</div>
     </div>
-    <div class="sheet-foot"><button class="cta commit" id="createBtn">Lock it in & get link →</button><div style="text-align:center;font-size:11.5px;color:var(--muted-2);margin-top:8px">Hold to lock — no backing out after.</div></div>
+    <div class="sheet-foot"><button class="cta commit" id="createBtn">Lock it in & get link →</button><div style="text-align:center;font-size:11.5px;color:var(--muted-2);margin-top:8px">Your Credits are held until the result. A void gives them back.</div></div>
   `);
 
   // banter chips — tap-to-talk suggestions (rotates daily; tap fills the note)
@@ -1367,7 +732,8 @@ async function renderCreate() {
     const compl = seasonMode ? (state.backedOutcome === 'HOME' ? "it doesn't happen" : 'it happens')
       : state.backedOutcome === 'DRAW' ? 'not a draw' : state.backedOutcome === 'HOME' ? home + " don't win" : away + " don't win";
     const p = parseLine($('#lineInput')?.value);
-    const lineLbl = p.line || (p.stake > 0 ? sym(p.currency) + p.stake : 'bragging rights');
+    const lineLbl = [state.credits ? fmt(state.credits) + ' C each' : '', p.line || (p.stake > 0 ? sym(p.currency) + p.stake : '')].filter(Boolean).join(' + ') || 'bragging rights';
+    const pl = $('#poolLine'); if (pl) pl.innerHTML = state.credits ? `<span>Stake:</span> <b>${fmt(state.credits)} C</b> <span>each · winner takes</span> <b class="teal">${fmt(state.credits * 2)} C</b>` : '<span>No Credits on it. Bragging rights only.</span>';
     const el = $('#previewLine');
     // both outcomes, honestly — real books only ever show the upside; showing the
     // downside too is DSA-safe AND funnier (the forfeit is half the banter)
@@ -1413,10 +779,15 @@ async function renderCreate() {
   document.querySelectorAll('#sheetPanel [data-claim]').forEach((chip) =>
     chip.addEventListener('click', () => { const c = $('#claim'); if (c) { c.value = chip.dataset.claim; haptic(8); updatePreview(); } }));
   $('#lineInput').addEventListener('input', updatePreview);
+  document.querySelectorAll('#credChips [data-cred]').forEach((chip) => chip.addEventListener('click', () => {
+    state.credits = Number(chip.dataset.cred); haptic(8);
+    document.querySelectorAll('#credChips [data-cred]').forEach((x) => x.classList.toggle('mine', x === chip));
+    updatePreview();
+  }));
   document.querySelectorAll('#sheetPanel [data-line]').forEach((chip) =>
     chip.addEventListener('click', () => { $('#lineInput').value = chip.dataset.line; haptic(8); updatePreview(); }));
   $('#sheetClose').addEventListener('click', closeSheet);
-  const syncArenaUi = () => { const ac = $('#arenaChk'), cb = $('#createBtn'); if (ac && cb && !cb.disabled) cb.textContent = ac.checked ? '🌍 Post it to Answer →' : 'Lock it in & get link →'; };
+  const syncArenaUi = () => { const ac = $('#arenaChk'), cb = $('#createBtn'); if (ac && cb && !cb.disabled) cb.textContent = ac.checked ? '🌍 Post it publicly →' : 'Lock it in & get link →'; };
   const acEl = $('#arenaChk'); if (acEl) acEl.addEventListener('change', () => { haptic(8); syncArenaUi(); });
   // Opened from "Post a public challenge": the Arena/Answer listing is the whole point,
   // so the checkbox is forced on and hidden, and the finish line is the Answer tab,
@@ -1457,7 +828,7 @@ async function renderCreate() {
     if (season && !home) return toast('What are you calling?');
     if (!season && (!home || !away)) return toast('Add both teams');
     const p = parseLine($('#lineInput').value);
-    if (!p.line && !(p.stake > 0)) return toast("Put something on the line — a forfeit or a number");
+    if (!p.line && !(p.stake > 0) && !state.credits) return toast('Put Credits or a forfeit on it');
     const btn = $('#createBtn'); btn.disabled = true; btn.textContent = 'Locking in…'; haptic(22);
     try {
       const bet = await api('/bets', { method: 'POST', body: JSON.stringify({
@@ -1466,14 +837,16 @@ async function renderCreate() {
         utcDate: season ? ($('#deadline')?.value ? new Date($('#deadline').value + 'T21:00:00Z').toISOString() : null) : (mm ? mm.utcDate : null),
         externalId: season ? null : (mm ? mm.externalId || null : null),
         backedOutcome: state.backedOutcome, stake: p.stake, currency: p.currency, line: p.line, note: $('#note').value.trim(), arena: Boolean($('#arenaChk')?.checked), rematch: Boolean(rematchOf || copy),
+        credits: state.credits,
       }) });
+      if (bet.credits && WALLET) animateCredits(WALLET.credits - bet.credits, -bet.credits);
       roleStore.set(bet.id, 'proposer'); PREFILL = null;
       try { sessionStorage.setItem('duely_stamp', bet.id); } catch {}
       track('bet_created', { stake: p.stake, forfeit: Boolean(p.line) });
       closeSheet();
       if (publicPost) {
-        history.pushState({}, '', '/answer'); setTab('answer'); renderArena();
-        toast('Posted to Answer 🌍 — anyone on Clashly can take the other side');
+        history.pushState({}, '', '/clash'); setTab('clash'); renderClash();
+        toast('Posted 🌍 Anyone on Clashly can take the other side');
         return;
       }
       history.pushState({}, '', '/b/' + bet.id); renderBet(bet.id);
@@ -1505,8 +878,8 @@ async function renderBet(id, opts = {}) {
   try { bet = await api('/bets/' + id); }
   catch (e) {
     if (!live()) return; // a newer navigation superseded this render
-    if (e.status === 404) { app.innerHTML = `<div class="card"><h2>Bet not found</h2><p class="sub">This link looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Clashly</button></div>`; return; }
-    app.innerHTML = `<div class="card"><h2>Can't reach Clashly</h2><p class="sub">Looks like a connection blip — the bet's still there.</p><button class="cta" id="retryBet">Try again</button></div>`;
+    if (e.status === 404) { app.innerHTML = `<div class="card"><h2>Clash not found</h2><p class="sub">This link looks broken or expired.</p><button class="cta" onclick="location.href='/'">Go to Clashly</button></div>`; return; }
+    app.innerHTML = `<div class="card"><h2>Can't reach Clashly</h2><p class="sub">Looks like a connection blip. The Clash is still there.</p><button class="cta" id="retryBet">Try again</button></div>`;
     $('#retryBet').addEventListener('click', () => renderBet(id));
     return;
   }
@@ -1554,7 +927,7 @@ async function renderBet(id, opts = {}) {
             ? `You're calling <b>${esc(bet.home)}</b> for <b>${money(bet)}</b>. They take the other side (${esc(complementLabel(bet))}).`
             : `You're backing <b>${esc(outcomeLabel(bet, bet.backedOutcome))}</b> for <b>${money(bet)}</b>. They take the other side (${esc(complementLabel(bet))}).`}</p>
           <div style="position:relative">
-            <img class="cardimg" src="/card/${id}.svg" alt="Your bet card" loading="eager" />
+            <img class="cardimg" src="/card/${id}.svg" alt="Your Clash card" loading="eager" />
             ${(() => { try { if (sessionStorage.getItem('duely_stamp') === id) { sessionStorage.removeItem('duely_stamp'); return '<div class="stamp-slam">ON THE RECORD</div>'; } } catch {} return ''; })()}
           </div>
           <button class="cta wa" id="waBtn">SEND THE CHALLENGE 📲</button>
@@ -1564,10 +937,10 @@ async function renderBet(id, opts = {}) {
           </div>
           <button class="muted-link" id="copyLink">Copy link</button>
           ${commentsHtml(bet)}
-          <button class="muted-link" id="cancelBet">Cancel this bet</button>
+          <button class="muted-link" id="cancelBet">Call off this Clash</button>
           <button class="muted-link" id="homeLink">Back to my season</button>
         </div>
-        <div class="banner">Waiting for your mate to take the bet…</div>`;
+        <div class="banner">Waiting for your mate to accept…</div>`;
       const pendingOffers = (bet.offers || []).filter((o) => o.status === 'pending');
       if (pendingOffers.length) {
         const offHtml = pendingOffers.map((o) => `
@@ -1610,7 +983,7 @@ async function renderBet(id, opts = {}) {
       $('#cancelBet').addEventListener('click', (e) => {
         const b = e.target;
         if (b.dataset.armed) return doVoid(id);
-        b.dataset.armed = '1'; b.textContent = 'Tap again to cancel this bet';
+        b.dataset.armed = '1'; b.textContent = 'Tap again to call it off';
       });
       wireComments(id);
       $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
@@ -1643,7 +1016,7 @@ async function renderBet(id, opts = {}) {
     track('invitee_open', { id });
     app.innerHTML = `
       <div class="card">
-        <div class="cardhead"><h2>${esc(bet.proposerName)} wants to bet you 👀</h2>${pill}</div>
+        <div class="cardhead"><h2>${esc(bet.proposerName.toUpperCase())} CHALLENGES YOU ⚔️</h2>${pill}</div>
         ${koTxt ? `<div class="banner" style="margin:0 0 6px;border-style:solid;border-color:rgba(255,200,61,.35);color:var(--gold);font-weight:800">${koTxt}</div>` : ''}
         <p class="sub">${isSeason(bet)
           ? `<b>${esc(bet.proposerName)}</b> is calling <b>${esc(bet.home)}</b>${bet.backedOutcome === 'AWAY' ? ' <b>not</b> to happen' : ''}. You take the other side.`
@@ -1653,16 +1026,17 @@ async function renderBet(id, opts = {}) {
         ${bet.note ? `<div class="note">“${esc(bet.note)}”</div>` : ''}
         <div class="tape">
           <div><div class="t-av">${initials(bet.proposerName)}</div><div class="t-nm teal">${esc(bet.proposerName)}</div><div class="t-pick">${esc(outcomeLabel(bet, bet.backedOutcome))}</div></div>
-          <div><div class="vs-big">VS</div><div class="t-stake">${esc(bet.line ? bet.line : (bet.stake > 0 ? sym(bet.currency) + bet.stake : 'bragging rights'))}</div></div>
+          <div><div class="vs-big">VS</div><div class="t-stake">${esc(money(bet))}</div></div>
           <div><div class="t-av pu">${m ? initials(m.name) : 'YOU'}</div><div class="t-nm purple">${m ? esc(m.name) : 'You'}</div><div class="t-pick">${esc(complementLabel(bet))}</div></div>
         </div>
+        ${bet.credits ? `<div class="banner" style="margin:10px 0 0;border-style:solid;border-color:rgba(20,224,200,.4);color:var(--text);text-align:left">⚔️ <b>${fmt(bet.credits)} C</b> <span>each. Winner takes</span> <b style="color:var(--teal)">${fmt(bet.credits * 2)} C</b>.${WALLET ? ` <span style="color:var(--muted)">You have ${fmt(WALLET.credits)} C.</span>` : ` <span style="color:var(--muted)">New players start with 10,000 C.</span>`}</div>` : ''}
         ${m ? '' : `
         <div id="nameWrap" style="display:none">
           <label for="opponentName">Sign the fight card — this goes on the record</label>
           <input id="opponentName" placeholder="Your name" maxlength="40" autocapitalize="words" />
         </div>`}
-        <button class="cta commit" id="acceptBtn">Take the bet 🤝</button>
-        <div style="text-align:center;font-size:11.5px;color:var(--muted-2);margin-top:6px">Free. No money. No sign-up. You're just going on the record.</div>
+        <button class="cta commit" id="acceptBtn">ACCEPT CLASH 🤝</button>
+        <div style="text-align:center;font-size:11.5px;color:var(--muted-2);margin-top:6px">Free. Virtual Credits only, no cash value. No sign-up.</div>
         <div style="text-align:center;font-size:11px;color:var(--muted-2);margin-top:3px">By accepting you confirm you're 18 or over.</div>
         <button class="ghost" id="haggleBtn" style="width:100%;margin-top:8px">💬 Haggle — counter the terms</button>
         <div id="haggleWrap" style="display:none;margin-top:10px">
@@ -1706,6 +1080,7 @@ async function renderBet(id, opts = {}) {
         track('bet_accepted');
         sfx('whistle');
         renderHeader();
+        loadWallet().then(() => { if (bet.credits) floatDelta(-bet.credits); });
         roleStore.set(id, 'opponent');
         let sub = `The ${esc(bet.proposerName)} rivalry is live`;
         try { const r = await api('/players/me/rivalry?with=' + encodeURIComponent(bet.proposerId)); if (r.games >= 1) sub = `You're ${r.aWins}–${r.bWins} with ${esc(bet.proposerName)} — live now`; } catch {}
@@ -1762,7 +1137,7 @@ async function renderBet(id, opts = {}) {
     const rb = await rivalryBanner(otherSideId(bet, m), otherSide(bet, m));
     app.innerHTML = `
       <div class="card">
-        <div class="cardhead"><h2>Bet's on 🔒</h2>${pill}</div>
+        <div class="cardhead"><h2>Clash is ON 🔒</h2>${pill}</div>
         ${bet.haggled ? `<div class="banner" style="margin:0 0 8px">💬 Terms were haggled — ${esc(bet.opponentName)} countered and ${esc(bet.proposerName)} took the deal.</div>` : ''}
         ${matchCard}
         <div class="stamprow"><span class="stamp stamp-on stamp-in">ON.</span></div>
@@ -1808,7 +1183,7 @@ async function renderBet(id, opts = {}) {
         <div class="banner" style="margin-bottom:10px">⚖️ You two don't agree on the result.</div>
         ${claims.map((c) => `<div class="side"><div><div class="who">${esc(c.by)}</div><div class="pick">says ${esc(outcomeLabel(bet, c.outcome))}</div></div></div>`).join('')}
         <button class="cta" id="redoBtn" style="margin-top:12px">Report it again</button>
-        <button class="ghost" id="voidBtn">Void this bet — no result counts</button>`;
+        <button class="ghost" id="voidBtn">Call it off: no result counts</button>`;
       $('#redoBtn').addEventListener('click', showReportSeg);
       $('#voidBtn').addEventListener('click', (e) => {
         const b = e.target; if (b.dataset.armed) return doVoid(id);
@@ -1867,13 +1242,14 @@ async function renderBet(id, opts = {}) {
         ${matchCard}
         <div class="stamprow"><span class="stamp ${stampCls} stamp-in">${stampTxt}</span></div>
         <div class="banner reveal" style="margin-bottom:12px">Result: <b style="color:var(--text)">${esc(outcomeLabel(bet, bet.actualOutcome))}</b></div>
-        <div class="owes reveal delay1">
+        <div class="owes reveal delay1" ${(bet.line || bet.stake > 0) ? '' : 'style="display:none"'}>
           <div class="lbl">${bet.status === 'settled' ? 'Sorted' : 'Sort it'} 👇</div>
           <div class="big">${esc(bet.owes.from)} → ${esc(bet.owes.to)}</div>
           ${bet.stake > 0
             ? `<div class="amt" id="amt">${sym(bet.currency)}0</div>`
-            : `<div class="amt" style="font-size:22px">${esc(money(bet))}</div>`}
+            : `<div class="amt" style="font-size:22px">${esc(bet.line || money(bet))}</div>`}
         </div>
+        ${bet.credits ? `<div class="pool-won reveal delay1"><span class="kick">POOL</span><b>${fmt(bet.pool || bet.credits * 2)} C</b><span>→ ${esc(winnerNm)}</span></div>` : ''}
         <div class="side win reveal delay2"><div><div class="who">🏆 ${esc(winnerNm)}</div><div class="pick">called it: ${esc(winPick)}</div></div></div>
         ${rb ? `<div class="reveal delay3">${rb}</div>` : ''}
         <div class="reveal delay3">
@@ -1934,6 +1310,7 @@ async function renderBet(id, opts = {}) {
     setTimeout(() => { const el = $('#amt'); if (el) countUp(el, bet.owes.amount, sym(bet.currency)); }, 420);
     if (iPlay) setTimeout(() => sfx('deal'), 160); // the stamp thump
     if (iWon) { setTimeout(() => confetti(Math.max(1, Math.min(3, (bet.stake || 20) / 20))), 520); haptic([14, 50, 22]); sfx('cheer'); }
+    if (iPlay) loadWallet();
     else if (m && (bet.proposerId === m.id || bet.opponentId === m.id)) { sfx('womp'); }
 
     if (bet.status === 'resolved') $('#settleBtn').addEventListener('click', async () => {
@@ -1952,9 +1329,9 @@ async function renderBet(id, opts = {}) {
   if (bet.status === 'void') {
     app.innerHTML = `
       <div class="card">
-        <div class="cardhead"><h2>Bet called off</h2><span class="pill settled">void</span></div>
+        <div class="cardhead"><h2>Clash called off</h2><span class="pill settled">void</span></div>
         <div class="stamprow"><span class="stamp stamp-void stamp-in">VOID.</span></div>
-        <p class="sub">This bet was voided — it doesn't count toward anyone's record.</p>
+        <p class="sub">This Clash was called off. It doesn't count, and any Credits went back.</p>
         <button class="cta" id="homeLink">Back to my season</button>
       </div>`;
     $('#homeLink').addEventListener('click', () => { history.pushState({}, '', '/'); route(); });
@@ -2009,11 +1386,11 @@ async function doResolve(id, actualOutcome) {
 }
 async function doConfirm(id, outcome) {
   // send the outcome the confirmer SAW — the server 409s if the report changed underneath
-  try { await api('/bets/' + id + '/confirm', { method: 'POST', body: JSON.stringify({ outcome }) }); track('bet_resolved'); renderBet(id); }
+  try { await api('/bets/' + id + '/confirm', { method: 'POST', body: JSON.stringify({ outcome }) }); track('bet_resolved'); refreshClashBadge(); renderBet(id); }
   catch (e) { toast(e.message); if (e.status === 409) renderBet(id); } // re-render so the changed report actually surfaces
 }
 async function doVoid(id) {
-  try { await api('/bets/' + id + '/void', { method: 'POST' }); toast('Bet voided'); history.pushState({}, '', '/'); route(); }
+  try { await api('/bets/' + id + '/void', { method: 'POST' }); toast('Called off. Any Credits went back.'); history.pushState({}, '', '/clash'); route(); }
   catch (e) { toast(e.message); }
 }
 
@@ -2059,7 +1436,7 @@ function openRenameSheet(current) {
   const inp = $('#renameInput'); try { inp.focus(); inp.select(); } catch {}
   $('#renameSave').addEventListener('click', async () => {
     const n = inp.value.trim(); if (!n) return toast('Pick a name');
-    try { await rename(n); renderHeader(); closeSheet(); renderProfile(); } catch (e) { toast(e.message); }
+    try { await rename(n); renderHeader(); closeSheet(); renderProfileCard(); } catch (e) { toast(e.message); }
   });
 }
 
@@ -2112,9 +1489,7 @@ document.getElementById('tabbar')?.addEventListener('click', (e) => {
   const t = e.target.closest('.tab'); if (!t) return;
   haptic(8);
   const tab = t.dataset.tab;
-  if (tab === 'challenge') { history.pushState({}, '', '/challenge'); renderChallengeHub(); setTab('challenge'); return; }
-  if (tab === 'games') { history.pushState({}, '', '/games'); renderGames(); setTab('games'); return; }
-  const target = tab === 'answer' ? '/answer' : tab === 'league' ? '/leagues' : '/' + tab;
+  const target = tab === 'home' ? '/' : '/' + tab;
   if (location.pathname !== target) history.pushState({}, '', target);
   route();
 });
