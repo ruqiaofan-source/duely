@@ -24,9 +24,9 @@ const mk = (name) => j('/api/players', { method: 'POST', body: JSON.stringify({ 
 
 // --- isolated boot ---------------------------------------------------------
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'duely-test-'));
-for (const f of ['server.js', 'cards.js']) fs.copyFileSync(path.join(ROOT, f), path.join(tmp, f));
+for (const f of ['server.js', 'cards.js', 'economy.js', 'content.js']) fs.copyFileSync(path.join(ROOT, f), path.join(tmp, f));
 for (const l of ['node_modules', 'public', 'fonts', 'challenge.svg', 'result.svg']) fs.symlinkSync(path.join(ROOT, l), path.join(tmp, l));
-const env = { ...process.env, PORT: String(PORT) };
+const env = { ...process.env, PORT: String(PORT), ADMIN_KEY: 'test-admin' };
 delete env.DATABASE_URL; delete env.FOOTBALL_DATA_TOKEN; delete env.GOOGLE_CLIENT_ID;
 const srv = spawn(process.execPath, ['server.js'], { cwd: tmp, env, stdio: 'ignore' });
 const cleanup = () => { try { srv.kill('SIGKILL'); } catch {} try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} };
@@ -186,6 +186,110 @@ try {
   ok(gz.headers.get('cache-control') === 'public, max-age=300', 'app.js cache-control 300s');
   const fav = await fetch(B + '/favicon.svg');
   ok(fav.ok && (fav.headers.get('cache-control') || '').includes('86400'), 'favicon cached 1 day');
+  // ---- Clashly Credits (economy.js) ----------------------------------------
+  const adm = (a, body) => j('/api/admin/' + a, { method: 'POST', body: JSON.stringify(body), headers: { 'x-admin-key': 'test-admin' } });
+  const C = await mk('Cara'), D = await mk('Dev');
+  r = await j('/api/wallet', {}, C.secret);
+  ok(r.status === 200 && r.data.credits === 10000 && r.data.tickets.left === 5, 'credits: new player starts at 10,000 C with 5 Play Tickets');
+  r = await j('/api/wallet');
+  ok(r.status === 401, 'credits: wallet needs a secret');
+  r = await j('/api/admin/result', { method: 'POST', body: '{}' });
+  ok(r.status === 404, 'credits: admin hooks hidden without the key');
+  r = await j('/api/predict/m_mci_liv', {}, C.secret);
+  ok(r.status === 200 && [1.3, 2, 3.5, 5].includes(r.data.match.mult.HOME) && r.data.match.mult.DRAW >= r.data.match.mult.HOME, 'predict: tiered multipliers, draw priced as the longer shot');
+  r = await j('/api/picks', { method: 'POST', body: JSON.stringify({ matchId: 'm_mci_liv', outcome: 'HOME', amount: 50 }) }, C.secret);
+  ok(r.status === 400, 'picks: below the 100 C minimum is refused');
+  r = await j('/api/picks', { method: 'POST', body: JSON.stringify({ matchId: 'm_mci_liv', outcome: 'HOME', amount: 99999 }) }, C.secret);
+  ok(r.status === 400, 'picks: above the 5,000 C maximum is refused');
+  r = await j('/api/picks', { method: 'POST', body: JSON.stringify({ matchId: 'm_mci_liv', outcome: 'HOME', amount: 1000 }) }, C.secret);
+  ok(r.status === 201 && r.data.credits === 9000 && r.data.pick.status === 'open', 'picks: 1,000 C on the line comes off the balance');
+  const cMult = r.data.pick.mult;
+  r = await j('/api/picks', { method: 'POST', body: JSON.stringify({ matchId: 'm_mci_liv', outcome: 'AWAY', amount: 500 }) }, C.secret);
+  ok(r.status === 409, 'picks: one pick per match, no hedging');
+  await j('/api/picks', { method: 'POST', body: JSON.stringify({ matchId: 'm_mci_liv', outcome: 'AWAY', amount: 500 }) }, D.secret);
+  r = await adm('result', { key: 'm_mci_liv', outcome: 'HOME' });
+  ok(r.status === 200 && r.data.settled === 2, 'settle: both picks on the match settle');
+  r = await j('/api/wallet', {}, C.secret);
+  ok(r.data.credits === 9000 + Math.round(1000 * cMult), 'settle: a correct pick pays amount x multiplier');
+  r = await j('/api/wallet', {}, D.secret);
+  ok(r.data.credits === 9500, 'settle: a wrong pick keeps the Credits already on the line');
+  r = await j('/api/home', {}, C.secret);
+  ok(r.status === 200 && r.data.fresh.length === 1 && r.data.fresh[0].status === 'won' && r.data.founding.cap === 20000, 'home: fresh result waiting to be revealed + founding counter');
+  await j('/api/picks/seen', { method: 'POST', body: JSON.stringify({ ids: [r.data.fresh[0].id] }) }, C.secret);
+  r = await j('/api/home', {}, C.secret);
+  ok(r.data.fresh.length === 0, 'home: a seen result is not shown twice');
+
+  // daily reward + streak
+  r = await j('/api/credits/daily', { method: 'POST' }, C.secret);
+  ok(r.status === 200 && r.data.day === 1 && r.data.amount === 100, 'daily reward: day 1 pays 100 C');
+  r = await j('/api/credits/daily', { method: 'POST' }, C.secret);
+  ok(r.status === 409, 'daily reward: once a day');
+  r = await j('/api/wallet', {}, C.secret);
+  ok(r.data.streak.days === 1 && r.data.streak.today === true, 'streak: a prediction counts as today\'s activity');
+
+  // Clash Credits: escrow, pool, refund
+  const cBefore = (await j('/api/wallet', {}, C.secret)).data.credits, dBefore = (await j('/api/wallet', {}, D.secret)).data.credits;
+  r = await j('/api/bets', { method: 'POST', body: JSON.stringify({ home: 'Inter', away: 'Milan', backedOutcome: 'HOME', line: 'pints', credits: 1000 }) }, C.secret);
+  ok(r.status === 201 && r.data.credits === 1000, 'clash: created with 1,000 C on it');
+  const cb = r.data.id;
+  ok((await j('/api/wallet', {}, C.secret)).data.credits === cBefore - 1000, 'clash: proposer stake held');
+  await j('/api/bets/' + cb + '/accept', { method: 'POST' }, D.secret);
+  ok((await j('/api/wallet', {}, D.secret)).data.credits === dBefore - 1000, 'clash: acceptor stake held');
+  await j('/api/bets/' + cb + '/resolve', { method: 'POST', body: JSON.stringify({ actualOutcome: 'AWAY' }) }, C.secret);
+  await j('/api/bets/' + cb + '/confirm', { method: 'POST', body: JSON.stringify({ outcome: 'AWAY' }) }, D.secret);
+  ok((await j('/api/wallet', {}, D.secret)).data.credits === dBefore + 1000, 'clash: winner takes the 2,000 C pool');
+  r = await j('/api/bets', { method: 'POST', body: JSON.stringify({ home: 'Roma', away: 'Lazio', backedOutcome: 'HOME', credits: 500 }) }, C.secret);
+  const vb = r.data.id; const cMid = (await j('/api/wallet', {}, C.secret)).data.credits;
+  await j('/api/bets/' + vb + '/void', { method: 'POST' }, C.secret);
+  ok((await j('/api/wallet', {}, C.secret)).data.credits === cMid + 500, 'clash: void refunds the stake');
+  r = await j('/api/bets', { method: 'POST', body: JSON.stringify({ home: 'A', away: 'B', backedOutcome: 'HOME', credits: 999999 }) }, C.secret);
+  ok(r.status === 400 || r.status === 409, 'clash: cannot stake more than allowed');
+
+  // PLAY: tickets, server-scored quiz, clamps
+  r = await j('/api/play/start', { method: 'POST', body: JSON.stringify({ game: 'quiz' }) }, D.secret);
+  ok(r.status === 200 && r.data.tickets.left === 4 && r.data.q && r.data.q.opts.length === 4 && r.data.q.c === undefined, 'play: a run costs one ticket and never leaks the answer');
+  let run = r.data.run, step;
+  for (let i = 0; i < 10; i++) { step = await j('/api/play/step', { method: 'POST', body: JSON.stringify({ run, choice: 0 }) }, D.secret); }
+  ok(step.data.done === true && typeof step.data.score === 'number', 'quiz: ten server-checked answers then done');
+  r = await j('/api/play/finish', { method: 'POST', body: JSON.stringify({ run }) }, D.secret);
+  ok(r.status === 200 && r.data.reward === step.data.score && r.data.credits === r.data.before + r.data.reward, 'quiz: reward = server score, credited');
+  r = await j('/api/play/finish', { method: 'POST', body: JSON.stringify({ run }) }, D.secret);
+  ok(r.status === 410 || r.status === 409, 'play: a run pays out once');
+  r = await j('/api/play/start', { method: 'POST', body: JSON.stringify({ game: 'penalty' }) }, D.secret);
+  run = r.data.run;
+  r = await j('/api/play/finish', { method: 'POST', body: JSON.stringify({ run, shots: [250, 250, 250, 250, 250] }) }, D.secret);
+  ok(r.status === 400, 'penalty: an instant perfect score is refused');
+  r = await j('/api/play/start', { method: 'POST', body: JSON.stringify({ game: 'reaction' }) }, D.secret);
+  run = r.data.run;
+  r = await j('/api/play/finish', { method: 'POST', body: JSON.stringify({ run, ms: 20 }) }, D.secret);
+  ok(r.status === 400, 'reaction: inhuman times are refused');
+  for (let i = 0; i < 3; i++) await j('/api/play/start', { method: 'POST', body: JSON.stringify({ game: 'reaction' }) }, D.secret);
+  r = await j('/api/play/start', { method: 'POST', body: JSON.stringify({ game: 'reaction' }) }, D.secret);
+  ok(r.status === 409 && /tickets/i.test(r.data.error), 'play: no sixth run without a ticket');
+
+  // odds master needs a league table; give it one
+  const teams = { 65: { pos: 1, pg: 8, pts: 22, ppg: 2.75, gdpg: 1.5 }, 64: { pos: 12, pg: 8, pts: 9, ppg: 1.1, gdpg: -0.4 }, 57: { pos: 2, pg: 8, pts: 19, ppg: 2.4, gdpg: 1.2 }, 73: { pos: 18, pg: 8, pts: 5, ppg: 0.6, gdpg: -1.1 }, 61: { pos: 5, pg: 8, pts: 15, ppg: 1.9, gdpg: 0.5 }, 67: { pos: 15, pg: 8, pts: 7, ppg: 0.9, gdpg: -0.8 } };
+  await adm('standings', { code: 'PL', teams });
+  r = await j('/api/predict/m_ars_tot', {}, C.secret);
+  ok(r.data.match.mult.HOME === 1.3 && r.data.match.mult.AWAY === 5, 'model: a strong home side at 1.30x, the bottom side away at 5.00x');
+  r = await j('/api/play/start', { method: 'POST', body: JSON.stringify({ game: 'odds' }) }, C.secret);
+  ok(r.status === 200 && r.data.total >= 3 && r.data.event.probs === undefined, 'odds master: events from the table, probabilities hidden until the pick');
+
+  // ranks, card, seasons
+  r = await j('/api/rank?scope=global', {}, C.secret);
+  ok(r.status === 200 && r.data.me && r.data.rows[0].value >= r.data.rows[r.data.rows.length - 1].value && r.data.season.week >= 1, 'rank: global by Credits, you included');
+  r = await j('/api/rank?scope=friends', {}, C.secret);
+  ok(r.data.rows.some((x) => x.name === 'Dev'), 'rank: a Clash opponent is a friend');
+  await adm('roll', {});
+  r = await j('/api/rank?scope=weekly', {}, C.secret);
+  ok(r.status === 200 && Array.isArray(r.data.history) && r.data.history.length === 1, 'season: a rollover stores the week in history');
+  r = await j('/api/card', {}, C.secret);
+  ok(r.status === 200 && r.data.skill > 0 && r.data.badges.some((b) => b.id === 'first' && b.on) && r.data.accuracy != null, 'card: skill, accuracy, badges');
+  const br = await fetch(B + '/brag/' + C.id + '/rank.svg'); const brt = await br.text();
+  ok(br.ok && /BACK YOURSELF/.test(brt) && /GLOBAL/.test(brt), 'share card: brag card renders from real data');
+  const rd = await fetch(B + '/arcade', { redirect: 'manual' });
+  ok(rd.status === 302 && rd.headers.get('location') === '/play', 'retired arcade redirects to PLAY');
+  for (const tab of ['/rank', '/clash', '/play', '/play/quiz']) { const t = await fetch(B + tab); ok(t.ok && /id="app"/.test(await t.text()), 'SPA tab hard-loads: ' + tab); }
 } catch (e) {
   fail++; console.error('  ✗ CRASH:', e.message);
 }
