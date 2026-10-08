@@ -63,6 +63,7 @@ if (DATABASE_URL) {
 }
 
 let db = { players: {}, bets: {}, leagues: {}, events: [], stats: {} };
+let eco = null; // Clashly Credits (economy.js), created once everything it needs is defined
 let _decided = null; // memoized decided-bets list; invalidated on every save
 
 // serialized write-through (latest state always wins, writes never overlap)
@@ -198,12 +199,15 @@ async function verifyGoogleIdToken(idToken) {
 function demoMatches() {
   const day = 86400000, now = Date.now();
   const d = (n) => new Date(now + n * day).toISOString();
+  // compCode / team ids let local tests give the Credits model a league table
   return [
     { id: 'm_esp_uru', home: 'Spain', away: 'Uruguay', competition: 'Friendly', utcDate: d(2) },
     { id: 'm_arg_bra', home: 'Argentina', away: 'Brazil', competition: 'WC Qualifier', utcDate: d(3) },
-    { id: 'm_mci_liv', home: 'Man City', away: 'Liverpool', competition: 'Premier League', utcDate: d(4) },
-    { id: 'm_rma_fcb', home: 'Real Madrid', away: 'Barcelona', competition: 'LaLiga', utcDate: d(5) },
-    { id: 'm_ars_tot', home: 'Arsenal', away: 'Tottenham', competition: 'Premier League', utcDate: d(6) },
+    { id: 'm_mci_liv', home: 'Man City', away: 'Liverpool', competition: 'Premier League', utcDate: d(4), compCode: 'PL', homeId: 65, awayId: 64 },
+    { id: 'm_rma_fcb', home: 'Real Madrid', away: 'Barcelona', competition: 'LaLiga', utcDate: d(5), compCode: 'PD', homeId: 86, awayId: 81 },
+    { id: 'm_ars_tot', home: 'Arsenal', away: 'Tottenham', competition: 'Premier League', utcDate: d(6), compCode: 'PL', homeId: 57, awayId: 73 },
+    { id: 'm_che_new', home: 'Chelsea', away: 'Newcastle', competition: 'Premier League', utcDate: d(2), compCode: 'PL', homeId: 61, awayId: 67 },
+    { id: 'm_bay_bvb', home: 'Bayern', away: 'Dortmund', competition: 'Bundesliga', utcDate: d(3), compCode: 'BL1', homeId: 5, awayId: 4 },
   ];
 }
 
@@ -223,6 +227,8 @@ async function fetchLiveMatches() {
     id: 'm_' + m.id, externalId: String(m.id),
     home: m.homeTeam?.shortName || m.homeTeam?.name || 'Home', away: m.awayTeam?.shortName || m.awayTeam?.name || 'Away',
     competition: m.competition?.name || '', utcDate: m.utcDate,
+    // for the Credits prediction model (league table lookup)
+    compCode: m.competition?.code || null, homeId: m.homeTeam?.id || null, awayId: m.awayTeam?.id || null,
   }));
 }
 async function fetchLiveResult(externalId) {
@@ -312,6 +318,8 @@ function resolveBet(bet, actualOutcome) {
   // owes carries ids (the ledger key) plus denormalized names (for cards/OG)
   bet.owes = { fromId: loserPid, toId: winnerPid, from: loserNm, to: winnerNm, amount: bet.stake, currency: bet.currency };
   bet.resolvedAt = new Date().toISOString();
+  // Clash Credits: the winner takes the pool (both stakes), plus streak/weekly stats
+  try { if (eco) eco.clashResolved(bet, winnerPid, loserPid); } catch (e) { console.warn('clash credits payout failed:', e.message); }
   // Arena incentive: beating a stranger from the open pool earns points (+3 win,
   // +1 for showing up) — fuel for the Arena crown on the dashboard.
   if (bet.arena) {
@@ -642,7 +650,8 @@ const maskProfanity = (s) => String(s || '').replace(PROFANITY, (w) => w[0] + '*
 const heroSize = (text, base, maxPx) => Math.min(base, Math.max(48, Math.floor(maxPx / (0.52 * Math.max(1, [...String(text)].length)))));
 // what's on the line, as display text: the forfeit line if set, else the money stake,
 // else pure bragging rights
-const stakeLabel = (bet) => (bet.line && bet.line.trim()) ? trimCp(bet.line, 32) : (bet.stake > 0 ? sym(bet.currency) + bet.stake : 'bragging rights');
+// Clash Credits lead the label when there are any; a forfeit or side-deal rides along
+const stakeLabel = (bet) => [bet.credits > 0 ? `${Number(bet.credits).toLocaleString('en-GB')} C` : '', (bet.line && bet.line.trim()) ? trimCp(bet.line, bet.credits > 0 ? 20 : 32) : (bet.stake > 0 ? sym(bet.currency) + bet.stake : '')].filter(Boolean).join(' + ') || 'bragging rights';
 
 function cardSvgForBet(bet) {
   const data = {
@@ -674,8 +683,8 @@ function cardSvgForBet(bet) {
   // open + accepted share the challenge chassis; the badge/CTA reflect the state
   Object.assign(data, {
     BACKED_SIZE: heroSize(data.BACKED, 122, 1060),
-    BADGE: bet.status === 'accepted' ? "BET'S ON" : 'OPEN BET',
-    CTA_MAIN: bet.status === 'accepted' ? 'LOCKED IN' : 'TAKE THE OTHER SIDE',
+    BADGE: bet.status === 'accepted' ? 'CLASH ON' : 'DO YOU ACCEPT?',
+    CTA_MAIN: bet.status === 'accepted' ? 'LOCKED IN' : 'ACCEPT CLASH',
     CTA_SUB: bet.status === 'accepted'
       ? `${bet.proposerName} v ${bet.opponentName} · ${stakeLabel(bet)} on it`
       : `you'd back ${complementLabel(bet)} · ${stakeLabel(bet)}`,
@@ -692,8 +701,8 @@ function storySvgForBet(bet) {
     sub = 'called it — ' + outcomeLabel(bet, bet.actualOutcome);
     foot = rivalryLine(bet);
   } else {
-    badge = 'OPEN BET'; hero = outcomeLabel(bet, bet.backedOutcome);
-    sub = bet.proposerName + ' is backing'; foot = 'Take the other side →';
+    badge = 'CLASH'; hero = outcomeLabel(bet, bet.backedOutcome);
+    sub = bet.proposerName + ' challenges you'; foot = 'Accept the Clash →';
   }
   return cards.storySvg({ BADGE: badge, HERO: hero, HERO_SIZE: heroSize(hero, 120, 940), SUB: sub, ACCENT: accent, HOME: bet.home, AWAY: bet.away, STAKE: stakeLabel(bet), FOOT: foot, ID: bet.id });
 }
@@ -792,7 +801,7 @@ function ogMeta({ title, desc, img, pageUrl, alt, stamp }) {
 function ogTextForBet(bet) {
   if (bet.status === 'void') {
     return {
-      title: `${bet.proposerName}'s bet was called off`,
+      title: `${bet.proposerName}'s Clash was called off`,
       desc: `This one didn't count. Start your own on Clashly.`,
     };
   }
@@ -807,15 +816,15 @@ function ogTextForBet(bet) {
     // lead with the rivalry record when there is one — the strongest cold hook
     const rl = rivalryLine(bet);
     return {
-      title: `${bet.proposerName} v ${bet.opponentName} — bet's on 🔒`,
+      title: `${bet.proposerName} v ${bet.opponentName} — Clash is ON 🔒`,
       desc: `${rl}. ${matchLabel(bet)}: ${outcomeLabel(bet, bet.backedOutcome)} · ${stakeLabel(bet)} on the line. May the best mate win.`,
     };
   }
   return {
     // title carries the full hook: iMessage/Apple render ONLY og:title + og:image
     // (they drop og:description), so the matchup lives here, not just in desc.
-    title: `${bet.proposerName} calls ${outcomeLabel(bet, bet.backedOutcome)} — ${matchLabel(bet)} 🤝`,
-    desc: `${bet.note ? maskProfanity(bet.note) + ' — ' : ''}${stakeLabel(bet)} on the line. Take the other side (${complementLabel(bet)}) on Clashly.`,
+    title: `⚔️ ${bet.proposerName.toUpperCase()} CHALLENGES YOU — ${matchLabel(bet)}`,
+    desc: `${bet.proposerName}: ${outcomeLabel(bet, bet.backedOutcome)}. ${bet.note ? maskProfanity(bet.note) + ' — ' : ''}${stakeLabel(bet)} on it. Do you accept? Take the other side (${complementLabel(bet)}) on Clashly.`,
   };
 }
 
@@ -1075,299 +1084,9 @@ async function serveWeekCard(req, res) {
 }
 
 
-// /arcade — the skill games. Everything inline, no dependencies, mobile-first.
-// ---------------------------------------------------------------------------
-// The Arcade — hub + game pages (design: Clashly Screens v22)
-// Each game is its own server-rendered page: shareable URL, no app shell, no
-// account. The client only ever reports "which game, what score" — the server
-// clamps everything (see arcadeAward).
-// ---------------------------------------------------------------------------
-const ARCADE_FONTS = `<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;700;800;900&display=swap" />`;
-const ARCADE_CSS = `${PAGE_CSS}
-.wk{max-width:430px;padding-top:26px}
-.ghead{display:flex;align-items:center;margin:0 0 14px}
-.gback{width:34px;font-size:24px;color:#7C8A9C;text-decoration:none;line-height:1}
-.gtitle{flex:1;text-align:center}
-.gtitle b{display:block;font-family:Anton,Impact,sans-serif;font-weight:400;font-size:19px;letter-spacing:1px}
-.gtitle span{display:block;font:700 10px Inter,system-ui,sans-serif;letter-spacing:3px;color:#14E0C8;margin-top:2px}
-.gcard{background:linear-gradient(180deg,#141C29,#0F1520);border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:16px;margin:0 0 14px}
-.gname{font-family:Anton,Impact,sans-serif;font-weight:400;font-size:22px;margin:0 0 2px;color:#F4F7FB}
-.gsub{font-size:12.5px;color:#7C8A9C;margin:0 0 12px}
-.stat{font-size:13px;color:#9AA7B8;font-weight:700;margin:10px 0 0}
-.stat b{color:#14E0C8}
-.gbtn{display:block;width:100%;padding:14px;border-radius:12px;border:0;background:linear-gradient(180deg,#2BEAD4,#12CDB7);color:#052220;font:800 15px Inter,system-ui,sans-serif;letter-spacing:.5px;cursor:pointer;margin-top:12px;box-shadow:0 6px 18px rgba(20,224,200,.28)}
-.gbtn[disabled]{opacity:.45}
-.gbtn.vio{background:linear-gradient(180deg,#8B4DF5,#6D2FD6);color:#F2ECFF;box-shadow:0 6px 18px rgba(124,58,237,.35)}
-.pill-pts{display:inline-block;font:700 11px Inter,system-ui,sans-serif;letter-spacing:1px;color:#14E0C8;border:1px solid rgba(20,224,200,.4);border-radius:999px;padding:5px 14px}
-.note{font-size:12.5px;color:#5E6B7C}`;
-function arcadePage({ path, title, kicker, metaTitle, desc, body, script, extraCss = '' }) {
-  const url = 'https://clashly.live' + path;
-  return `<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${metaTitle}</title>
-<meta name="description" content="${desc}" />
-<link rel="canonical" href="${url}" />
-<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
-<meta property="og:type" content="website" />
-<meta property="og:title" content="${metaTitle}" />
-<meta property="og:description" content="${desc}" />
-<meta property="og:url" content="${url}" />
-<meta property="og:image" content="https://clashly.live/og-home.png" />
-${ARCADE_FONTS}
-<style>${ARCADE_CSS}${extraCss}</style>
-</head><body><div class="wrap wk">
-  <div class="ghead">
-    <a class="gback" id="gback" href="/arcade" aria-label="Back to the games">‹</a>
-    <script>try{ if(localStorage.getItem('settle_me')) document.getElementById('gback').href='/games'; }catch(e){}</script>
-    <div class="gtitle"><b>${title}</b><span>${kicker}</span></div>
-    <div style="width:34px"></div>
-  </div>
-  ${body}
-  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a> &middot; <a href="/credits.html">photo credits</a></div>
-</div>
-<script>
-(function(){
-  var KEY='clashly_voter';
-  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
-  function submit(game, score, cb){
-    fetch('/api/arcade/score',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({game:game,score:score,v:v})})
-      .then(function(r){return r.json();}).then(function(d){ if(cb) cb(d); }).catch(function(){ if(cb) cb(null); });
-  }
-${script}
-})();
-</script>
-</body></html>`;
-}
-
-async function serveArcade(req, res) {
-  const board = weeklyBoard(3);
-  const url = 'https://clashly.live/arcade';
-  const rankCol = ['#A78BFA', '#14E0C8', 'rgba(233,238,243,.6)'];
-  const tile = (href, emoji, name, sub, pts, col) => `
-    <a href="${href}" style="display:flex;flex-direction:column;gap:5px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:15px;text-decoration:none;color:#E9EEF3">
-      <span style="font-size:25px">${emoji}</span>
-      <span style="font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:.6px">${name}</span>
-      <span style="font-size:12px;color:rgba(233,238,243,.55)">${sub}</span>
-      <span style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:1px;color:${col};border:1px solid ${col}66;border-radius:999px;padding:3px 9px;align-self:flex-start;margin-top:3px">UP TO +${pts} PTS</span>
-    </a>`;
-  const html = `<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>The Arcade — skill games for the board | Clashly</title>
-<meta name="description" content="Football skill games, no account needed. Points go on the same public board as your match calls. Free, no money, no prizes." />
-<link rel="canonical" href="${url}" />
-<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
-<meta property="og:type" content="website" />
-<meta property="og:title" content="The Clashly Arcade" />
-<meta property="og:description" content="Beat the keeper, merge the footballs, transfer-fee streaks and the daily career puzzle. Points go on the board. Free, no money, no prizes." />
-<meta property="og:url" content="${url}" />
-<meta property="og:image" content="https://clashly.live/og-home.png" />
-${ARCADE_FONTS}
-<style>${ARCADE_CSS}</style>
-</head><body><div class="wrap wk">
-  <div style="display:flex;align-items:center;gap:11px;margin:0 0 16px">
-    <svg style="width:40px;height:40px;flex:none;border-radius:11px" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="26" fill="#0E141C"/><path d="M49.4 19A31 31 0 0 0 49.4 81L49.4 68A18 18 0 0 1 49.4 32Z" fill="#14E0C8"/><path d="M50.6 19A31 31 0 0 1 74 30L64 39A18 18 0 0 0 50.6 32ZM74 70A31 31 0 0 1 50.6 81L50.6 68A18 18 0 0 0 64 61Z" fill="#7C3AED"/></svg>
-    <div><div style="font-family:Anton,Impact,sans-serif;font-size:23px;letter-spacing:.5px;line-height:1">THE ARCADE</div><div class="tag" style="margin:2px 0 0">SKILL IN, POINTS OUT</div></div>
-  </div>
-
-  <div class="gcard">
-    <div style="display:flex;align-items:baseline;justify-content:space-between">
-      <div style="font:700 13px Inter,system-ui,sans-serif" id="capTxt">points bank today</div>
-      <div style="font-family:Anton,Impact,sans-serif;font-size:14px;color:#FFC83D" id="capPts"></div>
-    </div>
-    <div style="height:8px;border-radius:999px;background:rgba(255,255,255,.08);margin-top:10px;overflow:hidden">
-      <div id="capBar" style="width:0%;height:100%;border-radius:999px;background:linear-gradient(90deg,#D99A2B,#FFD883);transition:width .5s"></div>
-    </div>
-    ${board.length ? `<div style="display:flex;align-items:center;gap:13px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);flex-wrap:wrap">
-      <span style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:2px;color:rgba(233,238,243,.5)">BOARD</span>
-      ${board.map((b, i) => `<span style="font:600 12px Inter,system-ui,sans-serif;color:${rankCol[i]}">${i + 1} ${esc5(b.name)} ${b.points}</span>`).join('')}
-      <a href="/board" style="font:600 11px Inter,system-ui,sans-serif;color:#7C8A9C;margin-left:auto;text-decoration:none">all →</a>
-    </div>` : ''}
-  </div>
-
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-    ${tile('/score', '🥅', 'SCORE', 'beat the keeper', 15, '#14E0C8')}
-    ${tile('/hilo', '📈', 'HIGHER OR LOWER', 'streak the transfer fees', 12, '#FFC83D')}
-    ${tile('/connect', '🟢', 'CONNECT', 'merge the balls', 15, '#A78BFA')}
-    ${tile('/daily', '🎯', 'THE DAILY', 'one career a day', 8, '#14E0C8')}
-    <div style="grid-column:1 / -1;display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#141C29,#0F1520);border:1px dashed rgba(167,139,250,.4);border-radius:16px;padding:15px;opacity:.75">
-      <span style="font-size:25px">⚔️</span>
-      <div><div style="font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:.6px">GRID DUEL</div>
-      <div style="font-size:12px;color:rgba(233,238,243,.55)">argue it with a mate — in the workshop</div></div>
-      <span style="margin-left:auto;font:700 10px Inter,system-ui,sans-serif;letter-spacing:1px;color:#A78BFA;border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:3px 9px">SOON</span>
-    </div>
-  </div>
-
-  <p class="note" style="margin:16px 0 0">Points land on the same board as your match calls — up to 30 a day, no account needed.</p>
-  <a class="cta" href="/this-week" style="display:block;text-align:center;margin-top:14px">📣 Call the weekend's matches →</a>
-  <div class="foot">Clashly holds no money, takes no stake and gives no prize. For the bragging rights. 18+.<br />contact@clashly.live &middot; <a href="https://x.com/clashlylive" rel="me noopener">@clashlylive</a> &middot; <a href="/credits.html">photo credits</a></div>
-</div>
-<script>
-(function(){
-  var KEY='clashly_voter';
-  var v=null; try{ v=localStorage.getItem(KEY); if(!v){ v='v'+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem(KEY,v);} }catch(e){ v='v'+Date.now().toString(36); }
-  fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
-    document.getElementById('capTxt').textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : d.today+' of '+d.cap+' banked today';
-    document.getElementById('capPts').textContent = d.allTime ? d.allTime+' PTS ALL TIME' : '';
-    document.getElementById('capBar').style.width = Math.min(100, Math.round(d.today/d.cap*100))+'%';
-  }).catch(function(){});
-})();
-</script>
-</body></html>`;
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(html);
-}
-
-async function servePenalty(req, res) {
-  const body = `
-  <div class="gcard">
-    <h2 class="gname">Score 🥅</h2>
-    <p class="gsub">Pick your moment and beat the keeper. Every goal makes the next save harder, and it never stops. One save and it's full time.</p>
-    <div class="lvlrow"><span class="lvl" id="lvl">LEVEL 1</span><span class="streak" id="streak">0 goals</span><span class="best" id="best"></span></div>
-    <div class="goal" id="goal"><div class="zone" id="zone"><span class="keeper" aria-hidden="true">🧤</span></div><div class="marker" id="marker"></div></div>
-    <div class="kicks" id="kicks"></div>
-    <button class="gbtn" id="shoot">SHOOT</button>
-    <div class="stat" id="pstat"></div>
-  </div>
-  <p class="note" id="capline" style="text-align:center"></p>`;
-  const extraCss = `
-.lvlrow{display:flex;align-items:baseline;gap:10px;margin:2px 0 8px}
-.lvl{font-family:Anton,Impact,sans-serif;font-size:22px;letter-spacing:.8px;background:linear-gradient(90deg,#14E0C8,#7C3AED);-webkit-background-clip:text;background-clip:text;color:transparent}
-.streak{font:700 13px Inter,system-ui,sans-serif;color:#EAF0F7}
-.best{margin-left:auto;font:600 11px Inter,system-ui,sans-serif;color:rgba(233,238,243,.5);letter-spacing:.4px}
-.goal{position:relative;height:64px;border-radius:12px;background:#0B0F14;border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0}
-.goal.saved{animation:gshake .35s}
-@keyframes gshake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
-.zone{position:absolute;top:0;bottom:0;background:rgba(20,224,200,.22);border-left:1.5px solid #14E0C8;border-right:1.5px solid #14E0C8;transition:left .18s ease}
-.marker{position:absolute;top:6px;bottom:6px;width:5px;border-radius:3px;background:#FFC83D}
-.keeper{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:24px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}
-.kicks{display:flex;gap:6px;margin-top:10px;min-height:26px;overflow:hidden}
-.kick{width:26px;height:26px;flex:0 0 26px;border-radius:50%;border:1.5px solid #22303F;display:grid;place-items:center;font:800 12px Inter;color:#5E6B7C}
-.kick.hit{border-color:#14E0C8;color:#14E0C8}
-.kick.top{border-color:#FFC83D;color:#FFC83D}
-.kick.miss{border-color:#FF5A6E;color:#FF5A6E}
-@media (prefers-reduced-motion: reduce){ .goal.saved{animation:none} .zone{transition:none} }`;
-  const script = `
-  var capline=document.getElementById('capline');
-  function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
-    capline.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
-  }).catch(function(){}); }
-  refreshCap();
-  var goal=document.getElementById('goal'), zone=document.getElementById('zone'), marker=document.getElementById('marker');
-  var shoot=document.getElementById('shoot'), kicksEl=document.getElementById('kicks'), pstat=document.getElementById('pstat');
-  var lvlEl=document.getElementById('lvl'), streakEl=document.getElementById('streak'), bestEl=document.getElementById('best');
-  var BEST_KEY='clashly_score_best', best=0; try{ best=parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0; }catch(e){}
-  // endless: every goal is a level. The zone shrinks, the marker speeds up, and from level 10 the keeper shifts mid-swing.
-  var level=1, goals=0, total=0, pos=0, dir=1, playing=true, zoneW=0.30, zoneX=0.35, raf, driftT=0, SHOW=10;
-  function speedFor(l){ return Math.min(8.8, 2.6+0.42*(l-1)); }
-  function widthFor(l){ return Math.max(0.07, 0.30-0.022*(l-1)); }
-  function driftEvery(l){ return l>=10 ? Math.max(28, 90-4*(l-10)) : 0; }   // frames between keeper shifts, 0 = keeper stands still
-  function layoutZone(){
-    zoneX = 0.08 + Math.random()*(0.84-zoneW);
-    zone.style.left=(zoneX*100)+'%'; zone.style.width=(zoneW*100)+'%';
-  }
-  function hud(){ lvlEl.textContent='LEVEL '+level; streakEl.textContent=goals+(goals===1?' goal':' goals'); bestEl.textContent = best ? 'BEST: LEVEL '+best : ''; }
-  function dot(cls, txt){ var d=document.createElement('div'); d.className='kick '+cls; d.textContent=txt; kicksEl.appendChild(d); while(kicksEl.children.length>SHOW) kicksEl.removeChild(kicksEl.firstChild); }
-  function step(){
-    var w=goal.clientWidth-5, sp=speedFor(level);
-    pos+=dir*sp; if(pos<=0||pos>=w){dir*=-1; pos=Math.max(0,Math.min(w,pos));}
-    marker.style.transform='translateX('+pos+'px)';
-    var de=driftEvery(level); if(de){ driftT++; if(driftT>=de){ driftT=0; layoutZone(); } }
-    raf=requestAnimationFrame(step);
-  }
-  function reset(){ level=1; goals=0; total=0; zoneW=widthFor(1); driftT=0; playing=true; shoot.disabled=false; shoot.textContent='SHOOT'; kicksEl.innerHTML=''; pstat.textContent=''; hud(); layoutZone(); cancelAnimationFrame(raf); step(); }
-  hud(); layoutZone(); step();
-  shoot.addEventListener('click', function(){
-    if(!playing){ reset(); return; }
-    var w=goal.clientWidth-5, rel=pos/w;
-    var inZone = rel>=zoneX && rel<=zoneX+zoneW;
-    var centre = zoneX+zoneW/2, closeness = 1-Math.min(1, Math.abs(rel-centre)/(zoneW/2));
-    if(inZone){
-      var pts = closeness>0.6?3:2; total+=pts; goals++; level++;
-      dot(pts===3?'top':'hit', pts);
-      zoneW=widthFor(level); layoutZone(); hud();
-      if(level%10===0) pstat.textContent='Level '+level+'. The keeper is reading you now.';
-      return;
-    }
-    // saved: full time
-    playing=false; cancelAnimationFrame(raf); dot('miss','✕');
-    goal.classList.remove('saved'); void goal.offsetWidth; goal.classList.add('saved');
-    if(level>best){ best=level; try{ localStorage.setItem(BEST_KEY,String(best)); }catch(e){} }
-    hud(); shoot.textContent='AGAIN';
-    var reached='Saved at level '+level+' · '+goals+(goals===1?' goal':' goals');
-    if(total>0){
-      submit('penalty', total, function(d){
-        pstat.innerHTML = d ? reached+'. <b>+'+d.awarded+' points</b>'+(d.awarded<total?' (capped)':'')+' · '+d.allTime+' all time' : reached+'. Could not bank that one.';
-        refreshCap();
-      });
-    } else { pstat.textContent=reached+'. Unlucky. Go again.'; }
-  });`;
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/score', title: 'SCORE', kicker: 'BEAT THE KEEPER', metaTitle: 'Score — the Clashly Arcade', desc: 'Timing game: beat an improving keeper through endless levels, one save and it is full time. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
-}
-
-async function serveKeepy(req, res) {
-  const body = `
-  <div class="gcard">
-    <h2 class="gname">Keepy-Uppy 🤹</h2>
-    <p class="gsub">Tap the ball to keep it up. It gets faster. One point a touch, drop it and the run's over.</p>
-    <div class="pitch" id="pitch"><div id="ball">⚽</div></div>
-    <button class="gbtn" id="kstart">START</button>
-    <div class="stat" id="kstat"></div>
-  </div>
-  <p class="note" id="capline" style="text-align:center"></p>`;
-  const extraCss = `
-.pitch{position:relative;height:280px;border-radius:12px;background:linear-gradient(180deg,#0B0F14,#0d1a14);border:1.5px solid #22303F;overflow:hidden;margin:4px 0 0;touch-action:manipulation}
-#ball{position:absolute;font-size:44px;line-height:1;user-select:none;cursor:pointer;left:50%;top:20px;will-change:transform}`;
-  const script = `
-  var capline=document.getElementById('capline');
-  function refreshCap(){ fetch('/api/arcade?v='+encodeURIComponent(v)).then(function(r){return r.json();}).then(function(d){
-    capline.textContent = d.today>=d.cap ? 'daily cap reached — back tomorrow' : (d.cap-d.today)+' of '+d.cap+' still to bank today';
-  }).catch(function(){}); }
-  refreshCap();
-  var pitch=document.getElementById('pitch'), ball=document.getElementById('ball');
-  var kstart=document.getElementById('kstart'), kstat=document.getElementById('kstat');
-  var bx=0, by=0, vx=0, vy=0, touches=0, live=false, kraf;
-  function kstep(){
-    var W=pitch.clientWidth-44, H=pitch.clientHeight-44;
-    vy+=0.45+touches*0.012;
-    bx+=vx; by+=vy;
-    if(bx<0){bx=0;vx=Math.abs(vx);} if(bx>W){bx=W;vx=-Math.abs(vx);}
-    if(by<0){by=0;vy=Math.abs(vy)*0.6;}
-    ball.style.transform='translate('+bx+'px,'+by+'px)';
-    ball.style.left='0'; ball.style.top='0';
-    if(by>=H){ live=false; cancelAnimationFrame(kraf);
-      kstart.disabled=false; kstart.textContent='GO AGAIN';
-      var sc=Math.min(15,touches);
-      submit('keepy', sc, function(d){
-        kstat.innerHTML = d ? touches+' touch'+(touches===1?'':'es')+'. <b>+'+d.awarded+' points</b>'+(d.awarded<sc?' (daily cap)':'')+' · '+d.allTime+' all time' : 'Could not save that one.';
-        refreshCap();
-      });
-      return; }
-    kraf=requestAnimationFrame(kstep);
-  }
-  function tapBall(e){
-    if(!live) return;
-    e.preventDefault();
-    touches++;
-    vy=-(7.5+Math.random()*2); vx=(Math.random()-0.5)*7;
-    kstat.textContent=touches+' touches';
-  }
-  ball.addEventListener('pointerdown', tapBall);
-  kstart.addEventListener('click', function(){
-    var W=pitch.clientWidth-44;
-    bx=W/2; by=10; vx=0; vy=0; touches=0; live=true;
-    kstat.textContent='0 touches'; kstart.disabled=true; kstart.textContent='LIVE';
-    cancelAnimationFrame(kraf); kraf=requestAnimationFrame(kstep);
-  });`;
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/keepy', title: 'KEEPY-UPPY', kicker: "DON'T LET IT DROP", metaTitle: 'Keepy-Uppy — the Clashly Arcade', desc: 'Reflex game: tap the ball to keep it in the air, it gets faster every touch. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
-}
+// v35: the old server-rendered arcade pages (/arcade, /score, /hilo, /connect, /daily) were
+// retired for PLAY (public/play.js + economy.js). Their data stays here because PLAY uses it:
+// HILO_* feeds Higher or Lower, DAILY_PLAYERS feeds Who Am I?.
 
 // Widely reported headline fees, €M, rounded. Display-only trivia — no odds,
 // no wagers, the number is the quiz answer.
@@ -1491,489 +1210,6 @@ const HILO_DECKS = {
             rows: () => HILO_PLAYERS.filter((r) => r[3] != null).map((r) => [r[0], 'retired', r[3]]) },
 };
 
-async function serveHilo(req, res, deckId) {
-  const D = HILO_DECKS[deckId] || HILO_DECKS.fees;
-  const chips = Object.entries(HILO_DECKS).map(([id, d]) => `<a href="${d.path}" class="dchip${id === (HILO_DECKS[deckId] ? deckId : 'fees') ? ' on' : ''}">${d.kicker.replace(/\?$/, '')}</a>`).join('');
-  const body = `
-  <div class="decks">${chips}</div>
-  <div class="gcard" id="cardA" style="text-align:center;padding:22px 18px">
-    <img class="pimg" id="aImg" alt="" />
-    <div class="sil" id="aSil" style="display:none"><div class="sc"></div><div class="ss"></div></div>
-    <div style="font-family:Anton,Impact,sans-serif;font-size:24px;letter-spacing:.5px;margin-top:8px" id="aName"></div>
-    <div style="font-size:12px;color:rgba(233,238,243,.55)" id="aMeta"></div>
-    <div style="font-family:Anton,Impact,sans-serif;font-size:42px;color:#14E0C8;margin-top:6px;text-shadow:0 0 32px rgba(20,224,200,.3)" id="aFee"></div>
-  </div>
-  <div style="display:flex;align-items:center;justify-content:center;gap:10px;height:44px" id="streakRow">
-    <span style="font-size:17px" id="fire">🔥</span>
-    <span style="font-family:Anton,Impact,sans-serif;font-size:19px;letter-spacing:.5px" id="streakTxt">STREAK 0</span>
-    <span style="font:600 11px Inter,system-ui,sans-serif;color:rgba(233,238,243,.5);border:1px solid rgba(255,255,255,.15);border-radius:999px;padding:3px 10px" id="bestTxt">best 0</span>
-  </div>
-  <div class="gcard" id="cardB" style="text-align:center;padding:22px 18px">
-    <img class="pimg" id="bImg" style="width:64px;height:64px;margin-bottom:6px" alt="" />
-    <div style="font-family:Anton,Impact,sans-serif;font-size:24px;letter-spacing:.5px" id="bName"></div>
-    <div style="font-size:12px;color:rgba(233,238,243,.55)" id="bMeta"></div>
-    <div id="bMystery" style="width:58px;height:58px;border-radius:50%;border:2px dashed rgba(255,255,255,.28);display:flex;align-items:center;justify-content:center;font-family:Anton,Impact,sans-serif;font-size:26px;color:rgba(233,238,243,.6);margin:10px auto 0">?</div>
-    <div id="bReveal" style="display:none">
-      <div style="font-family:Anton,Impact,sans-serif;font-size:46px;color:#FFC83D;margin-top:4px;text-shadow:0 0 32px rgba(255,200,61,.35)" id="bFee"></div>
-      <div style="font-size:13px;font-weight:700" id="verdict"></div>
-      <div class="pill-pts" id="banked" style="margin-top:8px;display:none"></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px" id="hlBtns">
-      <button class="gbtn" id="btnH" style="margin-top:0">${D.up}</button>
-      <button class="gbtn vio" id="btnL" style="margin-top:0">${D.down}</button>
-    </div>
-    <button class="gbtn" id="again" style="display:none">GO AGAIN</button>
-  </div>
-  <p class="note" style="text-align:center">${D.q} One point a step, banked when the run ends \u2014 up to 12 a run, 30 a day.</p>`;
-  const extraCss = `
-.sil{display:flex;flex-direction:column;align-items:center}
-.sc{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.09)}
-.ss{width:84px;height:28px;border-radius:16px 16px 0 0;background:rgba(255,255,255,.09);margin-top:-6px}
-.pimg{width:84px;height:84px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.16);display:block;margin:0 auto;background:rgba(255,255,255,.06)}
-.decks{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 10px;-webkit-overflow-scrolling:touch}
-.dchip{flex:0 0 auto;font:800 11px Inter,system-ui,sans-serif;letter-spacing:.06em;padding:7px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.14);color:rgba(233,238,243,.7);text-decoration:none;white-space:nowrap}
-.dchip.on{background:rgba(20,224,200,.14);border-color:rgba(20,224,200,.5);color:#14E0C8}`;
-  const script = `
-  var DATA=${JSON.stringify(D.rows())}, KIND=${JSON.stringify(D.kind)}, GUP=${D.greaterIsUp}, CLOSE=${D.close}, GAME=${JSON.stringify(D.key)};
-  var deck=[], A=null, B=null, streak=0, over=false;
-  var BESTKEY='clashly_'+GAME+'_best';
-  var best=0; try{ best=parseInt(localStorage.getItem(BESTKEY)||'0',10)||0; }catch(e){}
-  function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
-  function fee(n){ if(KIND==='fee') return '\u20AC'+n+'M'; if(KIND==='born') return 'born '+n; if(KIND==='cm') return (n/100).toFixed(2)+'m'; return n+' caps'; }
-  function gap(d){ if(KIND==='fee') return '\u20AC'+d+'M'; if(KIND==='born') return d+(d===1?' year':' years'); if(KIND==='cm') return d+'cm'; return d+(d===1?' cap':' caps'); }
-  function pslug(n){ return n.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-\$/g,''); }
-  function setImg(id, silId, name){
-    var im=document.getElementById(id); if(!im) return;
-    im.style.display='';
-    im.onerror=function(){ im.style.display='none'; if(silId){ var s=document.getElementById(silId); if(s) s.style.display=''; } };
-    if(silId){ var s0=document.getElementById(silId); if(s0) s0.style.display='none'; }
-    im.src='/players/'+pslug(name)+'.jpg';
-  }
-  function draw(){ if(!deck.length) deck=shuffle(DATA.slice());
-    var c=deck.pop();
-    if(A && c[2]===A[2]){ deck.unshift(c); c=deck.pop() || c; }
-    return c; }
-  function paint(){
-    setImg('aImg','aSil',A[0]); setImg('bImg',null,B[0]);
-    document.getElementById('aName').textContent=A[0].toUpperCase();
-    document.getElementById('aMeta').textContent=A[1];
-    document.getElementById('aFee').textContent=fee(A[2]);
-    document.getElementById('bName').textContent=B[0].toUpperCase();
-    document.getElementById('bMeta').textContent=B[1];
-    document.getElementById('streakTxt').textContent='STREAK '+streak;
-    document.getElementById('bestTxt').textContent='best '+best;
-    document.getElementById('bMystery').style.display='';
-    document.getElementById('bReveal').style.display='none';
-    document.getElementById('hlBtns').style.display='';
-    document.getElementById('again').style.display='none';
-    document.getElementById('cardB').style.borderColor='rgba(255,255,255,.07)';
-    document.getElementById('fire').style.filter=''; document.getElementById('fire').style.opacity='';
-    document.getElementById('streakTxt').style.color='';
-  }
-  function start(){ deck=shuffle(DATA.slice()); A=deck.pop(); B=draw(); streak=0; over=false; paint(); }
-  function guess(higher){
-    if(over) return;
-    var up = GUP ? (B[2]>A[2]) : (B[2]<A[2]);
-    var correct = higher ? up : !up;
-    document.getElementById('bMystery').style.display='none';
-    document.getElementById('bReveal').style.display='';
-    document.getElementById('bFee').textContent=fee(B[2]);
-    document.getElementById('hlBtns').style.display='none';
-    if(correct){
-      streak++;
-      if(streak>best){ best=streak; try{ localStorage.setItem(BESTKEY,String(best)); }catch(e){} }
-      document.getElementById('bFee').style.color='#14E0C8';
-      document.getElementById('bFee').style.textShadow='0 0 32px rgba(20,224,200,.3)';
-      document.getElementById('verdict').textContent='CALLED IT';
-      document.getElementById('verdict').style.color='#14E0C8';
-      document.getElementById('streakTxt').textContent='STREAK '+streak;
-      document.getElementById('bestTxt').textContent='best '+best;
-      setTimeout(function(){ A=B; B=draw(); paint(); }, 950);
-    } else {
-      over=true;
-      var d=Math.abs(B[2]-A[2]);
-      document.getElementById('bFee').style.color='#FFC83D';
-      document.getElementById('bFee').style.textShadow='0 0 32px rgba(255,200,61,.35)';
-      document.getElementById('cardB').style.borderColor='rgba(255,200,61,.4)';
-      document.getElementById('verdict').textContent=(d<=CLOSE?'SO CLOSE \u2014 ':'')+'it was '+gap(d)+' '+(up?(KIND==='born'?'older':'more'):(KIND==='born'?'younger':'less'));
-      document.getElementById('verdict').style.color='#FFC83D';
-      document.getElementById('fire').style.filter='grayscale(1)'; document.getElementById('fire').style.opacity='.6';
-      document.getElementById('streakTxt').textContent='STREAK ENDS AT '+streak;
-      document.getElementById('streakTxt').style.color='rgba(233,238,243,.6)';
-      document.getElementById('again').style.display='';
-      if(streak>0) submit(GAME, Math.min(12,streak), function(r){
-        if(r && r.awarded){ var b=document.getElementById('banked'); b.textContent='+'+r.awarded+' PTS BANKED'; b.style.display='inline-block'; }
-      });
-    }
-  }
-  document.getElementById('btnH').addEventListener('click', function(){ guess(true); });
-  document.getElementById('btnL').addEventListener('click', function(){ guess(false); });
-  document.getElementById('again').addEventListener('click', start);
-  start();`;
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: D.path, title: 'HIGHER OR LOWER', kicker: D.kicker, metaTitle: 'Higher or Lower: ' + D.kicker.toLowerCase().replace(/\?$/, '') + ' \u2014 the Clashly Arcade', desc: 'Was the fee higher or lower? Streak the famous transfer fees. Points go on the public board. Free, no money, no prizes.', body, script, extraCss }));
-}
-
-// Connect — a small, dependency-free physics toy. Balls have velocity, collision
-// separation and a little squash; matching balls merge into the next level.
-async function serveConnect(req, res) {
-  // A proper merge game: aim, drop, stack, combine. Deliberately NO cash-out
-  // button, no currency icons, no ability purchases and no ad prompts -- the
-  // reference game Filip sent has all four, and that is the social-casino shape
-  // this project refused in v20. Skill in, points out, capped like every game.
-  const body = `<div class="gcard">
-    <h2 class="gname">Connect \u{1F7E2}</h2>
-    <p class="gsub">Drag to aim, let go to drop. Two of the same ball merge into the next one up. Pile as high as you like: you only lose when a ball falls out of the basket.</p>
-    <div class="crow">
-      <div class="cstat"><small>SCORE</small><b id="cScore">0</b></div>
-      <div class="cstat"><small>BEST</small><b id="cBest">0</b></div>
-      <div class="cstat"><small>NEXT</small><canvas id="cNextCv" width="38" height="38" style="width:38px;height:38px;display:block;margin:-2px auto -4px"></canvas></div>
-    </div>
-    <div id="cWrap" class="cwrap"><canvas id="cCanvas" aria-label="Connect play area"></canvas></div>
-    <div id="cOver" class="cover" style="display:none">
-      <b id="cOverTitle">Stack topped out</b>
-      <p id="cStat" class="gsub" style="margin:6px 0 10px"></p>
-      <button class="cta" id="cAgain">GO AGAIN</button>
-    </div>
-    <p class="gsub" style="margin-top:12px;opacity:.75">Ping pong \u2192 golf \u2192 tennis \u2192 cricket \u2192 baseball \u2192 basketball \u2192 volleyball \u2192 football \u2192 matchball.</p>
-  </div>`;
-  const extraCss = `.crow{display:flex;gap:8px;margin:12px 0 10px}
-.cstat{flex:1;background:#141C29;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px 10px;text-align:center}
-.cstat small{display:block;font-size:9.5px;letter-spacing:.12em;color:#8494A8;font-weight:800}
-.cstat b{font-size:19px;font-family:Anton,Impact,sans-serif;font-weight:400;color:#EAF0F7}
-.cwrap{display:flex;justify-content:center}
-.cwrap canvas{border-radius:16px;border:1px solid rgba(255,255,255,.10);touch-action:none;display:block;background:#0E1520}
-.cover{text-align:center;margin-top:12px}
-.cover b{font-family:Anton,Impact,sans-serif;font-weight:400;font-size:19px;color:#FF5E5E;letter-spacing:.03em}`;
-  const script = `
-var cv=document.getElementById('cCanvas'), ctx=cv.getContext('2d');
-var nextCv=document.getElementById('cNextCv'), nctx=nextCv.getContext('2d');
-var scoreEl=document.getElementById('cScore'), bestEl=document.getElementById('cBest');
-var overEl=document.getElementById('cOver'), againBtn=document.getElementById('cAgain'), statEl=document.getElementById('cStat');
-var overTitle=document.getElementById('cOverTitle');
-
-var TIERS=[
- {n:'Ping pong', r:11, a:'#FBFBF6', b:'#D2D2C6', k:'plain', p:'#EDEDE6'},
- {n:'Golf',      r:14, a:'#FFFFFF', b:'#C3CBD2', k:'golf',  p:'#E4EAF0'},
- {n:'Tennis',    r:17, a:'#DCF45C', b:'#9DBA25', k:'seam',  p:'#CDEB3E'},
- {n:'Cricket',   r:22, a:'#C23B36', b:'#7C201D', k:'cricket',p:'#E05A54'},
- {n:'Baseball',  r:28, a:'#FCF8F1', b:'#D6CBB8', k:'baseball',p:'#F3E9D8'},
- {n:'Basketball',r:34, a:'#E8944A', b:'#A9551F', k:'basket',p:'#F4A85F'},
- {n:'Volleyball',r:41, a:'#F9EBC8', b:'#C6A765', k:'volley',p:'#F2DFA8'},
- {n:'Football',  r:49, a:'#FFFFFF', b:'#AEB6BE', k:'football',p:'#E8ECEF'},
- {n:'Matchball', r:58, a:'#FFD466', b:'#CE8A0D', k:'match', p:'#FFE28E'}
-];
-
-var W=268, H=330, LINE=180, DROP_Y=30;
-// The basket. Wider at the rim than the floor, like a real one. Walls are line
-// segments from rim to floor; above the rim there is nothing, so a ball CAN
-// leave -- and leaving is how you lose.
-var RIM=LINE, FLOOR=H-10, TL=48, TR=W-48, BL=68, BR=W-68;   // 172 wide at the rim, 132 at the floor, 140 tall
-var WALL_L={x1:TL,y1:RIM,x2:BL,y2:FLOOR}, WALL_R={x1:TR,y1:RIM,x2:BR,y2:FLOOR};
-function wallNormal(w, sign){ var dx=w.x2-w.x1, dy=w.y2-w.y1, L=Math.sqrt(dx*dx+dy*dy); return {x:sign*(-dy/L), y:sign*(dx/L)}; }
-var NL=wallNormal(WALL_L, -1), NR=wallNormal(WALL_R, 1);   // both point into the basket
-// Physics: position-based dynamics with Coulomb friction, the way a proper 2D engine keeps a heap of circles
-// stable (Ball Guys, Suika). Nothing is ever frozen: balls hold their shape through friction, roll off shoulders,
-// nestle into crevices and bounce a little. Jelly is restitution plus the drawn squash, not glue. (20 Sep)
-var GRAV=0.46, REST=0.30, AIRDRAG=0.995, SUB=4, ITER=3, VMAX=14;
-var MU_BALL=0.55, MU_WALL=0.55, MU_FLOOR=0.75;               // friction: floor grips hardest so the bottom row never skates
-var WOBBLE_K=0.32, WOBBLE_D=0.84, SQUASH_K=0.9, SQUASH_MAX=0.30;
-var contacts=[];
-function invm(b){ return 1/(b.r*b.r); }                        // mass = area, big balls shove small ones (that is correct)
-// positional friction (Macklin et al. 2014): undo the tangential slide of this substep, fully when it is within the
-// friction cone (static), otherwise by the cone's width (dynamic)
-function friction(a, b, nx, ny, corr, mu, wa, wb){
-  var tx=-ny, ty=nx;
-  var sx=(a.x-a.px), sy=(a.y-a.py), ux=b?(b.x-b.px):0, uy=b?(b.y-b.py):0;
-  var slide=(sx-ux)*tx+(sy-uy)*ty;
-  if(slide===0) return;
-  var mag=Math.abs(slide), lim=mu*corr, f=mag<lim?mag:lim, w=wa+wb; if(w<=0) return;
-  var sgn=slide>0?-1:1;
-  a.x+=tx*f*sgn*(wa/w); a.y+=ty*f*sgn*(wa/w);
-  if(b){ b.x-=tx*f*sgn*(wb/w); b.y-=ty*f*sgn*(wb/w); }
-}
-function wallProj(a, w, n, mu, first){
-  if(a.y+a.r < w.y1) return;                                  // above the rim there is no wall
-  var d=(a.x-w.x1)*n.x+(a.y-w.y1)*n.y;
-  if(d>=a.r || d<0) return;                                   // d<0: centre is past the wall, it is outside and falling
-  var corr=a.r-d; a.x+=n.x*corr; a.y+=n.y*corr;
-  friction(a, null, n.x, n.y, corr, mu, 1, 0);
-  if(first){ var vn=a.vx0*n.x+a.vy0*n.y; contacts.push({a:a,b:null,nx:n.x,ny:n.y,vn0:vn}); a.cx-=n.x*a.r*0.06; a.cy-=n.y*a.r*0.06; }
-}
-var balls=[], parts=[], floats=[];
-var score=0, shown=0, dead=false, aimX=W/2, nextT=0, holdOver=0, dropLock=0, raf=null, last=0;
-var best=+(localStorage.getItem('clashly_connect_best')||0);
-var merged=0, combo=0, lastMerge=-9999, shake=0, topTier=0, t0=0, idle=0, escaped=null;
-
-// ---------- sound: tiny synth, no files ----------
-var AC=null;
-function audio(){ if(AC) return AC; try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} return AC; }
-function tone(f, dur, type, gain, slide){
-  var ac=audio(); if(!ac) return;
-  var o=ac.createOscillator(), g=ac.createGain(), t=ac.currentTime;
-  o.type=type||'sine'; o.frequency.setValueAtTime(f,t);
-  if(slide) o.frequency.exponentialRampToValueAtTime(slide, t+dur);
-  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(gain||0.18, t+0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
-  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+dur+0.02);
-}
-function sPop(t){ var f=300+t*95; tone(f,0.10,'triangle',0.14,f*1.6); }
-function sMerge(t,c){ var base=330+t*70; tone(base,0.16,'sine',0.20,base*1.5); setTimeout(function(){ tone(base*1.5*(1+0.06*Math.min(c,6)),0.18,'triangle',0.16,base*2.2); },55); if(t>=6){ setTimeout(function(){ tone(base*2,0.30,'sine',0.14,base*3); },120); } }
-function sDrop(){ tone(180,0.07,'square',0.05,120); }
-function sOver(){ tone(220,0.35,'sawtooth',0.10,90); setTimeout(function(){ tone(160,0.5,'sawtooth',0.08,70); },160); }
-function buzz(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){} }
-
-function rnd(max){ return Math.floor(Math.random()*max); }
-function pickNext(){ var top=0; for(var i=0;i<balls.length;i++) if(balls[i].t>top) top=balls[i].t; return rnd(Math.min(4, Math.max(2, top))); }
-
-function fit(){
-  var w=Math.min(cv.parentNode.clientWidth, 340);
-  var scale=w/W, dpr=Math.min(2, window.devicePixelRatio||1);
-  cv.style.width=w+'px'; cv.style.height=Math.round(H*scale)+'px';
-  cv.width=Math.round(W*scale*dpr); cv.height=Math.round(H*scale*dpr);
-  ctx.setTransform(dpr*scale,0,0,dpr*scale,0,0);
-  var nd=Math.min(2, window.devicePixelRatio||1);
-  nextCv.width=38*nd; nextCv.height=38*nd; nctx.setTransform(nd,0,0,nd,0,0);
-}
-
-function add(t,x,y,vx){ balls.push({t:t, r:TIERS[t].r, x:x, y:y, px:x, py:y, vx:vx||0, vy:0, vx0:0, vy0:0, pop:0, sq:0, sqv:0, dfx:0, dfy:0, cx:0, cy:0, born:performance.now()}); }
-
-function drop(){
-  if(dead||dropLock>0) return;
-  var t=nextT, r=TIERS[t].r;
-  add(t, Math.max(TL+r+2, Math.min(TR-r-2, aimX)), DROP_Y, 0);
-  nextT=pickNext(); paintNext(); dropLock=13; sDrop(); buzz(6);
-}
-
-function paintNext(){
-  nctx.clearRect(0,0,38,38);
-  var T=TIERS[nextT], rr=Math.min(15, T.r*0.5+4);
-  ring({t:nextT, r:rr, x:19, y:19, pop:0, sq:0}, nctx);
-}
-
-function burst(x,y,col,n,spd){
-  for(var i=0;i<n;i++){ var a=Math.random()*6.2832, v=spd*(0.4+Math.random()*0.9);
-    parts.push({x:x,y:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-1.2,life:1,col:col,r:1.5+Math.random()*2.5}); }
-}
-function floatText(x,y,txt,col,big){ floats.push({x:Math.max(30,Math.min(W-30,x)),y:Math.max(16,y),txt:txt,life:1,col:col,big:!!big}); }
-
-function merge(i,j){
-  var a=balls[i], b=balls[j], t=a.t+1, now=performance.now();
-  var nx=(a.x+b.x)/2, ny=(a.y+b.y)/2;
-  balls.splice(Math.max(i,j),1); balls.splice(Math.min(i,j),1);
-  merged++;
-  combo = (now-lastMerge<900) ? Math.min(4, combo+1) : 1; lastMerge=now;
-  var base=(t+1)*2, gained=base*combo;
-  score+=gained;
-  burst(nx,ny,TIERS[a.t].p, 10+t*3, 2.2+t*0.35);
-  if(t<TIERS.length){
-    add(t,nx,ny,0); var nb=balls[balls.length-1]; nb.vy=-1.6; nb.pop=1; nb.sq=0; nb.r=a.r; nb.r0=a.r; nb.rT=TIERS[t].r;   // grows into its new size over a few frames so it nudges the heap instead of detonating it
-    if(t>topTier) topTier=t;
-    floatText(nx, ny-TIERS[t].r-6, '+'+gained, combo>1?'#FFC83D':'#EAF0F7', t>=5);
-    if(combo>1) floatText(nx, ny-TIERS[t].r-26, 'x'+combo+' combo', '#FFC83D', true);
-    if(t>=6){ shake=Math.max(shake, 5+t); buzz([12,30,18]); } else buzz(10);
-    sMerge(t,combo);
-  } else {
-    // two matchballs: the ladder tops out and clears itself for a big bonus
-    score+=60; burst(nx,ny,'#FFE28E',60,5); floatText(nx,ny-40,'+'+(gained+60)+' MATCHBALLS',"#FFC83D",true); shake=14; buzz([20,40,20,40,40]); sMerge(8,combo);
-  }
-}
-
-function physics(dt){
-  var i,j,k,a,b,h=dt/SUB;
-  for(i=0;i<balls.length;i++){ a=balls[i]; a.cx=0; a.cy=0; if(a.pop>0) a.pop=Math.max(0,a.pop-0.07*dt);
-    if(a.rT){ a.r=Math.min(a.rT, a.r+(a.rT-a.r0)*0.1*dt); if(a.r>=a.rT){ a.r=a.rT; a.rT=0; } } a.sqv+=-a.sq*WOBBLE_K*dt; a.sqv*=Math.pow(WOBBLE_D,dt); a.sq+=a.sqv*dt; }
-  for(var sub=0; sub<SUB; sub++){
-    contacts.length=0;
-    for(i=0;i<balls.length;i++){ a=balls[i]; a.vy+=GRAV*h; a.vx0=a.vx; a.vy0=a.vy; a.px=a.x; a.py=a.y; a.x+=a.vx*h; a.y+=a.vy*h; }
-    for(var it=0; it<ITER; it++){
-      var first=(it===0);
-      for(i=0;i<balls.length;i++){
-        for(j=i+1;j<balls.length;j++){
-          a=balls[i]; b=balls[j];
-          var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), min=a.r+b.r;
-          if(d<=0 || d>=min+3.5) continue;
-          if(a.t===b.t && first && sub===0){ merge(i,j); i=Math.max(0,i-1); j=i; continue; }   // twins merge on touch (3.5px tolerance so a near miss still counts)
-          if(d>=min) continue;
-          var nx=dx/d, ny=dy/d, corr=min-d, wa=invm(a), wb=invm(b), w=wa+wb;
-          a.x-=nx*corr*(wa/w); a.y-=ny*corr*(wa/w); b.x+=nx*corr*(wb/w); b.y+=ny*corr*(wb/w);
-          friction(a, b, nx, ny, corr, MU_BALL, wa, wb);
-          if(first){
-            var vn=(b.vx0-a.vx0)*nx+(b.vy0-a.vy0)*ny;
-            contacts.push({a:a,b:b,nx:nx,ny:ny,vn0:vn});
-            if(sub===0){ var press=Math.min(a.r,b.r)*0.05+Math.min(4,Math.max(0,-vn))*0.5; a.cx+=nx*press; a.cy+=ny*press; b.cx-=nx*press; b.cy-=ny*press; }
-          }
-        }
-      }
-      for(i=0;i<balls.length;i++){
-        a=balls[i];
-        wallProj(a, WALL_L, NL, MU_WALL, first); wallProj(a, WALL_R, NR, MU_WALL, first);
-        if(a.x-a.r<0){ a.x=a.r; } if(a.x+a.r>W){ a.x=W-a.r; }                       // canvas edge, only reachable above the rim
-        if(a.y+a.r>FLOOR){ var c=a.y+a.r-FLOOR; a.y=FLOOR-a.r; friction(a, null, 0, -1, c, MU_FLOOR, 1, 0);
-          if(first){ contacts.push({a:a,b:null,nx:0,ny:-1,vn0:-a.vy0}); a.cy+=a.r*0.07; } }
-      }
-    }
-    // velocities from positions, then restitution on the contacts that were actually closing
-    for(i=0;i<balls.length;i++){ a=balls[i]; a.vx=(a.x-a.px)/h; a.vy=(a.y-a.py)/h; a.vx*=AIRDRAG; a.vy*=AIRDRAG;
-      var sp=Math.sqrt(a.vx*a.vx+a.vy*a.vy); if(sp>VMAX){ a.vx*=VMAX/sp; a.vy*=VMAX/sp; } }
-    for(k=0;k<contacts.length;k++){
-      var c2=contacts[k]; a=c2.a; b=c2.b;
-      if(c2.vn0>=-0.35) continue;                                                     // resting or separating: no bounce, no jitter
-      var vn=b?((b.vx-a.vx)*c2.nx+(b.vy-a.vy)*c2.ny):(a.vx*c2.nx+a.vy*c2.ny);
-      var want=-REST*c2.vn0, dv=want-vn;
-      if(b){ var wa2=invm(a), wb2=invm(b), w2=wa2+wb2; a.vx-=c2.nx*dv*(wa2/w2); a.vy-=c2.ny*dv*(wa2/w2); b.vx+=c2.nx*dv*(wb2/w2); b.vy+=c2.ny*dv*(wb2/w2); }
-      else { a.vx+=c2.nx*dv; a.vy+=c2.ny*dv; }
-      if(-c2.vn0>2.0){ var sq=Math.min(0.9,-c2.vn0/10); if(b){ var ma=a.r*a.r, mb=b.r*b.r; a.sqv+=sq*(mb/(ma+mb)); b.sqv+=sq*(ma/(ma+mb)); } else { a.sqv+=sq; if(c2.ny===-1) sPop(a.t); } }
-    }
-  }
-  for(i=0;i<balls.length;i++){ a=balls[i]; a.dfx+=(a.cx-a.dfx)*0.35*dt; a.dfy+=(a.cy-a.dfy)*0.35*dt; }   // ease the squash in and out
-  for(i=parts.length-1;i>=0;i--){ var q=parts[i]; q.vy+=0.22*dt; q.x+=q.vx*dt; q.y+=q.vy*dt; q.vx*=0.97; q.life-=0.035*dt; if(q.life<=0) parts.splice(i,1); }
-  for(i=floats.length-1;i>=0;i--){ var f=floats[i]; f.y-=0.55*dt; f.life-=0.022*dt; if(f.life<=0) floats.splice(i,1); }
-  if(shake>0) shake=Math.max(0, shake-0.9*dt);
-  if(shown<score){ shown+=Math.max(1, Math.ceil((score-shown)*0.18)); if(shown>score) shown=score; scoreEl.textContent=shown; }
-}
-
-function overCheck(dt){
-  var now=performance.now(), warn=false;
-  for(var i=0;i<balls.length;i++){ var b=balls[i];
-    if(now-b.born<700) continue;                        // the one you just dropped is still on its way in
-    var outside = b.x<TL || b.x>TR;                     // centre past the rim's edge
-    if((outside && b.y>RIM) || b.y>H+b.r || b.x<-b.r || b.x>W+b.r){ escaped=b; end(); return; }   // fell down the outside: out of the basket
-    if(outside || (b.y+b.r<RIM && Math.abs(b.x-W/2)>(TR-TL)/2-b.r)) warn=true;   // hanging over the edge: warn
-  }
-  holdOver = warn ? Math.min(75,holdOver+dt) : Math.max(0,holdOver-dt*2);
-}
-
-function ring(b, c){
-  c=c||ctx;
-  var T=TIERS[b.t], r=b.r*(1+0.16*b.pop), x=b.x, y=b.y;
-  c.save();
-  var w=Math.max(-0.35,Math.min(0.35,b.sq||0));
-  c.translate(x,y); c.scale(1+w*0.26, 1-w*0.26);
-  var mag=Math.sqrt((b.dfx||0)*(b.dfx||0)+(b.dfy||0)*(b.dfy||0));
-  if(mag>0.15){ var k=Math.min(SQUASH_MAX, SQUASH_K*mag/r), ang=Math.atan2(b.dfy,b.dfx);
-    c.rotate(ang); c.scale(1-k, 1+k*0.55); c.rotate(-ang); }       // flatten toward whatever it is pressed against
-  c.translate(-x,-y);
-  var g=c.createRadialGradient(x-r*0.36, y-r*0.42, r*0.10, x, y, r);
-  g.addColorStop(0, T.a); g.addColorStop(1, T.b);
-  c.beginPath(); c.arc(x,y,r,0,6.2832); c.fillStyle=g; c.fill();
-  c.save(); c.clip(); c.lineCap='round';
-  var ink='rgba(0,0,0,.42)', k=T.k;
-  if(k==='golf'){ c.fillStyle='rgba(0,0,0,.10)';
-    for(var gy=-r; gy<r; gy+=r*0.34) for(var gx=-r; gx<r; gx+=r*0.34){ c.beginPath(); c.arc(x+gx+r*0.17, y+gy+r*0.17, r*0.075, 0, 6.2832); c.fill(); }
-  } else if(k==='seam'){ c.strokeStyle='rgba(255,255,255,.92)'; c.lineWidth=Math.max(1.6,r*0.10);
-    c.beginPath(); c.arc(x-r*1.05, y, r*1.25, -0.85, 0.85); c.stroke();
-    c.beginPath(); c.arc(x+r*1.05, y, r*1.25, Math.PI-0.85, Math.PI+0.85); c.stroke();
-  } else if(k==='cricket'){ c.strokeStyle='rgba(255,255,255,.80)'; c.lineWidth=Math.max(1.4,r*0.07);
-    c.beginPath(); c.moveTo(x-r,y); c.lineTo(x+r,y); c.stroke(); c.lineWidth=Math.max(1,r*0.045);
-    for(var s2=-3;s2<=3;s2++){ c.beginPath(); c.moveTo(x+s2*r*0.26, y-r*0.16); c.lineTo(x+s2*r*0.26, y+r*0.16); c.stroke(); }
-  } else if(k==='baseball'){ c.strokeStyle='#D3403C'; c.lineWidth=Math.max(1.3,r*0.06);
-    c.beginPath(); c.arc(x-r*1.12, y, r*1.3, -0.78, 0.78); c.stroke();
-    c.beginPath(); c.arc(x+r*1.12, y, r*1.3, Math.PI-0.78, Math.PI+0.78); c.stroke();
-  } else if(k==='basket'){ c.strokeStyle=ink; c.lineWidth=Math.max(1.5,r*0.075);
-    c.beginPath(); c.moveTo(x-r,y); c.lineTo(x+r,y); c.stroke(); c.beginPath(); c.moveTo(x,y-r); c.lineTo(x,y+r); c.stroke();
-    c.beginPath(); c.arc(x-r*1.3, y, r*1.15, -1.0, 1.0); c.stroke(); c.beginPath(); c.arc(x+r*1.3, y, r*1.15, Math.PI-1.0, Math.PI+1.0); c.stroke();
-  } else if(k==='volley'){ c.strokeStyle='rgba(60,90,140,.55)'; c.lineWidth=Math.max(1.5,r*0.085);
-    c.beginPath(); c.arc(x-r*1.15, y-r*0.2, r*1.2, -0.7, 0.7); c.stroke();
-    c.beginPath(); c.arc(x+r*0.5, y+r*1.2, r*1.2, -2.5, -0.9); c.stroke();
-    c.beginPath(); c.arc(x+r*0.6, y-r*1.25, r*1.2, 0.8, 2.4); c.stroke();
-  } else if(k==='football'){ c.fillStyle='#1B222B'; var pr=r*0.30; pent(c,x, y-r*0.02, pr);
-    for(var a2=0;a2<5;a2++){ var ang=-1.5708+a2*1.2566; pent(c,x+Math.cos(ang)*r*0.78, y+Math.sin(ang)*r*0.78, pr*0.78); }
-  } else if(k==='match'){ c.strokeStyle='rgba(255,255,255,.75)'; c.lineWidth=Math.max(2,r*0.09);
-    for(var a3=0;a3<3;a3++){ var an=a3*1.047; c.beginPath(); c.arc(x+Math.cos(an)*r*1.1, y+Math.sin(an)*r*1.1, r*1.0, an+2.1, an+4.2); c.stroke(); }
-  }
-  c.restore();
-  c.beginPath(); c.arc(x,y,r,0,6.2832); c.lineWidth=1.6; c.strokeStyle='rgba(0,0,0,.34)'; c.stroke();
-  var sg=c.createRadialGradient(x-r*0.38, y-r*0.46, 0, x-r*0.38, y-r*0.46, r*0.72);
-  sg.addColorStop(0,'rgba(255,255,255,.42)'); sg.addColorStop(1,'rgba(255,255,255,0)');
-  c.beginPath(); c.arc(x,y,r,0,6.2832); c.fillStyle=sg; c.fill();
-  c.restore();
-}
-function pent(c,cx,cy,rr){ c.beginPath(); for(var i=0;i<5;i++){ var a=-1.5708+i*1.2566, px=cx+Math.cos(a)*rr, py=cy+Math.sin(a)*rr; if(i===0)c.moveTo(px,py); else c.lineTo(px,py);} c.closePath(); c.fill(); }
-
-function render(ts){
-  ctx.save();
-  if(shake>0){ ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake); }
-  ctx.clearRect(-20,-20,W+40,H+40);
-  var bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#0F1722'); bg.addColorStop(1,'#0A1018');
-  ctx.fillStyle=bg; ctx.fillRect(-20,-20,W+40,H+40);
-  // basket interior
-  ctx.beginPath(); ctx.moveTo(TL,RIM); ctx.lineTo(BL,FLOOR); ctx.lineTo(BR,FLOOR); ctx.lineTo(TR,RIM); ctx.closePath();
-  var ig=ctx.createLinearGradient(0,RIM,0,FLOOR); ig.addColorStop(0,'rgba(255,255,255,.035)'); ig.addColorStop(1,'rgba(0,0,0,.25)');
-  ctx.fillStyle=ig; ctx.fill();
-  // hatched walls, like the reference
-  ctx.save(); ctx.strokeStyle='rgba(233,238,243,.55)'; ctx.lineWidth=1.2;
-  function hatch(w, dir){ var dx=w.x2-w.x1, dy=w.y2-w.y1, L=Math.sqrt(dx*dx+dy*dy), ux=dx/L, uy=dy/L, nx=-uy*dir, ny=ux*dir;
-    for(var t=6; t<L-4; t+=9){ var px=w.x1+ux*t, py=w.y1+uy*t; ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+nx*9+ux*4, py+ny*9+uy*4); ctx.stroke(); } }
-  hatch(WALL_L, 1); hatch(WALL_R, -1);
-  ctx.restore();
-  ctx.lineCap='round'; ctx.lineJoin='round';
-  var danger=Math.min(1, holdOver/75), pulse=0.5+0.5*Math.sin(ts/140);
-  ctx.strokeStyle='#E9EEF3'; ctx.lineWidth=5;
-  ctx.beginPath(); ctx.moveTo(TL,RIM); ctx.lineTo(BL,FLOOR); ctx.lineTo(BR,FLOOR); ctx.lineTo(TR,RIM); ctx.stroke();
-  // rim lips, red when something is hanging over the edge (piling above the rim is fine, falling out is not)
-  ctx.strokeStyle= danger>0 ? 'rgba(255,94,94,'+(0.6+0.4*pulse)+')' : '#E9EEF3'; ctx.lineWidth=6;
-  ctx.beginPath(); ctx.moveTo(TL-6,RIM); ctx.lineTo(TL+10,RIM); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(TR-10,RIM); ctx.lineTo(TR+6,RIM); ctx.stroke();
-  if(!dead){
-    var r=TIERS[nextT].r, ax=Math.max(TL+r+2, Math.min(TR-r-2, aimX));
-    var bob=Math.sin(ts/260)*2.2;
-    ctx.strokeStyle='rgba(255,200,61,.28)'; ctx.lineWidth=2; ctx.setLineDash([4,7]);
-    ctx.beginPath(); ctx.moveTo(ax,DROP_Y+r); ctx.lineTo(ax,FLOOR); ctx.stroke(); ctx.setLineDash([]);
-    ring({t:nextT, r:r, x:ax, y:DROP_Y+bob, pop:0, sq:0});
-  }
-  for(var i=0;i<balls.length;i++) ring(balls[i]);
-  for(i=0;i<parts.length;i++){ var q=parts[i]; ctx.globalAlpha=Math.max(0,q.life); ctx.fillStyle=q.col; ctx.beginPath(); ctx.arc(q.x,q.y,q.r*q.life,0,6.2832); ctx.fill(); }
-  ctx.globalAlpha=1;
-  for(i=0;i<floats.length;i++){ var f=floats[i]; ctx.globalAlpha=Math.min(1,f.life*1.6); ctx.font=(f.big?'900 17px':'800 13px')+' Inter,system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.strokeText(f.txt,f.x,f.y); ctx.fillStyle=f.col; ctx.fillText(f.txt,f.x,f.y); }
-  ctx.globalAlpha=1;
-  if(dead){ ctx.fillStyle='rgba(10,14,19,.55)'; ctx.fillRect(-20,-20,W+40,H+40); }
-  ctx.restore();
-}
-
-function frame(ts){
-  var dt=Math.min(2.4,(ts-last)/16.667); last=ts;
-  if(dropLock>0) dropLock-=dt;
-  if(!dead){ physics(dt); overCheck(dt); } else { for(var i=parts.length-1;i>=0;i--){ parts[i].life-=0.05; if(parts[i].life<=0) parts.splice(i,1);} }
-  render(ts);
-  raf=requestAnimationFrame(frame);
-}
-
-function end(){
-  dead=true; sOver(); buzz([30,60,30]); shake=8;
-  if(score>best){ best=score; try{localStorage.setItem('clashly_connect_best',best);}catch(e){} }
-  bestEl.textContent=best; scoreEl.textContent=score;
-  overTitle.textContent = escaped ? TIERS[escaped.t].n+' left the basket' : 'Out of the basket';
-  overEl.style.display='block';
-  var sc=Math.min(15, Math.floor(score/30));
-  var secs=Math.round((performance.now()-t0)/1000);
-  submit('connect', sc, function(d){
-    statEl.innerHTML = 'Biggest ball: <b>'+TIERS[topTier].n+'</b> · '+merged+' merges in '+secs+'s.'
-      + (d ? ' <b>+'+d.awarded+'</b> on the board'+(d.awarded<sc?' (daily cap)':'')+' · '+d.allTime+' all time' : '');
-    if(typeof refreshCap==='function') refreshCap();
-  });
-}
-
-function start(){
-  balls=[]; parts=[]; floats=[]; escaped=null; score=0; shown=0; merged=0; combo=0; topTier=0; dead=false; holdOver=0; dropLock=0; shake=0;
-  nextT=rnd(2); paintNext(); t0=performance.now();
-  scoreEl.textContent='0'; bestEl.textContent=best;
-  overEl.style.display='none'; statEl.textContent='';
-  last=performance.now(); if(raf) cancelAnimationFrame(raf); raf=requestAnimationFrame(frame);
-}
-
-function pos(e){ var rct=cv.getBoundingClientRect(); var cx=(e.touches&&e.touches[0]?e.touches[0].clientX:e.clientX); return (cx-rct.left)*(W/rct.width); }
-cv.addEventListener('pointerdown', function(e){ e.preventDefault(); audio(); aimX=pos(e); });
-cv.addEventListener('pointermove', function(e){ if(e.buttons||e.pressure>0){ e.preventDefault(); aimX=pos(e); } });
-cv.addEventListener('pointerup', function(e){ e.preventDefault(); aimX=pos(e); drop(); });
-againBtn.addEventListener('click', function(){ audio(); start(); });
-window.addEventListener('resize', fit);
-fit(); start();
-`;
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/connect', title: 'CONNECT', kicker: 'MERGE THE BALLS', metaTitle: 'Connect \u2014 the Clashly Arcade', desc: 'Drop and merge footballs, smallest to biggest. Free, no money, no prizes, 18+.', body, script, extraCss }));
-}
 // The Daily — one player a day, everyone gets the same one. Career steps as
 // clues, a wrong guess unlocks the next step. Points once a day, ever.
 const DAILY_PLAYERS = [
@@ -2016,134 +1252,6 @@ const DAILY_PLAYERS = [
   { n: 'Wayne Rooney', alt: ['rooney'], c: [[2002, 'Everton'], [2004, 'Man Utd'], [2017, 'Everton'], [2018, 'DC United']] },
   { n: 'Andriy Shevchenko', alt: ['shevchenko', 'sheva'], c: [[1994, 'Dynamo Kyiv'], [1999, 'Milan'], [2006, 'Chelsea'], [2008, 'Milan'], [2009, 'Dynamo Kyiv']] },
 ];
-const DAILY_EPOCH = Date.UTC(2026, 0, 1); // #1 = 1 Jan 2026
-const dailyNumber = () => Math.floor((Date.now() - DAILY_EPOCH) / 86400000) + 1;
-const dailyPick = () => DAILY_PLAYERS[(dailyNumber() * 17) % DAILY_PLAYERS.length];
-
-async function serveDaily(req, res) {
-  const N = dailyNumber();
-  const P = dailyPick();
-  const body = `
-  <div class="gcard" id="dCard">
-    <div style="display:flex;align-items:baseline;justify-content:space-between">
-      <div style="font-family:Anton,Impact,sans-serif;font-size:26px;letter-spacing:.5px">THE DAILY</div>
-      <div style="font-family:Anton,Impact,sans-serif;font-size:16px;color:rgba(233,238,243,.35)">#${N}</div>
-    </div>
-    <div style="font-size:12px;color:rgba(233,238,243,.5);margin-top:4px">one a day, everyone gets the same player</div>
-    <div style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:2.5px;color:#14E0C8;margin-top:20px">THE CAREER</div>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px" id="steps"></div>
-    <div id="wrongs" style="margin-top:14px"></div>
-    <div style="display:flex;gap:10px;margin-top:16px" id="guessRow">
-      <input id="gIn" placeholder="Who is it?" autocomplete="off" style="flex:1;background:linear-gradient(180deg,#141C29,#0F1520);border:1px solid rgba(255,255,255,.13);border-radius:12px;padding:14px 16px;font:600 15px Inter,system-ui,sans-serif;color:#F4F7FB;outline:none;min-width:0" />
-      <button class="gbtn" id="gGo" style="width:auto;margin-top:0;padding:14px 20px">GUESS</button>
-    </div>
-    <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px" id="dotsRow">
-      <div style="display:flex;gap:5px" id="dots"></div>
-      <div style="font-size:12px;color:rgba(233,238,243,.5)" id="gCount"></div>
-    </div>
-  </div>
-  <div id="doneWrap" style="display:none;text-align:center">
-    <div style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:3px;color:#14E0C8;margin-top:18px" id="doneKick"></div>
-    <img id="doneImg" style="display:none;width:96px;height:96px;border-radius:50%;object-fit:cover;border:2px solid rgba(20,224,200,.5);margin:14px auto 0;box-shadow:0 0 40px rgba(20,224,200,.25)" alt="" />
-    <div style="font-family:Anton,Impact,sans-serif;font-size:40px;line-height:1.05;margin-top:12px;text-shadow:0 0 60px rgba(20,224,200,.35)" id="doneName"></div>
-    <div style="font-size:13px;color:rgba(233,238,243,.55);margin-top:10px" id="donePath"></div>
-    <div class="gcard" style="margin-top:24px;display:flex;flex-direction:column;align-items:center;gap:12px">
-      <div style="font:700 10px Inter,system-ui,sans-serif;letter-spacing:2.5px;color:rgba(233,238,243,.5)" id="doneRes"></div>
-      <div style="display:flex;gap:8px" id="doneSquares"></div>
-      <div class="pill-pts" id="doneBanked" style="display:none"></div>
-      <button id="copyRes" style="border:1px solid rgba(20,224,200,.5);color:#14E0C8;background:none;border-radius:12px;padding:12px 0;width:100%;font-family:Anton,Impact,sans-serif;font-size:16px;letter-spacing:1px;cursor:pointer">COPY RESULT</button>
-      <div style="font-size:11px;color:rgba(233,238,243,.4)">just the squares, no link</div>
-    </div>
-    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:22px" id="streakWrap">
-      <span style="font-size:18px">🔥</span>
-      <span style="font-family:Anton,Impact,sans-serif;font-size:20px;letter-spacing:.5px" id="dStreak"></span>
-    </div>
-    <div style="font-size:12px;color:rgba(233,238,243,.5);margin-top:18px">back tomorrow — one a day</div>
-  </div>`;
-  const script = `
-  var N=${N};
-  var ANSWER=${JSON.stringify(P.n)};
-  var ALT=${JSON.stringify(P.alt)};
-  var STEPS=${JSON.stringify(P.c)};
-  var MAXG=6, SHOW0=Math.min(2,STEPS.length);
-  var st=null; try{ st=JSON.parse(localStorage.getItem('clashly_daily')||'null'); }catch(e){}
-  if(!st || st.n!==N) st={n:N, wrongs:[], done:false, won:false};
-  function save(){ try{ localStorage.setItem('clashly_daily', JSON.stringify(st)); }catch(e){} }
-  function norm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z ]/g,' ').replace(/ +/g,' ').trim(); }
-  var GOOD=[norm(ANSWER)].concat(ALT.map(norm), [norm(ANSWER).split(' ').slice(-1)[0]]);
-  function isRight(g){ g=norm(g); return g.length>2 && GOOD.indexOf(g)>=0; }
-  function shown(){ return Math.min(STEPS.length, SHOW0 + st.wrongs.length); }
-  function paint(){
-    var el=document.getElementById('steps'); el.innerHTML='';
-    var k=shown();
-    for(var i=0;i<k;i++){
-      el.innerHTML += '<div style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.11);border-radius:12px;padding:12px 16px">'
-        + '<span style="font-family:Anton,Impact,sans-serif;font-size:14px;color:#14E0C8">'+STEPS[i][0]+'</span>'
-        + '<span style="font:600 15px Inter,system-ui,sans-serif">'+STEPS[i][1]+'</span></div>';
-    }
-    if(k<STEPS.length) el.innerHTML += '<div style="display:flex;align-items:center;gap:12px;border:2px dashed rgba(255,255,255,.18);border-radius:12px;padding:12px 16px">'
-      + '<span style="font-family:Anton,Impact,sans-serif;font-size:14px;color:rgba(233,238,243,.4)">?</span>'
-      + '<span style="font-size:12px;color:rgba(233,238,243,.4)">next step unlocks after a wrong guess</span></div>';
-    var w=document.getElementById('wrongs');
-    w.innerHTML = st.wrongs.map(function(g){ return '<div style="font-size:13px;color:rgba(233,238,243,.45);display:flex;align-items:center;gap:8px;margin-top:4px"><span style="color:#F27B6C">✗</span><span style="text-decoration:line-through">'+g.replace(/</g,'&lt;')+'</span></div>'; }).join('');
-    var dots=document.getElementById('dots'); dots.innerHTML='';
-    for(var j=0;j<MAXG;j++) dots.innerHTML += '<div style="width:8px;height:8px;border-radius:50%;background:'+(j<st.wrongs.length?'#F27B6C':(j===st.wrongs.length&&!st.done?'#14E0C8':'rgba(255,255,255,.15)'))+'"></div>';
-    document.getElementById('gCount').textContent='guess '+Math.min(MAXG,st.wrongs.length+1)+' of '+MAXG;
-  }
-  function squares(won,used){
-    var out=[]; for(var i=0;i<used-(won?1:0);i++) out.push(false); if(won) out.push(true); return out;
-  }
-  function finish(won, banked){
-    st.done=true; st.won=won; save();
-    document.getElementById('dCard').style.display='none';
-    var dw=document.getElementById('doneWrap'); dw.style.display='block';
-    document.getElementById('doneKick').textContent='THE DAILY #'+N+(won?' · GOT IT':' · NOT TODAY');
-    // the photo only ever appears AFTER the round is over — during play it is the answer
-    var di=document.getElementById('doneImg');
-    di.onload=function(){ di.style.display='block'; };
-    di.src='/players/'+ANSWER.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-\$/g,'')+'.jpg';
-    document.getElementById('doneName').textContent=ANSWER.toUpperCase();
-    document.getElementById('donePath').textContent=STEPS.map(function(s){return s[1];}).join(' → ');
-    var used=st.wrongs.length+(won?1:0);
-    document.getElementById('doneRes').textContent='YOUR RESULT · '+(won?used:'X')+'/'+MAXG;
-    var sq=squares(won, used||MAXG);
-    if(!won){ sq=[]; for(var i=0;i<MAXG;i++) sq.push(false); }
-    document.getElementById('doneSquares').innerHTML=sq.map(function(ok){ return '<div style="width:28px;height:28px;border-radius:7px;background:'+(ok?'#14E0C8':'rgba(255,255,255,.14)')+'"></div>'; }).join('');
-    var stk={n:0,count:0}; try{ stk=JSON.parse(localStorage.getItem('clashly_daily_streak')||'{"n":0,"count":0}'); }catch(e){}
-    if(won && !st.counted){ stk.count = (stk.n===N-1)?stk.count+1:1; stk.n=N; st.counted=true; save(); try{ localStorage.setItem('clashly_daily_streak',JSON.stringify(stk)); }catch(e){} }
-    document.getElementById('streakWrap').style.display = (won&&stk.count>0)?'':'none';
-    document.getElementById('dStreak').textContent = stk.count+(stk.count===1?' DAY':' DAYS');
-    var txt='The Daily #'+N+' — '+(won?used:'X')+'/'+MAXG+'\\n'+sq.map(function(ok){return ok?'🟩':'⬛';}).join('');
-    var cp=document.getElementById('copyRes');
-    cp.onclick=function(){
-      (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(txt):Promise.reject()).then(function(){ cp.textContent='COPIED'; setTimeout(function(){ cp.textContent='COPY RESULT'; },1600); }, function(){ prompt('Copy it:', txt); });
-    };
-  }
-  function bank(pts){ submit('daily', pts, function(r){
-    if(r && r.awarded){ var b=document.getElementById('doneBanked'); b.textContent='+'+r.awarded+' PTS BANKED'; b.style.display='inline-block'; }
-  }); }
-  function go(){
-    if(st.done) return;
-    var g=document.getElementById('gIn').value;
-    if(!norm(g)) return;
-    if(isRight(g)){
-      var used=st.wrongs.length+1;
-      var PTS=[8,6,5,4,3,2][used-1]||2;
-      finish(true, null); bank(PTS);
-    } else {
-      st.wrongs.push(g.slice(0,40)); save();
-      document.getElementById('gIn').value='';
-      if(st.wrongs.length>=MAXG){ finish(false, null); }
-      else paint();
-    }
-  }
-  document.getElementById('gGo').addEventListener('click', go);
-  document.getElementById('gIn').addEventListener('keydown', function(e){ if(e.key==='Enter') go(); });
-  if(st.done) finish(st.won, null); else paint();`;
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-  res.end(arcadePage({ path: '/daily', title: 'THE DAILY', kicker: 'ONE CAREER A DAY', metaTitle: 'The Daily — guess the career | Clashly', desc: 'One footballer a day, career steps as clues, six guesses, everyone gets the same player. Copy your squares to the group chat. Free, no money, no prizes.', body, script }));
-}
-
 // /this-week — the public face of the weekly call. Server-rendered so it
 // unfurls on X and WhatsApp and can be crawled; the buttons post straight to
 // the API, so it works with no account and no app shell.
@@ -2452,15 +1560,7 @@ async function serveSitemap(req, res) {
     ['https://clashly.live/', 'daily', '1.0'],
     ['https://clashly.live/about', 'monthly', '0.8'],
     ['https://clashly.live/this-week', 'daily', '0.9'],
-    ['https://clashly.live/arcade', 'weekly', '0.6'],
-    ['https://clashly.live/daily', 'daily', '0.8'],
-    ['https://clashly.live/hilo', 'weekly', '0.6'],
-    ['https://clashly.live/hilo/age', 'weekly', '0.5'],
-    ['https://clashly.live/hilo/height', 'weekly', '0.5'],
-    ['https://clashly.live/hilo/caps', 'weekly', '0.5'],
-    ['https://clashly.live/penalty', 'weekly', '0.5'],
-    ['https://clashly.live/score', 'weekly', '0.5'],
-    ['https://clashly.live/connect', 'weekly', '0.5'],
+    ['https://clashly.live/play', 'daily', '0.7'],
   ];
   Object.keys(GUIDES).forEach((p) => urls.push(['https://clashly.live' + p, 'monthly', '0.8']));
   matches.slice(0, 60).forEach((m) => {
@@ -2479,20 +1579,21 @@ async function serveLlmsTxt(req, res) {
   try { matches = (await getMatches()) || []; } catch {}
   const txt = `# Clashly
 
-> Clashly (clashly.live) is a free web app for settling football bets between friends. One person calls a match outcome, a friend takes the other side through a shared link, and after full time both confirm the result. The winner goes on a running head-to-head record.
+> Clashly (clashly.live) is a free sports prediction and competition game. Every player starts with 10,000 virtual Clashly Credits, predicts real football matches, challenges friends head to head ("Clashes"), climbs global, weekly and friends rankings, and plays short sports games. Brand line: BACK YOURSELF.
 
 ## What Clashly is not
-Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, accepts no stakes, pays no prizes and takes no commission. There is no stake and no prize: it is a scorekeeper. Any forfeit or stake is settled privately between the friends themselves. It is for people aged 18 and over.
+Clashly is not a bookmaker, sportsbook or casino. It holds no money and takes no commission. Clashly Credits are virtual in-game Credits: they have no cash value and can never be bought, sold, deposited, withdrawn or exchanged for anything of real-world value. Play Tickets for the mini-games are free (5 a day) and are never sold. It is for people aged 18 and over.
 
 ## How it works
-1. Call it. Pick a match, back an outcome, and name what is on the line (a forfeit such as "loser buys the pints", or bragging rights).
-2. Send the link. Your friend opens it and takes the other side. No account is required to accept.
-3. Settle it. After the match both sides confirm the result. If they disagree the bet is voided, so the record cannot be faked.
+1. Predict. Pick a result on Today's Clash or any big match and choose how many Credits to back it with. Harder calls pay more (1.30x to 5.00x, priced from the league table and how Clashly players are calling it). Results settle automatically at full time.
+2. Clash. Challenge a friend with a link; they take the other side, both put the same Credits in, the winner takes the pool.
+3. Climb. Correct calls grow your Credits and your Skill Score (prediction ability, separate from Credits). Weekly seasons reset every Monday.
+4. Play. Six quick sports games (Penalty Kings, Quick Quiz, Higher or Lower, Who Am I?, Reaction Clash, Odds Master) earn a capped amount of Credits each day.
 
 ## Key facts
 - Free. Web based, works in a browser, no app store download.
 - Languages: English and Polish.
-- Features: head-to-head rivalry records, friends leagues, shareable result cards and betting-slip receipts, an open challenge Arena, weekly and all-time records.
+- Features: Today's Clash, predictions with virtual Credits, friend Clashes, global/weekly/friends rankings, weekly seasons, Skill Score, daily streaks and rewards, player cards with badges, six sports mini-games, shareable cards, friends leagues.
 - Contact: contact@clashly.live
 - On X: https://x.com/clashlylive (@clashlylive)
 
@@ -2500,12 +1601,7 @@ Clashly is not a bookmaker, sportsbook or prediction market. It holds no money, 
 - https://clashly.live/ (app)
 - https://clashly.live/about (what Clashly is and how it works)
 - https://clashly.live/this-week (the weekly call: one fixture, one tap, no account, public record)
-- https://clashly.live/arcade (football skill games; points join the public board; no money, no prizes)
-- https://clashly.live/daily (The Daily: guess the footballer from their career, one a day, six guesses)
-- https://clashly.live/hilo (Higher or Lower: streak the famous transfer fees)
-- https://clashly.live/hilo/age (Higher or Lower: who is older?)
-- https://clashly.live/hilo/height (Higher or Lower: who is taller?)
-- https://clashly.live/hilo/caps (Higher or Lower: who has more international caps?)
+- https://clashly.live/play (PLAY: six quick sports games, 5 free Play Tickets a day)
 ${Object.entries(GUIDES).map(([p, g]) => `- https://clashly.live${p} (${g.h1})`).join('\n')}
 ${matches.slice(0, 20).map((m) => `- https://clashly.live/call/${fixtureSlug(m)} (${m.home} v ${m.away})`).join('\n')}
 `;
@@ -2752,6 +1848,8 @@ function serveStatic(req, res) {
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean);
   const need401 = () => sendJson(res, 401, { error: 'Sign in on this device first.' });
+  // Clashly Credits: wallet, predictions, ranks, profile card, PLAY (economy.js)
+  if (eco && await eco.handle(req, res, url, parts)) return;
 
   if (req.method === 'GET' && parts[1] === 'config')
     return sendJson(res, 200, { brand: BRAND, live: Boolean(FOOTBALL_TOKEN), googleClientId: GOOGLE_CLIENT_ID || null });
@@ -2953,7 +2051,7 @@ async function handleApi(req, res, url) {
         const ps = playerSummary(b.proposerId);
         return {
           id: b.id, home: b.home, away: b.away, kind: b.kind, competition: b.competition, utcDate: b.utcDate,
-          backedOutcome: b.backedOutcome, stake: b.stake, currency: b.currency, line: b.line, note: b.note,
+          backedOutcome: b.backedOutcome, stake: b.stake, currency: b.currency, line: b.line, note: b.note, credits: b.credits || 0,
           proposerId: b.proposerId, proposerName: b.proposerName,
           proposerStats: { w: ps.w, l: ps.l, streakType: ps.streak.type, streakCount: ps.streak.count, arenaPts: ps.arenaPts },
           offers: (b.offers || []).filter((o) => o.status === 'pending').length,
@@ -3063,8 +2161,9 @@ async function handleApi(req, res, url) {
       const map = (b) => ({
         id: b.id, home: b.home, away: b.away, kind: b.kind, status: b.status,
         opponent: b.opponentId ? nameForId(b, otherId(b, me.id)) : null,
-        backed: outcomeLabel(b, b.backedOutcome), stake: b.stake, currency: b.currency,
-        mine: b.proposerId === me.id,
+        backed: outcomeLabel(b, b.backedOutcome), stake: b.stake, currency: b.currency, credits: b.credits || 0, line: b.line || '',
+        mine: b.proposerId === me.id, utcDate: b.utcDate || null, arena: Boolean(b.arena),
+        offers: b.proposerId === me.id ? (b.offers || []).filter((o) => o.status === 'pending').length : 0,
         won: (b.status === 'resolved' || b.status === 'settled') ? winnerId(b) === me.id : null,
         pending: Boolean(b.pendingResult), createdAt: b.createdAt,
         // it's YOUR move when the other player reported a result awaiting your confirm,
@@ -3121,6 +2220,7 @@ async function handleApi(req, res, url) {
       else l.members[idx] = { id: into.id, name: into.name };
       if (l.createdById === from.id) l.createdById = into.id;
     }
+    for (const k of Object.values(db.picks || {})) if (k.pid === from.id) k.pid = into.id;
     if (_secretIndex) delete _secretIndex[from.secret];
     delete db.players[from.id];
   }
@@ -3292,6 +2392,10 @@ async function handleApi(req, res, url) {
       rematch: Boolean(b.rematch) || undefined,
       createdAt: new Date().toISOString(),
     };
+    if (Number(b.credits) > 0) {
+      try { eco.clashCreditsOnCreate(bet, me, b.credits); }
+      catch (e) { return sendJson(res, e.status || 400, { error: e.message }); }
+    }
     db.bets[id] = bet;
     addPundit(bet, 'created');
     logEvent('bet_created', { id, rematch: Boolean(b.rematch) });
@@ -3326,6 +2430,11 @@ async function handleApi(req, res, url) {
         if (sub === 'accept') {
           if (bet.status !== 'open') return sendJson(res, 409, { error: 'Bet already taken' });
           if (bet.utcDate && Date.now() > new Date(bet.utcDate).getTime()) { off.status = 'declined'; saveData(); return sendJson(res, 409, { error: 'Kicked off — this offer expired.' }); }
+          if (bet.credits > 0) {
+            const taker = db.players[off.byId];
+            try { if (!taker) throw Object.assign(new Error('That player is gone.'), { status: 409 }); eco.clashCreditsOnAccept(bet, taker); }
+            catch (e) { return sendJson(res, 409, { error: e.message.startsWith('You need') ? `${off.by} no longer has enough Credits for this Clash.` : e.message }); }
+          }
           // lock the bet at the COUNTER'S terms — the haggle won
           if (off.stake > 0) { bet.stake = off.stake; bet.currency = off.currency || bet.currency; bet.line = off.line || ''; }
           else if (off.line) { bet.line = off.line; bet.stake = 0; }
@@ -3377,6 +2486,8 @@ async function handleApi(req, res, url) {
       if (bet.utcDate && Date.now() > new Date(bet.utcDate).getTime()) {
         return sendJson(res, 409, { error: 'Too late — this match has already kicked off. Start a fresh bet.' });
       }
+      try { eco.clashCreditsOnAccept(bet, me); }
+      catch (e) { return sendJson(res, e.status || 409, { error: e.message }); }
       bet.opponentId = me.id;
       bet.opponentName = me.name;
       bet.status = 'accepted';
@@ -3473,6 +2584,7 @@ async function handleApi(req, res, url) {
       if (['resolved', 'settled', 'void'].includes(bet.status)) return sendJson(res, 409, { error: 'Nothing to void here.' });
       bet.status = 'void'; bet.voidedAt = new Date().toISOString(); bet.voidedBy = me.id;
       delete bet.pendingResult; delete bet.disputed;
+      try { eco.refundClash(bet, 'Clash called off: refund'); } catch (e) { console.warn('clash refund failed:', e.message); }
       logEvent('bet_voided', { id: bet.id });
       saveData();
       return sendJson(res, 200, bet);
@@ -3573,16 +2685,12 @@ const server = http.createServer(async (req, res) => {
   if (/^\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(6), 'en');
   if (/^\/pl\/call\/[a-z0-9-]+$/.test(url.pathname)) return serveFixturePage(req, res, url.pathname.slice(9), 'pl');
   if (url.pathname === '/this-week') return serveThisWeek(req, res);
-  if (url.pathname === '/arcade') return serveArcade(req, res);
-  if (url.pathname === '/penalty' || url.pathname === '/score') return servePenalty(req, res);
-  if (url.pathname === '/connect') return serveConnect(req, res);
-  // Keepy-Uppy retired 19 Sep (Qiao's call). Old links redirect rather than 404.
-  if (url.pathname === '/keepy') { res.writeHead(301, { Location: '/arcade' }); return res.end(); }
-  if (url.pathname === '/hilo') return serveHilo(req, res, 'fees');
-  if (url.pathname === '/hilo/age') return serveHilo(req, res, 'age');
-  if (url.pathname === '/hilo/height') return serveHilo(req, res, 'height');
-  if (url.pathname === '/hilo/caps') return serveHilo(req, res, 'caps');
-  if (url.pathname === '/daily') return serveDaily(req, res);
+  // v35: the old no-account arcade pages are retired in favour of PLAY (Credits,
+  // Play Tickets, one account). Old links redirect to the matching game, never 404.
+  const RETIRED_GAMES = { '/arcade': '/play', '/penalty': '/play/penalty', '/score': '/play/penalty', '/connect': '/play', '/keepy': '/play',
+    '/hilo': '/play/hilo', '/hilo/age': '/play/hilo', '/hilo/height': '/play/hilo', '/hilo/caps': '/play/hilo', '/daily': '/play/whoami' };
+  if (RETIRED_GAMES[url.pathname]) { res.writeHead(302, { Location: RETIRED_GAMES[url.pathname] }); return res.end(); }
+  if (url.pathname.startsWith('/brag/')) return eco.serveBrag(req, res, url);
   if (url.pathname === '/weekcard.png' || url.pathname === '/weekcard.svg') return serveWeekCard(req, res);
   if (url.pathname.startsWith('/ltable/')) return serveLeagueTable(req, res, url);
   if (url.pathname === '/og-home.png') return serveHomeOg(req, res);
@@ -3600,7 +2708,7 @@ const server = http.createServer(async (req, res) => {
   // not a 404. The client router takes over from there.
   // challenge/answer/games were added client-side in PR #3 without this line, so
   // a refresh on any of those tabs 404'd until 19 Sep.
-  if (/^\/(arena|answer|challenge|games|board|duels|leagues|profile)(\/|$)/.test(url.pathname)) {
+  if (/^\/(arena|answer|challenge|games|board|duels|leagues|profile|rank|clash|play)(\/|$)/.test(url.pathname)) {
     req.url = '/index.html';
     return serveStatic(req, res);
   }
@@ -4138,8 +3246,20 @@ function sendPush(playerId, payload) {
   });
 }
 
+eco = require('./economy')({
+  getDb: () => db, saveData, logEvent, newId, getMatches, authPlayer, sendJson, readBody,
+  QA_GHOST, isGhostBet, FOOTBALL_TOKEN, fetchLiveResult, sendPush, cards,
+  HILO_DECKS, DAILY_PLAYERS, HILO_PLAYERS,
+});
+
 initData().then(() => {
   initPush();
+  // Credits: settle predictions from the results feed, refresh league tables for the model
+  // offset 5 min from ftSweep (45s + 30 min) so the two never share a minute of
+  // football-data's 10-requests-a-minute budget
+  setTimeout(() => { eco.picksSweep(); setInterval(eco.picksSweep, 10 * 60000); }, 5 * 60000);
+  setTimeout(eco.standingsSweep, 25000);
+  setInterval(eco.standingsSweep, 2 * 60000);
   setTimeout(seedArena, 5000);
   setInterval(seedArena, 6 * 3600000);
   // live terrace: checks every 90 min, only speaks if the feed has been quiet 4h+

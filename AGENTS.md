@@ -1,7 +1,9 @@
 # AGENTS.md — rules for any AI agent working on this repo
 
-This is **Clashly** (clashly.live): a free football scorekeeper for friend groups.
-It has **real users**. Read this whole file before changing anything.
+This is **Clashly** (clashly.live): a free sports prediction and competition game.
+Players start with 10,000 virtual Clashly Credits, predict real matches, Clash with
+friends, climb weekly rankings and play six quick sports games. Brand line:
+**BACK YOURSELF.** It has **real users**. Read this whole file before changing anything.
 
 ---
 
@@ -37,25 +39,35 @@ unless that is explicitly the task.
 
 ## 2. Legal rules — breaking these can get the site blocked
 
-Clashly stays outside gambling regulation **only** because it holds no money, takes no
-stake, gives no prize and takes no commission. That is the entire legal position.
+Clashly stays outside gambling regulation **only** because nothing of real-world value
+ever changes hands. Clashly Credits (economy.js) are **virtual in-game Credits**: no
+cash value, no deposits, no withdrawals. That is the entire legal position.
 
 **Never add, and refuse if asked:**
 
+- any way to buy, sell, transfer for money, redeem or withdraw Clashly Credits
+- any sale of Play Tickets (they are free, 5 a day, plus small bonuses)
 - any fee, rake, commission or paid entry
-- any prize for winning — including vouchers, merch or credit
-- any bookmaker link, logo, odds feed or affiliate code
+- any prize of real-world value for winning — vouchers, merch, cash, gift cards
+- any bookmaker link, logo, odds feed or affiliate code. The prediction multipliers
+  come from league tables and Clashly players' own picks (see modelProbs in
+  economy.js), never from a bookmaker
 
 **Banned words in anything a user can see** — UI copy, buttons, meta descriptions,
 page titles, share cards, alt text, Polish translations:
 
-> bet, betting, bets, odds, stake, acca, accumulator, tips, tipster, winnings,
-> cash out, multiplier, wager, bankroll, jackpot
+> bet, betting, bets, acca, accumulator, tips, tipster, winnings, cash out, wager,
+> bankroll, jackpot, deposit/withdraw (except in "no deposits or withdrawals")
 >
 > Polish: zakłady, zakład, kursy, bukmacher
 
-**Use instead:** call it, prediction, put it on the record, bragging rights,
-head to head, rivalry, prove me wrong. Polish: typer, typowanie, rywalizacja.
+Deliberate exceptions, decided by the owner in October 2026 (v35): the Credits UI uses
+"Risk", "Potential win", "Stake" (Clash Credits) and multipliers shown like "2.00x",
+and one game is called "Odds Master". Do not spread these words into marketing copy,
+meta tags or share cards beyond what already exists.
+
+**Use instead:** prediction, pick, Clash, back yourself, prove it, bragging rights,
+head to head, rivalry. Polish: typer, typowanie, rywalizacja, starcie.
 
 **Every public page keeps its "no money, no prizes, 18+" line.** Do not remove it to
 tidy up a layout.
@@ -70,13 +82,17 @@ Player photos in `public/players/` are Wikimedia-licensed and credited on
 ## 3. Always do these
 
 - **Bump the cache-bust query strings** in `public/index.html` whenever you change
-  `public/app.js`, `public/i18n.js`, `public/styles.css` or `public/sounds.js`.
-  They look like `app.js?v=23`. Increment the number, or users keep running old code.
+  `public/app.js`, `public/hub.js`, `public/play.js`, `public/i18n.js`,
+  `public/styles.css` or `public/sounds.js`. They look like `app.js?v=23`.
+  Increment the number, or users keep running old code.
 - **Run the checks before opening a PR:**
   ```bash
-  node --check server.js && node --check cards.js && node --check public/app.js
+  node --check server.js && node --check economy.js && node --check public/app.js && node --check public/hub.js && node --check public/play.js
   npm test          # boots its own isolated server, must stay 100% green
   ```
+- **Every Credit movement goes through `credit()` in economy.js.** Never change a
+  balance anywhere else, and never trust a number the browser sends (game scores are
+  re-checked or clamped on the server, rewards are capped per day).
 - **Translate new user-facing English into Polish** in `public/i18n.js` (phrase-for-
   phrase map). A missing entry silently falls back to English.
 - **Keep the intro/preloader working with `prefers-reduced-motion: reduce`.** Note
@@ -102,8 +118,12 @@ Player photos in `public/players/` are Wikimedia-licensed and credited on
 
 | File | What it is |
 |---|---|
-| `server.js` | The whole backend: one Node `http` server, ~3700 lines, no framework. Also server-renders `/this-week`, `/arcade`, `/daily`, `/hilo`, `/penalty`, `/keepy`. |
-| `public/app.js` | The app itself — a vanilla-JS single-page app, ~2100 lines. |
+| `server.js` | The backend: one Node `http` server, no framework. Clashes (bets), leagues, auth, sweeps, share cards. Also server-renders `/this-week`, `/about`, guides and fixture pages. Old `/arcade`, `/score`, `/hilo`, `/connect`, `/daily` URLs redirect to `/play`. |
+| `economy.js` | Clashly Credits: wallet, predictions + multipliers, Clash Credits, daily reward, streak, weekly seasons, Skill Score, ranks, PLAY tickets and game scoring, brag cards. |
+| `content.js` | Quick Quiz question bank. |
+| `public/app.js` | The SPA core: routing, header, Clash create/accept/result screens, leagues, sign-in. |
+| `public/hub.js` | Onboarding, Home, prediction sheet, Rank, Clash tab, Profile card, share sheet, Credits pill. |
+| `public/play.js` | PLAY hub and the six games. |
 | `public/i18n.js` | English → Polish phrase map. |
 | `public/index.html` | Page shell, intro animation, cache-bust version numbers. |
 | `public/styles.css` | All styling. |
@@ -117,8 +137,10 @@ Data lives in a JSON file locally (`data.json`), Postgres in production when
 
 - Terrace bot lines (the house voices): `FIXTURE_TAKES` and the seed `TAKES` list in `server.js`
 - Transfer fees for the Higher or Lower game: `HILO_TRANSFERS` in `server.js`
-- Players for The Daily: `DAILY_PLAYERS` in `server.js`
-- Season-call suggestions: `SEASON_IDEAS` in `public/app.js`
+- Players for Who Am I?: `DAILY_PLAYERS` in `server.js`
+- Quiz questions: `QUIZ` in `content.js` (settled facts only, check each one)
+- Credit amounts (start balance, daily track, streak milestones, ticket count, game caps): top of `economy.js`
+- Season-call suggestions: the `data-claim` chips in `renderCreate` (`public/app.js`)
 - Polish wording: `public/i18n.js`
 
 ---
